@@ -35,22 +35,44 @@ CMAP = {
     "nodule":   "Greens",
 }
 
-# ---------------------------- Time-series figure -----------------------------
+# ----------------------------- Helpers ---------------------------------------
 def _vlines(ax, xs=(7, 14, 21)):
     for x in xs:
         ax.axvline(x, ls="--", lw=1, color="#8a8a8a", alpha=0.6)
 
-def plot_summary(parquet: str | Path, output: str | Path = "summary.png") -> None:
-    """Time-series summary figure from results.parquet."""
-    df = pl.read_parquet(parquet)
+def _read_table(pathlike):
+    """Read results in xlsx/csv/parquet transparently."""
+    p = Path(pathlike)
+    ext = p.suffix.lower()
+    if ext in (".parquet", ".pq"):
+        return pl.read_parquet(p)
+    if ext in (".xlsx", ".xls"):
+        return pl.read_excel(p)
+    if ext == ".csv":
+        return pl.read_csv(p)
+    # fallback attempts (best-effort)
+    for reader in (pl.read_excel, pl.read_parquet, pl.read_csv):
+        try:
+            return reader(p)
+        except Exception:
+            continue
+    raise ValueError(f"Unsupported results file: {p}")
+
+# ---------------------------- Time-series figure -----------------------------
+def plot_summary(results_path: str | Path, output: str | Path = "summary.png") -> None:
+    """Time-series summary figure from results.xlsx/.csv/.parquet."""
+    df = _read_table(results_path)
     days = df["Day"].to_numpy()
+
     fig, axarr = plt.subplots(3, 3, figsize=(13, 9), constrained_layout=True)
 
     # cell counts (+ cumulative)
     ax = axarr[0, 0]
     for lbl, col, _ in STATE_INFO.values():
-        ax.plot(days, df[f"Cells_{lbl}"].to_numpy(), lw=2.2, color=col,
-                label=lbl, path_effects=[pe.Stroke(linewidth=3, foreground="white"), pe.Normal()])
+        colname = f"Cells_{lbl}"
+        if colname in df.columns:
+            ax.plot(days, df[colname].to_numpy(), lw=2.2, color=col,
+                    label=lbl, path_effects=[pe.Stroke(linewidth=3, foreground="white"), pe.Normal()])
     if "Cells_Osteoblast_Cum" in df.columns and "Cells_Apoptotic_Cum" in df.columns:
         ax.plot(days, df["Cells_Osteoblast_Cum"].to_numpy(), ls="--", lw=1.6,
                 color=STATE_INFO[3][1], label="Osteoblast (cum)")
@@ -71,11 +93,14 @@ def plot_summary(parquet: str | Path, output: str | Path = "summary.png") -> Non
     ]
     for a, col, title in panels:
         if col in df.columns:
-            a.plot(days, df[col].to_numpy(), lw=2, color="black"); _vlines(a)
+            a.plot(days, df[col].to_numpy(), lw=2, color="black")
+            _vlines(a)
             a.set(title=title, xlabel="Day")
         else:
             a.axis("off")
-    fig.savefig(output); plt.close(fig)
+
+    fig.savefig(output)
+    plt.close(fig)
     print(f"[viz] summary → {output}")
 
 # ------------------------- Single-panel export utils -------------------------
@@ -105,8 +130,8 @@ def _save_field_imshow(arr: np.ndarray, title: str, outpath: Path,
     fig.colorbar(im, ax=ax, fraction=0.046, pad=0.03)
     for spine in ax.spines.values(): spine.set_visible(False)
     fig.tight_layout()
-    outpath = Path(outpath)
-    fig.savefig(outpath.with_suffix(".png"))
+    out = Path(outpath).with_suffix(".png")
+    fig.savefig(out)
     plt.close(fig)
 
 def _compute_nodule_map(ha: np.ndarray) -> np.ndarray:
@@ -116,7 +141,6 @@ def _compute_nodule_map(ha: np.ndarray) -> np.ndarray:
 
     nz = ha[ha > 0.0]
     H, W = ha.shape
-    # progressively relax thresholds to avoid empties
     for q, local_frac in [(99.9, 0.6), (99.5, 0.55), (99.0, 0.5), (97.5, 0.45), (95.0, 0.40)]:
         tau = float(np.quantile(nz, q / 100.0))
         sum9 = (ha + np.roll(ha,1,0)+np.roll(ha,-1,0)+np.roll(ha,1,1)+np.roll(ha,-1,1)+
@@ -167,8 +191,8 @@ def _plot_cell_states(cells_df: "pl.DataFrame", shape_hw: tuple[int, int],
 
     ax.legend(handles, labels, frameon=False, loc="lower right", ncol=1)
     fig.tight_layout()
-    outpath = Path(outpath)
-    fig.savefig(outpath.with_suffix(".png"))
+    out = Path(outpath).with_suffix(".png")
+    fig.savefig(out)
     plt.close(fig)
 
 # ----------------------------- Public API ------------------------------------
@@ -190,7 +214,7 @@ def export_single_panels(snapshot_dir: str | Path,
             col = np.load(src / f"col_{day}.npy")
             ha  = np.load(src / f"ha_{day}.npy")
             dens = np.load(src / f"density_{day}.npy")
-            cells = pl.read_parquet(src / f"cells_{day}.parquet")
+            cells = pl.read_csv(src / f"cells_{day}.csv")
         except FileNotFoundError:
             print(f"[viz] panels: missing snapshot day {day}")
             continue

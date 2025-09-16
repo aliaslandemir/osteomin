@@ -8,9 +8,10 @@ from .agent import Cell
 if TYPE_CHECKING:
     from .pde_manager import PDEManager
 
-__all__ = ["save_snapshot", "save_timeseries", "cell_grids"]
+__all__ = ["save_snapshot", "save_timeseries_excel", "save_timeseries_csv", "cell_grids"]
 
 def cell_grids(h: int, w: int, agents: List[Cell]) -> Tuple[np.ndarray, np.ndarray]:
+    """Return density and state grids from agent positions."""
     dens = np.zeros((h, w), dtype=np.uint16)
     state = np.zeros((h, w), dtype=np.uint8)
     for c in agents:
@@ -18,31 +19,31 @@ def cell_grids(h: int, w: int, agents: List[Cell]) -> Tuple[np.ndarray, np.ndarr
         state[c.y, c.x] = int(c.state)
     return dens, state
 
-def save_timeseries(df: pl.DataFrame, outfile: str | Path) -> None:
-    """
-    Save daily time-series both as Parquet and CSV (same basename).
-    """
+def save_timeseries_excel(df: pl.DataFrame, outfile: str | Path) -> None:
+    """Write daily metrics to Excel (.xlsx)."""
     outp = Path(outfile)
     outp.parent.mkdir(parents=True, exist_ok=True)
-    # Parquet
-    df.write_parquet(str(outp))
-    # CSV
-    csv_path = outp.with_suffix(".csv")
-    df.write_csv(str(csv_path))
-    print(f"[I/O] time-series → {outp} and {csv_path.name}")
+    df.write_excel(outp)
+    print(f"[I/O] time-series → {outp}")
+
+def save_timeseries_csv(df: pl.DataFrame, outfile: str | Path) -> None:
+    """Optionally write the same metrics to CSV."""
+    outp = Path(outfile)
+    outp.parent.mkdir(parents=True, exist_ok=True)
+    df.write_csv(outp)
+    print(f"[I/O] time-series → {outp}")
 
 def save_snapshot(day: int, folder: str | Path, pde: "PDEManager", agents: List[Cell]) -> None:
+    """Save raw field arrays and per-cell CSV for a given day."""
     path = Path(folder); path.mkdir(parents=True, exist_ok=True)
-    np.save(path / f"acp_{day}.npy", pde.acp)
-    np.save(path / f"ha_{day}.npy",  pde.ha)
-    np.save(path / f"ca_{day}.npy",  pde.ca)
-    np.save(path / f"po4_{day}.npy", pde.po4)
-    np.save(path / f"bgp_{day}.npy", pde.bgp)
-    np.save(path / f"col_{day}.npy", pde.collagen)
-    np.save(path / f"alp_{day}.npy", pde.alp)
+    for name, arr in {
+        "acp": pde.acp, "ha": pde.ha, "ca": pde.ca, "po4": pde.po4,
+        "bgp": pde.bgp, "col": pde.collagen, "alp": pde.alp
+    }.items():
+        np.save(path / f"{name}_{day}.npy", arr)
 
     dens, state = cell_grids(pde.height, pde.width, agents)
-    np.save(path / f"density_{day}.npy",   dens)
+    np.save(path / f"density_{day}.npy", dens)
     np.save(path / f"cellstate_{day}.npy", state)
 
     df_cells = pl.DataFrame({
@@ -55,5 +56,5 @@ def save_snapshot(day: int, folder: str | Path, pde: "PDEManager", agents: List[
         "day_died": [(-1 if c.day_died is None else c.day_died) for c in agents],
         "day_created": [c.day_created for c in agents],
     })
-    df_cells.write_parquet(path / f"cells_{day}.parquet")
-    print(f"[I/O] snapshot day {day} saved.")
+    df_cells.write_csv(path / f"cells_{day}.csv")
+    print(f"[I/O] snapshot day {day} saved → {path}")

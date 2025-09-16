@@ -1,9 +1,7 @@
 """
-CLI entry-point – MC3T3-E1 osteogenesis (2D coverslip; AA, β-GP, Dexa, MK4).
-Media refresh defaults to every 2 days.
+Entry point for MC3T3-E1 osteogenesis simulator (2D coverslip).
 """
 from __future__ import annotations
-from pathlib import Path
 import argparse
 import numpy as np
 
@@ -11,43 +9,48 @@ from src.model import OsteoModel
 from src.config import PDEConfig, ABMConfig
 from src.viz import plot_summary, export_single_panels
 
-def parse_args() -> argparse.Namespace:
+def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--w", type=int, default=120)
     p.add_argument("--h", type=int, default=120)
     p.add_argument("--days", type=int, default=21)
     p.add_argument("--cells", type=int, default=300)
+    p.add_argument("--aa", type=float, default=1.0)
+    p.add_argument("--bgp", type=float, default=1.0)
+    p.add_argument("--dexa", type=float, default=1.0)
+    p.add_argument("--mk4", type=float, default=1.0)
+    p.add_argument("--media-interval", type=int, default=2)
     p.add_argument("--snapdir", type=str, default="snapshots")
-    p.add_argument("--out", type=str, default="results.parquet")
+    p.add_argument("--out", type=str, default="results.xlsx", help="Output Excel file path")
     p.add_argument("--seed", type=int, default=42)
-
-    # media/factors (0..1)
-    p.add_argument("--aa", type=float, default=1.0, help="Ascorbic acid level")
-    p.add_argument("--bgp", type=float, default=1.0, help="β-GP reservoir level")
-    p.add_argument("--dexa", type=float, default=1.0, help="Dexamethasone level")
-    p.add_argument("--mk4", type=float, default=1.0, help="Vitamin K2 (MK4) level")
-    p.add_argument("--media-interval", type=int, default=2, help="Days between medium changes (default 2)")
+    p.add_argument("--csv", action="store_true", help="Also export CSV")
+    p.add_argument("--snapshots", action="store_true", help="Save snapshot arrays and per-cell CSV")
     return p.parse_args()
 
 if __name__ == "__main__":
-    a = parse_args()
-    np.random.seed(a.seed)
+    args = parse_args()
+    np.random.seed(args.seed)
 
-    pde_cfg = PDEConfig(width=a.w, height=a.h)
-    abm_cfg = ABMConfig(width=a.w, height=a.h)
+    pde_cfg = PDEConfig(width=args.w, height=args.h)
+    abm_cfg = ABMConfig(width=args.w, height=args.h)
 
     model = OsteoModel(
         pde_cfg=pde_cfg, abm_cfg=abm_cfg,
-        total_days=a.days, snapshot_dir=a.snapdir,
-        aa_level=a.aa, bgp_level=a.bgp, dexa_level=a.dexa, mk4_level=a.mk4,
-        media_interval_days=a.media_interval,
-        rng_seed=a.seed,
+        total_days=args.days, snapshot_dir=args.snapdir,
+        aa_level=args.aa, bgp_level=args.bgp, dexa_level=args.dexa, mk4_level=args.mk4,
+        media_interval_days=args.media_interval, rng_seed=args.seed,
+        enable_snapshots=args.snapshots, save_csv=args.csv
     )
-    model.seed_cells(a.cells)
+    model.seed_cells(args.cells)
     model.run()
-    model.save(a.out)
+    model.save(args.out)
 
-    # Figures
-    plot_summary(a.out, output="summary.png")
-    export_single_panels(a.snapdir, days=[7, 14, a.days], out_dir="panels_pub")
-    print("[DONE] Simulation + plots finished.")
+    # Use updated plot_summary to handle xlsx/csv
+    plot_summary(args.out, output="summary.png")
+
+    if args.snapshots:
+        export_single_panels(args.snapdir, days=[7,14,args.days], out_dir="panels_pub")
+    else:
+        print("[INFO] Snapshots disabled; skipping per-day panels.")
+
+    print("[DONE] Simulation complete.")
