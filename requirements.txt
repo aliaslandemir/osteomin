@@ -1,0 +1,5 @@
+# Python ≥3.10 recommended
+numpy>=1.26
+polars>=0.20
+matplotlib>=3.8
+tqdm>=4.66

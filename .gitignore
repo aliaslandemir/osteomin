@@ -1,0 +1,34 @@
+# venv & python cache
+venv/
+.env/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.ipynb_checkpoints/
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# build / dist
+build/
+dist/
+*.egg-info/
+
+# model outputs
+snapshots/
+panels_pub/
+plots_png/
+summary.png
+results.parquet
+results.csv
+
+# logs
+*.log
+
+# editors
+.vscode/
+.idea/
