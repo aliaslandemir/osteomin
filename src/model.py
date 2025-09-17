@@ -26,7 +26,8 @@ class OsteoModel:
         enable_snapshots: bool = False, save_csv: bool = False
     ) -> None:
         self.pde = PDEManager(**asdict(pde_cfg))
-        self.abm = ABMManager(**asdict(abm_cfg)); self.abm.pde = self.pde
+        self.rng = np.random.default_rng(rng_seed)
+        self.abm = ABMManager(**asdict(abm_cfg), rng=self.rng); self.abm.pde = self.pde
 
         self.total_days = total_days
         self.day = 0
@@ -43,7 +44,10 @@ class OsteoModel:
         # apply initial β-GP treatment level
         self.pde.bgp[:] *= self.bgp_level
 
-        if rng_seed is not None: np.random.seed(rng_seed)
+        if rng_seed is not None:
+            self.rng = np.random.default_rng(rng_seed)
+        else:
+            self.rng = np.random.default_rng()        # all randomness comes from self.rng (no global seeding)
 
         # histories
         self.hist_collagen: List[float] = []
@@ -67,10 +71,9 @@ class OsteoModel:
         self.hist_mk4_level: List[float] = []
 
     def seed_cells(self, n: int = 200) -> None:
-        rng = np.random.default_rng()
         for _ in range(n):
-            x = int(rng.integers(self.pde.width // 10, 9 * self.pde.width // 10))
-            y = int(rng.integers(self.pde.height // 10, 9 * self.pde.height // 10))
+            x = int(self.rng.integers(self.pde.width  // 10, 9 * self.pde.width  // 10))
+            y = int(self.rng.integers(self.pde.height // 10, 9 * self.pde.height // 10))
             self.abm.add_cell(Cell(x=x, y=y, state=CellState.ACTIVE))
 
     @staticmethod

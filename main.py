@@ -3,11 +3,11 @@ Entry point for MC3T3-E1 osteogenesis simulator (2D coverslip).
 """
 from __future__ import annotations
 import argparse
-import numpy as np
 
 from src.model import OsteoModel
 from src.config import PDEConfig, ABMConfig
 from src.viz import plot_summary, export_single_panels
+
 
 def parse_args():
     p = argparse.ArgumentParser()
@@ -22,24 +22,31 @@ def parse_args():
     p.add_argument("--media-interval", type=int, default=2)
     p.add_argument("--snapdir", type=str, default="snapshots")
     p.add_argument("--out", type=str, default="results.xlsx", help="Output Excel file path")
-    p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--seed", type=int, default=42, help="Random seed (handled inside model)")
     p.add_argument("--csv", action="store_true", help="Also export CSV")
     p.add_argument("--snapshots", action="store_true", help="Save snapshot arrays and per-cell CSV")
     return p.parse_args()
 
+
 if __name__ == "__main__":
     args = parse_args()
-    np.random.seed(args.seed)
 
     pde_cfg = PDEConfig(width=args.w, height=args.h)
     abm_cfg = ABMConfig(width=args.w, height=args.h)
 
     model = OsteoModel(
-        pde_cfg=pde_cfg, abm_cfg=abm_cfg,
-        total_days=args.days, snapshot_dir=args.snapdir,
-        aa_level=args.aa, bgp_level=args.bgp, dexa_level=args.dexa, mk4_level=args.mk4,
-        media_interval_days=args.media_interval, rng_seed=args.seed,
-        enable_snapshots=args.snapshots, save_csv=args.csv
+        pde_cfg=pde_cfg,
+        abm_cfg=abm_cfg,
+        total_days=args.days,
+        snapshot_dir=args.snapdir,
+        aa_level=args.aa,
+        bgp_level=args.bgp,
+        dexa_level=args.dexa,
+        mk4_level=args.mk4,
+        media_interval_days=args.media_interval,
+        rng_seed=args.seed,              # model handles RNG
+        enable_snapshots=args.snapshots,
+        save_csv=args.csv,
     )
     model.seed_cells(args.cells)
     model.run()

@@ -63,7 +63,7 @@ class ABMConfig:
 
     # --- Population & crowding ---
     max_cell_density: int = 2    # live cells per node
-    apoptosis_prob: float = 0.01
+    apoptosis_prob: float = 0.005
 
     # --- Migration (daily step probability) ---
     enable_migration: bool = True

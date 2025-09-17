@@ -24,7 +24,9 @@ class ABMManager:
     """
     def __init__(self, *, width:int, height:int, max_cell_density:int,
                  apoptosis_prob:float, enable_migration:bool, p_move:float,
-                 min_div_days:int, max_div_days:int) -> None:
+                 min_div_days:int, max_div_days:int,
+                 rng: np.random.Generator | None = None) -> None:
+
         self.width, self.height = width, height
         self.max_cell_density = max_cell_density
         self.apoptosis_prob = apoptosis_prob
@@ -51,7 +53,7 @@ class ABMManager:
         self.died_today: int = 0
         self.deaths_today_xy: List[Tuple[int,int]] = []
 
-        self._rng = np.random.default_rng(42)
+        self._rng = rng or np.random.default_rng()
 
     # -------------------------- helpers --------------------------
     def _sample_cycle_days(self) -> int:
@@ -104,7 +106,7 @@ class ABMManager:
 
     def _step_cell(self, c: Cell, day: int, occ: np.ndarray) -> Optional[Cell]:
         # 1) apoptosis → remove immediately (but record event + position)
-        if c.state in (CellState.ACTIVE, CellState.OSTEOBLAST) and np.random.random() < self.apoptosis_prob:
+        if c.state in (CellState.ACTIVE, CellState.OSTEOBLAST) and self._rng.random() < self.apoptosis_prob:
             c.state = CellState.APOPTOTIC
             if c.day_died is None:
                 c.day_died = day
@@ -119,9 +121,9 @@ class ABMManager:
             return None
 
         # 2) random walk with occupancy update (guard against overcrowding)
-        if self.enable_migration and np.random.random() < self.p_move:
+        if self.enable_migration and self._rng.random() < self.p_move:
             oldx, oldy = c.x, c.y
-            dx, dy = [(-1,0),(1,0),(0,-1),(0,1)][np.random.randint(0,4)]
+            dx, dy = [(-1,0),(1,0),(0,-1),(0,1)][self._rng.integers(0,4)]
             nx = (c.x + dx) % self.width
             ny = (c.y + dy) % self.height
             if occ[ny, nx] < self.max_cell_density:
@@ -134,12 +136,12 @@ class ABMManager:
 
         # 3) commitment (Dexa + local S + crowding)
         if c.state == CellState.ACTIVE:
-            p_switch = 0.26 * (0.2 + 0.8 * self.dexa)  # Dexa scales switching
-            if occ[c.y, c.x] > self.max_cell_density:
-                p_switch *= 3.0
             S = self._local_supersat(c.x, c.y)
-            p_switch *= (1.0 + 0.8 * (S / (0.5 + S)))
-            if np.random.random() < p_switch:
+            # Dexa effect but moderated by local mineral environment
+            p_switch = 0.26 * (0.2 + 0.8 * self.dexa) * (S / (0.2 + S))
+            if occ[c.y, c.x] >= self.max_cell_density:
+                p_switch *= 3.0
+            if self._rng.random() < p_switch:
                 c.state = CellState.OSTEOBLAST
                 if not c.ever_ob:
                     c.ever_ob = True
