@@ -70,6 +70,6 @@ class ABMConfig:
     p_move: float = 0.20         # ~20% chance to hop 1 px per day
 
     # --- Cell cycle (ACTIVE only) ---
-    # MC3T3-E1 ~24–36 h early; we keep 2–4 d to be conservative in daily-step model
+    # MC3T3-E1 ~24–36 h early; we keep 2–3 d to be conservative in daily-step model
     min_div_days: int = 2
     max_div_days: int = 3

@@ -72,7 +72,7 @@ osteomin/
 
 ### PowerShell (Windows)
 ```powershell
-python main_fast.py --days 21 --cells 300 --aa 1.0 --bgp 1.0 --dexa 1.0 --mk4 1.0 --media-interval 2 --snapshots --csv
+python main.py --days 21 --cells 300 --aa 1.0 --bgp 1.0 --dexa 1.0 --mk4 1.0 --media-interval 2 --snapshots --csv
 ```
 *(Use backticks ` for line continuation in PowerShell if splitting lines.)*
 
