@@ -69,7 +69,6 @@ class PDEManager:
         # reset daily HA increment
         self.last_dHA_sum = 0.0
 
-        # single Euler step (no diffusion terms)
         # collagen local dynamics
         self.collagen -= self.dt * self.collagen_decay * self.collagen
         self.collagen = np.minimum(self.collagen, self.collagen_cap)

@@ -35,8 +35,12 @@ class OsteoModel:
         self.enable_snapshots = enable_snapshots
         self.save_csv = save_csv
 
-        self.aa_level = aa_level; self.bgp_level = bgp_level
-        self.dexa_level = dexa_level; self.mk4_level = mk4_level
+        self.aa_level = aa_level
+        self.bgp_level = bgp_level
+        self.dexa_level = dexa_level
+        self.mk4_level = mk4_level
+
+        # apply initial β-GP treatment level
         self.pde.bgp[:] *= self.bgp_level
 
         if rng_seed is not None: np.random.seed(rng_seed)
@@ -50,10 +54,10 @@ class OsteoModel:
         self.hist_alp: List[float] = []
         self.hist_supersat: List[float] = []
         self.hist_active: List[int] = []
-        self.hist_apopt: List[int] = []
+        self.hist_apopt: List[int] = []           # deaths TODAY
         self.hist_ob: List[int] = []
-        self.hist_ob_cum: List[int] = []
-        self.hist_dead_cum: List[int] = []
+        self.hist_ob_cum: List[int] = []          # cumulative commitments
+        self.hist_dead_cum: List[int] = []        # cumulative deaths
         self.hist_nodule_index: List[float] = []
         self.hist_nodule_area: List[float] = []
         self.hist_bgp_avg: List[float] = []
@@ -102,16 +106,33 @@ class OsteoModel:
     def run(self) -> None:
         for _ in trange(self.total_days, desc="sim-day"):
             self.day += 1
-            self.abm.aa = self.aa_level; self.abm.dexa = self.dexa_level
-            self.pde.aa_level = self.aa_level; self.pde.dexa_level = self.dexa_level; self.pde.mk4_level = self.mk4_level
-            self.abm.step_all(self.day); self.pde.step(); self._consume_supplements()
+            # push today’s levels to ABM/PDE
+            self.abm.aa = self.aa_level
+            self.abm.dexa = self.dexa_level
+            self.pde.aa_level = self.aa_level
+            self.pde.dexa_level = self.dexa_level
+            self.pde.mk4_level = self.mk4_level
 
+            # advance
+            self.abm.step_all(self.day)
+            self.pde.step()
+            self._consume_supplements()
+
+            # media change
             if self.day % self.media_interval == 0:
-                self.pde.media_refresh(); self.aa_level = self.dexa_level = self.mk4_level = 1.0
+                # Reset freely available ions and BGP to baseline
+                self.pde.media_refresh()
+                # Keep the treatment level for β-GP across refreshes
+                self.pde.bgp[:] = self.pde.bgp_bc_value * float(self.bgp_level)
+                # Washout a fraction of soluble ALP on media change
+                self.pde.alp *= 0.30
+                # Replenish supplements (scalar levels)
+                self.aa_level = self.dexa_level = self.mk4_level = 1.0
 
             self._record()
             if self.enable_snapshots and (self.day % 7 == 0 or self.day == self.total_days):
-                save_snapshot(self.day, self.snapdir, self.pde, self.abm.agents)
+                save_snapshot(self.day, self.snapdir, self.pde, self.abm.agents,
+                              deaths_xy=self.abm.deaths_today_xy)
 
     def _record(self) -> None:
         p = self.pde
@@ -124,22 +145,33 @@ class OsteoModel:
         self.hist_bgp_avg.append(p.bgp.mean())
         self.hist_supersat.append(p.supersaturation().mean())
 
+        # current live-state counts
         cur_active = sum(a.state==CellState.ACTIVE for a in self.abm.agents)
-        cur_apopt = sum(a.state==CellState.APOPTOTIC for a in self.abm.agents)
-        cur_ob = sum(a.state==CellState.OSTEOBLAST for a in self.abm.agents)
-        self.hist_active.append(cur_active); self.hist_apopt.append(cur_apopt); self.hist_ob.append(cur_ob)
+        cur_ob     = sum(a.state==CellState.OSTEOBLAST for a in self.abm.agents)
+        # deaths TODAY from event counter
+        cur_apopt  = self.abm.died_today
 
-        cum_ob = sum(a.ever_ob for a in self.abm.agents)
-        cum_dead = sum(a.day_died is not None for a in self.abm.agents)
-        self.hist_ob_cum.append(cum_ob); self.hist_dead_cum.append(cum_dead)
+        self.hist_active.append(cur_active)
+        self.hist_apopt.append(cur_apopt)   # daily deaths
+        self.hist_ob.append(cur_ob)
 
+        # cumulative events from ABM counters
+        cum_ob   = self.abm.cum_committed
+        cum_dead = self.abm.cum_died
+        self.hist_ob_cum.append(cum_ob)
+        self.hist_dead_cum.append(cum_dead)
+
+        # nodule metrics
         nod = self._nodule_mask_from_ha(p.ha)
         self.hist_nodule_index.append((nod*p.ha).sum()/(p.ha.sum()+1e-16))
         self.hist_nodule_area.append(nod.mean())
 
+        # supplement/baseline levels
         bgp_frac = p.bgp.mean()/(p.bgp_bc_value+1e-12)
-        self.hist_aa_level.append(self.aa_level); self.hist_bgp_level.append(np.clip(bgp_frac,0,1))
-        self.hist_dexa_level.append(self.dexa_level); self.hist_mk4_level.append(self.mk4_level)
+        self.hist_aa_level.append(self.aa_level)
+        self.hist_bgp_level.append(np.clip(bgp_frac,0,1))
+        self.hist_dexa_level.append(self.dexa_level)
+        self.hist_mk4_level.append(self.mk4_level)
 
     def save(self, outfile: str | Path = "results.xlsx") -> None:
         n = self.day
@@ -152,8 +184,10 @@ class OsteoModel:
             "Ca_Avg": self.hist_ca[:n], "PO4_Avg": self.hist_po4[:n],
             "BGP_Avg": self.hist_bgp_avg[:n], "Supersat_Avg": self.hist_supersat[:n],
             "Nodule_Index": self.hist_nodule_index[:n], "Nodule_Area": self.hist_nodule_area[:n],
-            "Cells_Active": self.hist_active[:n], "Cells_Apoptotic": self.hist_apopt[:n],
-            "Cells_Osteoblast": self.hist_ob[:n], "Cells_Osteoblast_Cum": self.hist_ob_cum[:n],
+            "Cells_Active": self.hist_active[:n],
+            "Cells_Apoptotic": self.hist_apopt[:n],            # daily deaths
+            "Cells_Osteoblast": self.hist_ob[:n],
+            "Cells_Osteoblast_Cum": self.hist_ob_cum[:n],
             "Cells_Apoptotic_Cum": self.hist_dead_cum[:n],
         })
         save_timeseries_excel(df, outfile)

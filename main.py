@@ -45,11 +45,12 @@ if __name__ == "__main__":
     model.run()
     model.save(args.out)
 
-    # Use updated plot_summary to handle xlsx/csv
+    # Time-series summary
     plot_summary(args.out, output="summary.png")
 
+    # Optional per-day panels
     if args.snapshots:
-        export_single_panels(args.snapdir, days=[7,14,args.days], out_dir="panels_pub")
+        export_single_panels(args.snapdir, days=[7, 14, args.days], out_dir="panels_pub")
     else:
         print("[INFO] Snapshots disabled; skipping per-day panels.")
 

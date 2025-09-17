@@ -2,7 +2,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import List, Tuple
-import numpy as np
 
 __all__ = ["CellState", "Cell"]
 
@@ -17,16 +16,18 @@ class Cell:
     y: int
     day_created: int = 0
     state: CellState = CellState.ACTIVE
+    # Division interval is assigned by ABMManager from ABMConfig (min/max)
     division_interval: int | None = None
+
+    # Tracking
     trajectory: List[Tuple[int, int]] = field(default_factory=list, init=False)
     move_count: int = 0
 
-    # lifetime flags (for cumulative stats)
+    # Lifetime flags (for cumulative stats)
     ever_ob: bool = False
     day_committed: int | None = None
     day_died: int | None = None
 
     def __post_init__(self) -> None:
-        if self.division_interval is None:
-            self.division_interval = int(np.random.choice([2, 3, 4]))
+        # Do NOT sample division interval here; ABMManager sets it from config.
         self.trajectory.append((self.x, self.y))

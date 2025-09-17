@@ -20,10 +20,11 @@ plt.rcParams.update({
     "xtick.labelsize": 8, "ytick.labelsize": 8,
 })
 
+# state_id: (label, color, marker)
 STATE_INFO: Dict[int, Tuple[str, str, str]] = {
-    1: ("Active",    "#2ca02c", "o"),
-    2: ("Apoptotic", "#d62728", "X"),
-    3: ("Osteoblast","#1f77b4", "s"),
+    1: ("Active",     "#2ca02c", "o"),
+    2: ("Apoptotic",  "#d62728", "X"),
+    3: ("Osteoblast", "#1f77b4", "s"),
 }
 
 CMAP = {
@@ -41,7 +42,6 @@ def _vlines(ax, xs=(7, 14, 21)):
         ax.axvline(x, ls="--", lw=1, color="#8a8a8a", alpha=0.6)
 
 def _read_table(pathlike):
-    """Read results in xlsx/csv/parquet transparently."""
     p = Path(pathlike)
     ext = p.suffix.lower()
     if ext in (".parquet", ".pq"):
@@ -50,13 +50,29 @@ def _read_table(pathlike):
         return pl.read_excel(p)
     if ext == ".csv":
         return pl.read_csv(p)
-    # fallback attempts (best-effort)
     for reader in (pl.read_excel, pl.read_parquet, pl.read_csv):
         try:
             return reader(p)
         except Exception:
             continue
     raise ValueError(f"Unsupported results file: {p}")
+
+def _load_cumulative_deaths(src_dir: Path, up_to_day: int) -> tuple[np.ndarray, np.ndarray]:
+    """Load and stack all deaths_{d}.csv for d ≤ up_to_day. Returns (xs, ys) or (empty, empty)."""
+    xs_all, ys_all = [], []
+    for d in range(1, up_to_day + 1):
+        f = src_dir / f"deaths_{d}.csv"
+        if f.exists():
+            try:
+                df = pl.read_csv(f)
+                if {"x", "y"}.issubset(df.columns):
+                    xs_all.append(df["x"].to_numpy())
+                    ys_all.append(df["y"].to_numpy())
+            except Exception:
+                pass
+    if xs_all:
+        return np.concatenate(xs_all), np.concatenate(ys_all)
+    return np.array([], dtype=int), np.array([], dtype=int)
 
 # ---------------------------- Time-series figure -----------------------------
 def plot_summary(results_path: str | Path, output: str | Path = "summary.png") -> None:
@@ -71,8 +87,9 @@ def plot_summary(results_path: str | Path, output: str | Path = "summary.png") -
     for lbl, col, _ in STATE_INFO.values():
         colname = f"Cells_{lbl}"
         if colname in df.columns:
-            ax.plot(days, df[colname].to_numpy(), lw=2.2, color=col,
-                    label=lbl, path_effects=[pe.Stroke(linewidth=3, foreground="white"), pe.Normal()])
+            pretty = "Apoptotic (daily)" if lbl == "Apoptotic" else lbl
+            ax.plot(days, df[colname].to_numpy(), lw=2.2, color=col, label=pretty,
+                    path_effects=[pe.Stroke(linewidth=3, foreground="white"), pe.Normal()])
     if "Cells_Osteoblast_Cum" in df.columns and "Cells_Apoptotic_Cum" in df.columns:
         ax.plot(days, df["Cells_Osteoblast_Cum"].to_numpy(), ls="--", lw=1.6,
                 color=STATE_INFO[3][1], label="Osteoblast (cum)")
@@ -151,7 +168,6 @@ def _compute_nodule_map(ha: np.ndarray) -> np.ndarray:
         if int(mask.sum()) >= max(5, int(0.0005 * H * W)):
             return mask.astype(float)
 
-    # Fallback: Otsu on log(1+ha)
     x = np.log1p(ha)
     hist, edges = np.histogram(x, bins=256)
     w0, w1 = np.cumsum(hist), np.cumsum(hist[::-1])[::-1]
@@ -163,8 +179,13 @@ def _compute_nodule_map(ha: np.ndarray) -> np.ndarray:
     return (x > thr).astype(float)
 
 def _plot_cell_states(cells_df: "pl.DataFrame", shape_hw: tuple[int, int],
-                      day: int, outpath: Path, max_points_per_state: int = 2000) -> None:
-    """Scatter the agents with crisp markers and counts per state (PNG only)."""
+                      day: int, outpath: Path, src_dir: Path | None = None,
+                      max_points_per_state: int = 2000) -> None:
+    """
+    Scatter agents with crisp markers and counts per state (PNG only).
+    If src_dir is provided, overlays **Apoptotic (cumulative)** using all
+    deaths_{d}.csv for d ≤ day.
+    """
     rng = np.random.default_rng(42)
     H, W = shape_hw
     fig, ax = plt.subplots(figsize=(5.0, 5.0))
@@ -175,6 +196,8 @@ def _plot_cell_states(cells_df: "pl.DataFrame", shape_hw: tuple[int, int],
         spine.set_linewidth(0.8)
 
     handles, labels = [], []
+
+    # Live states
     for st, (lbl, colr, marker) in STATE_INFO.items():
         sub = cells_df.filter(pl.col("state") == st)
         if sub.height == 0:
@@ -185,9 +208,21 @@ def _plot_cell_states(cells_df: "pl.DataFrame", shape_hw: tuple[int, int],
             xs, ys = xs[idx], ys[idx]
         ax.scatter(xs, ys, c=colr, marker=marker, s=18,
                    edgecolor="black", linewidths=0.25, alpha=0.95, zorder=3)
+        lbl_pretty = "Apoptotic (present)" if lbl == "Apoptotic" else lbl
         handles.append(Line2D([], [], ls="", marker=marker, markersize=6,
                               markerfacecolor=colr, markeredgecolor="black"))
-        labels.append(f"{lbl} (n={sub.height})")
+        labels.append(f"{lbl_pretty} (n={sub.height})")
+
+    # Cumulative deaths overlay (X markers, slightly larger)
+    if src_dir is not None:
+        xs, ys = _load_cumulative_deaths(src_dir, day)
+        if xs.size > 0:
+            lbl, colr, marker = STATE_INFO[2]
+            ax.scatter(xs, ys, c=colr, marker=marker, s=26,
+                       edgecolor="black", linewidths=0.4, alpha=0.95, zorder=4)
+            handles.append(Line2D([], [], ls="", marker=marker, markersize=6,
+                                  markerfacecolor=colr, markeredgecolor="black"))
+            labels.append(f"Apoptotic (n={xs.size})")
 
     ax.legend(handles, labels, frameon=False, loc="lower right", ncol=1)
     fig.tight_layout()
@@ -201,9 +236,9 @@ def export_single_panels(snapshot_dir: str | Path,
                          out_dir: str | Path = "panels_pub") -> None:
     """
     Exports SEPARATE publication-ready panels for each requested day (PNG only):
-      - cell_states_day{d}.png
+      - cell_states_day{d}.png   (Active, Osteoblast, and Apoptotic cumulative overlay)
       - nodule_day{d}.png
-      - ha_day{d}.png               [log scale]
+      - ha_day{d}.png            [log scale]
       - collagen_day{d}.png
       - density_day{d}.png
     """
@@ -219,11 +254,12 @@ def export_single_panels(snapshot_dir: str | Path,
             print(f"[viz] panels: missing snapshot day {day}")
             continue
 
-        # 1) Cell states
+        # 1) Cell states (with cumulative deaths overlay)
         _plot_cell_states(cells, shape_hw=ha.shape, day=day,
-                          outpath=dst / f"cell_states_day{day}")
+                          outpath=dst / f"cell_states_day{day}",
+                          src_dir=src)
 
-        # 2) Nodule map (robust)
+        # 2) Nodule map (robust, non-cumulative; or switch to cumulative logic if desired)
         nodule = _compute_nodule_map(ha)
         _save_field_imshow(nodule, f"Nodule map — Day {day}",
                            dst / f"nodule_day{day}", cmap=CMAP["nodule"],
@@ -237,7 +273,7 @@ def export_single_panels(snapshot_dir: str | Path,
         _save_field_imshow(col, f"Collagen — Day {day}",
                            dst / f"collagen_day{day}", cmap=CMAP["collagen"], log=False)
 
-        # 5) Cell density
+        # 5) Cell density (live occupancy)
         _save_field_imshow(dens.astype(float), f"Cell density — Day {day}",
                            dst / f"density_day{day}", cmap=CMAP["density"], log=False)
 
