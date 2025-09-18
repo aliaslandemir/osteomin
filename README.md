@@ -74,22 +74,15 @@ osteomin/
 
 ### PowerShell (Windows)
 ```powershell
- python main.py `
-   --days 21 `
-   --cells 300 `
-   --aa 1.0 `
-   --bgp 1.0 `
-   --dexa 1.0 `
-   --mk4 1.0 `
-   --media-interval 2 `
-   --cell-movement `
-   --osteogenic-commitment `
-   --apoptosis `
-   --proliferation `
-   --secretion `
-   --xlsx `
-   --snapshots `
-   --out out
+python main.py `
+  --days 21 `
+  --cells 300 `
+  --media-interval 2 `
+  --aa 1.0 --bgp 1.0 --dexa 1.0 --mk4 1.0 `
+  --cell-movement --osteogenic-commitment --apoptosis --proliferation --secretion `
+  --move-prob 0.5 --max-moves 2 `
+  --spatial-days 0,5,10,15,20 `
+  --xlsx --snapshots --out out
 ```
 *(Use backticks ` for line continuation in PowerShell.)*
 
