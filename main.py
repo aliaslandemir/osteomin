@@ -3,10 +3,9 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-
 from src.model import OsteoModel
 from src.config import PDEConfig, ABMConfig
-from src.viz import plot_summary, export_single_panels
+from src.viz import plot_summary
 
 
 def parse_args() -> argparse.Namespace:
@@ -29,6 +28,11 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--no-cell-movement", dest="cell_movement", action="store_false", help="disable cell migration")
     p.set_defaults(cell_movement=True)
 
+
+    p.add_argument("--move-prob", type=float, default=0.8, help="daily probability an ACTIVE cell attempts a move")
+    p.add_argument("--max-moves", type=int,   default=1,   help="max random-walk steps per ACTIVE cell per day")
+
+
     p.add_argument("--osteogenic-commitment", dest="commitment", action="store_true", help="enable osteogenic commitment")
     p.add_argument("--no-osteogenic-commitment", dest="commitment", action="store_false", help="disable osteogenic commitment")
     p.set_defaults(commitment=True)
@@ -45,10 +49,16 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--no-secretion", dest="secretion", action="store_false", help="disable secretion (ABM→PDE)")
     p.set_defaults(secretion=True)
 
+    # Spatial export control
+    p.add_argument("--spatial-every", type=int, default=0,
+                   help="export spatial PNG every N days (0 = off)")
+    p.add_argument("--spatial-days", type=str, default="",
+                   help="comma-separated explicit days to export, e.g. '0,5,10,20'")
+
     # Output
     p.add_argument("--out", type=str, default="out", help="output directory")
     p.add_argument("--xlsx", action="store_true", help="write Excel timeseries")
-    p.add_argument("--snapshots", action="store_true", help="export per-panel figures")
+    p.add_argument("--snapshots", action="store_true", help="export simple state/density/deaths panels for last day")
 
     return p.parse_args()
 
@@ -58,8 +68,13 @@ def main() -> None:
     outdir = Path(args.out)
     outdir.mkdir(parents=True, exist_ok=True)
 
+    # Parse explicit spatial days (dedupe + sort later in model)
+    explicit_spatial_days = []
+    if args.spatial_days.strip():
+        explicit_spatial_days = [int(s) for s in args.spatial_days.split(",") if s.strip()]
+
     # Configs
-    pde_cfg = PDEConfig(width=100, height=100)
+    pde_cfg = PDEConfig(width=100, height=100, media_interval=int(args.media_interval))
     abm_cfg = ABMConfig(
         width=100,
         height=100,
@@ -68,32 +83,38 @@ def main() -> None:
         enable_apoptosis=bool(args.apoptosis),
         enable_proliferation=bool(args.proliferation),
         enable_secretion=bool(args.secretion),
+        move_prob=float(args.move_prob),
+        max_moves_per_day=int(args.max_moves)
     )
 
     supplements = {"aa": args.aa, "bgp": args.bgp, "dexa": args.dexa, "mk4": args.mk4}
 
     model = OsteoModel(
-        pde_cfg=pde_cfg,
-        abm_cfg=abm_cfg,
         days=args.days,
-        media_interval=args.media_interval,
-        rng_seed=args.seed,
-        supplements=supplements,
         outdir=outdir,
+        abm_cfg=abm_cfg,
+        pde_cfg=pde_cfg,
+        supplements=supplements,
+        seed=args.seed,
+        spatial_every=args.spatial_every,
+        spatial_days=explicit_spatial_days,
     )
 
     # Seed & run
-    model.seed_random(args.cells)
+    model.seed_random(args.cells, abm_cfg.width, abm_cfg.height)
     df = model.run()
 
+    # Enrich DF with cumulative series for plots
+    df["dead_total_today"] = df["dead_active_today"] + df["dead_ob_today"]
+    df["dead_active_cum"] = df["dead_active_today"].cumsum()
+    df["dead_ob_cum"]     = df["dead_ob_today"].cumsum()
+    df["dead_total_cum"]  = df["dead_total_today"].cumsum()
 
     if args.xlsx:
         model.save_timeseries_excel(df, "timeseries")
 
     # Plots
     plot_summary(df, outdir)
-    if args.snapshots:
-        export_single_panels(df, outdir)
 
     # Log tail
     print(df.tail(5))

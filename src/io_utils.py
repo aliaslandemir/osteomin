@@ -1,43 +1,31 @@
+
 from __future__ import annotations
 from pathlib import Path
-from typing import List, Tuple, TYPE_CHECKING
+from typing import List, Tuple
 import numpy as np
-import polars as pl
-from .agent import Cell
+import pandas as pd
 
-if TYPE_CHECKING:
-    from .pde_manager import PDEManager  # only for type hints
+from .agent import Cell, CellState
 
+__all__ = ["cell_grids", "save_timeseries_excel", "coords_to_mask"]
 
-__all__ = ["cell_grids", "save_timeseries_excel"]
+def cell_grids(h: int, w: int, cells: List[Cell]):
+    density = np.zeros((h, w), dtype=np.uint16)
+    state   = np.zeros((h, w), dtype=np.uint8)
+    for c in cells:
+        density[c.y, c.x] = 1
+        state[c.y, c.x]   = int(c.state)
+    return density, state
 
+def coords_to_mask(h: int, w: int, coords: List[Tuple[int,int]]) -> np.ndarray:
+    m = np.zeros((h, w), dtype=np.uint8)
+    for (row, col) in coords:
+        if 0 <= row < h and 0 <= col < w:
+            m[row, col] = 1
+    return m
 
-def cell_grids(h: int, w: int, agents: List[Cell]) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Build (density_grid, state_grid) from agent positions.
-    Assumes apoptotic cells are removed by ABM at end-of-day.
-    """
-    dens = np.zeros((h, w), dtype=np.uint16)
-    state = np.zeros((h, w), dtype=np.uint8)
-    for c in agents:
-        if 0 <= c.y < h and 0 <= c.x < w:
-            dens[c.y, c.x] = min(dens[c.y, c.x] + 1, np.iinfo(dens.dtype).max)
-            state[c.y, c.x] = int(c.state)
-    return dens, state
-
-
-
-
-
-def save_timeseries_excel(df: pl.DataFrame, outfile: str | Path) -> None:
-    """
-    """
+def save_timeseries_excel(df: pd.DataFrame, outfile: str | Path) -> None:
     outp = Path(outfile)
     outp.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        df.write_excel(outp)
-        print(f"[I/O] time-series → {outp}")
-    except Exception as e:
-        alt = outp.with_suffix(".xlsx")
-        df.write_xlsx(alt)
-        print(f"[I/O] Excel write failed ({e.__class__.__name__}: {e}); wrote XLSX → {alt}")
+    with pd.ExcelWriter(outp, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="timeseries")

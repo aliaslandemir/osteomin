@@ -1,112 +1,181 @@
 from __future__ import annotations
-from dataclasses import asdict
 from pathlib import Path
-from typing import Dict, Optional, List
+from typing import Dict, List
 import numpy as np
-import polars as pl
+import pandas as pd
 
 from .abm_manager import ABMManager
 from .config import ABMConfig, PDEConfig
 from .pde_manager import PDEManager
 from .agent import CellState
-from .io_utils import cell_grids, save_timeseries_excel
-
+from .io_utils import cell_grids, save_timeseries_excel, coords_to_mask
+from .viz import export_spatial_for_day
 
 __all__ = ["OsteoModel"]
 
 
 class OsteoModel:
+    """Couples ABM↔PDE, tracks events, handles I/O and spatial exports."""
+
     def __init__(
         self,
-        pde_cfg: PDEConfig,
-        abm_cfg: ABMConfig,
         days: int,
-        media_interval: int,
-        rng_seed: Optional[int] = None,
-        supplements: Optional[Dict[str, float]] = None,
-        outdir: str | Path = "out",
+        outdir: Path,
+        abm_cfg: ABMConfig,
+        pde_cfg: PDEConfig,
+        supplements: Dict[str, float],
+        seed: int | None = None,
+        spatial_every: int = 0,
+        spatial_days: list[int] | None = None,
     ) -> None:
         self.days = int(days)
         self.outdir = Path(outdir)
         self.outdir.mkdir(parents=True, exist_ok=True)
+        self.grids_dir = self.outdir / "grids"
+        self.grids_dir.mkdir(parents=True, exist_ok=True)
 
-        self.rng = np.random.default_rng(rng_seed)
+        self.rng = np.random.default_rng(seed)
+        self.abm = ABMManager(abm_cfg, self.rng)
+        self.pde = PDEManager(
+            width=pde_cfg.width,
+            height=pde_cfg.height,
+            media_interval=pde_cfg.media_interval,
+            supplements=supplements,
+        )
+        self.abm.attach_pde(self.pde)
 
-        # PDE & ABM
-        self.pde = PDEManager(pde_cfg.width, pde_cfg.height, media_interval, supplements)
-        self.abm = ABMManager(cfg=abm_cfg, rng=self.rng)
-        self.abm.pde = self.pde  # wire secretion hooks
+        self._rows: List[Dict] = []
 
-        # Per-day metrics (Polars table)
-        self._rows: List[Dict[str, float | int]] = []
+        # Spatial export policy
+        self.spatial_every = max(0, int(spatial_every))
+        base_days = set((spatial_days or []))
+        base_days.add(self.days - 1)  # always export last day
+        self.spatial_days = {d for d in base_days if 0 <= d < self.days}
 
-    # ----- init seeding -----
-    def seed_random(self, n_cells: int) -> None:
-        n = max(0, int(n_cells))
-        w, h = self.abm.width, self.abm.height
-        if n == 0:
-            return
-        # sample without replacement
-        all_sites = [(x, y) for y in range(h) for x in range(w)]
-        if n > len(all_sites):
-            n = len(all_sites)
-        idx = self.rng.choice(len(all_sites), size=n, replace=False)
-        coords = [all_sites[i] for i in idx]
-        self.abm.seed_from_coords(coords)
+    # ---- seeding ----
+    def seed_random(self, n: int, w: int, h: int) -> None:
+        sites = [(x, y) for y in range(h) for x in range(w)]
+        n = min(int(n), len(sites))
+        idx = self.rng.choice(len(sites), size=n, replace=False)
+        coords = [sites[i] for i in idx]
+        self.abm.seed_from_coords(coords, day0=0)
 
-    # ----- simulation -----
-    def run(self) -> pl.DataFrame:
-        for day in range(self.days):
-            # day step (ABM first, then PDE accumulation)
+    # ---- export policy ----
+    def _should_export_spatial(self, day: int) -> bool:
+        if day in self.spatial_days:
+            return True
+        if self.spatial_every > 0 and (day % self.spatial_every) == 0:
+            return True
+        return False
+
+    # ---- run ----
+    def run(self) -> pd.DataFrame:
+        # ---------- DAY 0: baseline snapshot only ----------
+        deaths_mask = np.zeros((self.abm.height, self.abm.width), dtype=np.uint8)
+        deaths_active_mask = deaths_mask.copy()
+        deaths_ob_mask = deaths_mask.copy()
+
+        dens, state = cell_grids(self.abm.height, self.abm.width, self.abm.cells)
+        np.save(self.grids_dir / f"density_day_000.npy", dens.astype(np.uint16))
+        np.save(self.grids_dir / f"state_day_000.npy",   state.astype(np.uint8))
+        np.save(self.grids_dir / f"deaths_day_000.npy",  deaths_mask)
+        np.save(self.grids_dir / f"deaths_active_day_000.npy", deaths_active_mask)
+        np.save(self.grids_dir / f"deaths_ob_day_000.npy",     deaths_ob_mask)
+
+        # day-0 timeseries (no events; PDE baseline)
+        self._append_timeseries_row_baseline(day=0)
+
+        # cumulative counters (start at zero)
+        dead_active_cum = 0
+        dead_ob_cum = 0
+        dead_total_cum = 0
+
+        if self._should_export_spatial(0):
+            export_spatial_for_day(
+                self.outdir, 0, state, deaths_active_mask, deaths_ob_mask,
+                dead_total_cum=dead_total_cum
+            )
+
+        # ---------- DAYS 1..N-1: run dynamics ----------
+        for day in range(1, self.days):
+            # ABM behaviors (commitment/apoptosis/prolif/migration/secretion)
             self.abm.step_day(day)
 
-            # --- SAVE TRUE SPATIAL STATE + DEATHS GRIDS ---
-            grids_dir = self.outdir / "grids"
+            # event masks (today)
+            deaths_mask = coords_to_mask(self.abm.height, self.abm.width, self.abm.dead_cells)
+            deaths_active_mask = coords_to_mask(self.abm.height, self.abm.width, self.abm.dead_active_coords)
+            deaths_ob_mask = coords_to_mask(self.abm.height, self.abm.width, self.abm.dead_ob_coords)
+
+            # save grids after today's changes
             dens, state = cell_grids(self.abm.height, self.abm.width, self.abm.cells)
-            grids_dir.mkdir(parents=True, exist_ok=True)
-            np.save(grids_dir / f"state_day_{day:03d}.npy", state.astype(np.uint8))
-            # ---------------------------------------------------
+            np.save(self.grids_dir / f"density_day_{day:03d}.npy", dens.astype(np.uint16))
+            np.save(self.grids_dir / f"state_day_{day:03d}.npy",   state.astype(np.uint8))
+            np.save(self.grids_dir / f"deaths_day_{day:03d}.npy",  deaths_mask)
+            np.save(self.grids_dir / f"deaths_active_day_{day:03d}.npy", deaths_active_mask.astype(np.uint8))
+            np.save(self.grids_dir / f"deaths_ob_day_{day:03d}.npy",     deaths_ob_mask.astype(np.uint8))
 
-            # deaths overlay (positions from today's apoptosis, even though cells are purged)
-            if self.abm.deaths_today_xy:
-                death = np.zeros((self.abm.height, self.abm.width), dtype=np.uint8)
-                for (x, y) in self.abm.deaths_today_xy:
-                    if 0 <= x < self.abm.width and 0 <= y < self.abm.height:
-                        death[y, x] = 1
-                np.save(grids_dir / f"deaths_day_{day:03d}.npy", death)
-
+            # PDE step (media refresh etc.)
             self.pde.step_day()
 
-            # metrics
-            n_active = sum(1 for c in self.abm.cells if c.state == CellState.ACTIVE)
-            n_ob = sum(1 for c in self.abm.cells if c.state == CellState.OSTEOBLAST)
-            n_tot = len(self.abm.cells)
+            # timeseries row with daily events
+            self._append_timeseries_row(day)
 
-            scalars = self.pde.snapshot_scalars()
-            self._rows.append({
-                "day": day,
-                "n_active": n_active,
-                "n_osteoblast": n_ob,
-                "n_total": n_tot,
-                "committed_today": self.abm.committed_today,
-                "died_today": self.abm.died_today,
-                "cum_committed": self.abm.cum_committed,
-                "cum_died": self.abm.cum_died,
-                "collagen_added_today": self.abm.last_collagen_added,
-                "alp_added_today": self.abm.last_alp_added,
-                "free_ca": scalars["free_ca"],
-                "free_pi": scalars["free_pi"],
-                "collagen_total": scalars["collagen_total"],
-                "alp_total": scalars["alp_total"],
-            })
+            # update cumulative deaths (inclusive of today)
+            dead_active_cum += int(deaths_active_mask.sum())
+            dead_ob_cum     += int(deaths_ob_mask.sum())
+            dead_total_cum   = dead_active_cum + dead_ob_cum
 
-        df = pl.DataFrame(self._rows)
-        return df
+            # spatial export (include cumulative total in title)
+            if self._should_export_spatial(day):
+                export_spatial_for_day(
+                    self.outdir, day, state, deaths_active_mask, deaths_ob_mask,
+                    dead_total_cum=dead_total_cum
+                )
 
+        return pd.DataFrame(self._rows).sort_values("day", ignore_index=True)
 
+    def _append_timeseries_row(self, day: int) -> None:
+        n_active = sum(1 for c in self.abm.cells if c.state == CellState.ACTIVE)
+        n_ob     = sum(1 for c in self.abm.cells if c.state == CellState.OSTEOBLAST)
 
+        dead_active_today = len(self.abm.dead_active_coords)
+        dead_ob_today     = len(self.abm.dead_ob_coords)
+        committed_today   = int(self.abm.committed_today)
 
-    def save_timeseries_excel(self, df: pl.DataFrame, basename: str = "timeseries") -> Path:
-        xlsx_path = self.outdir / f"{basename}.xlsx"
-        save_timeseries_excel(df, xlsx_path)
-        return xlsx_path
+        scalars = self.pde.snapshot_scalars()
+        self._rows.append({
+            "day": int(day),
+            "n_active": int(n_active),
+            "n_osteoblast": int(n_ob),
+            "n_total": int(n_active + n_ob),
+            "dead_active_today": int(dead_active_today),
+            "dead_ob_today": int(dead_ob_today),
+            "committed_today": int(committed_today),
+            "free_ca": float(scalars["free_ca"]),
+            "free_pi": float(scalars["free_pi"]),
+            "collagen_total": float(scalars["collagen_total"]),
+            "alp_total": float(scalars["alp_total"]),
+        })
+
+    def _append_timeseries_row_baseline(self, day: int) -> None:
+        """Day-0 row: all seeded cells, no events, PDE at baseline."""
+        n_active = sum(1 for c in self.abm.cells if c.state == CellState.ACTIVE)
+        n_ob     = sum(1 for c in self.abm.cells if c.state == CellState.OSTEOBLAST)
+        self._rows.append({
+            "day": int(day),
+            "n_active": int(n_active),
+            "n_osteoblast": int(n_ob),
+            "n_total": int(n_active + n_ob),
+            "dead_active_today": 0,
+            "dead_ob_today": 0,
+            "committed_today": 0,
+            "free_ca": 1.0,
+            "free_pi": 1.0,
+            "collagen_total": float(self.pde.total_collagen),  # 0.0 at baseline
+            "alp_total": float(self.pde.total_alp),            # 0.0 at baseline
+        })
+
+    def save_timeseries_excel(self, df: pd.DataFrame, basename: str = "timeseries") -> Path:
+        out = self.outdir / f"{basename}.xlsx"
+        save_timeseries_excel(df, out)
+        return out
