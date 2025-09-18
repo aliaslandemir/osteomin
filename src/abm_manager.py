@@ -1,182 +1,204 @@
 from __future__ import annotations
 from typing import List, Optional, Tuple
 import numpy as np
+
 from .agent import Cell, CellState
+from .config import ABMConfig
 
 __all__ = ["ABMManager"]
 
+
 class ABMManager:
     """
-    Agent-based layer (one node = one cell slot):
-      - ACTIVE cells can divide (osteoblasts NEVER divide).
-      - DEXA biases commitment to OSTEOBLAST from day 0 (no ramp).
-      - OSTEOBLASTS secrete more collagen and ALP (scaled by AA and Dexa).
-      - Apoptosis removes the cell immediately (records day_died), so density is live-only.
-
-    Tracks per-day secretion for supplement consumption:
-      - last_collagen_added, last_alp_added
-
-    Tracks commitment/death events so cumulative metrics remain correct
-    even though dead cells are removed:
-      - cum_committed, cum_died (cumulative totals)
-      - committed_today, died_today (per-day events)
-      - deaths_today_xy: List[(x,y)] (positions of cells that died today)
+    On-lattice ABM (one cell per node by default).
+    Behavior is governed by ABMConfig switches:
+      - enable_migration
+      - enable_commitment
+      - enable_apoptosis
+      - enable_proliferation
+      - enable_secretion
     """
-    def __init__(self, *, width:int, height:int, max_cell_density:int,
-                 apoptosis_prob:float, enable_migration:bool, p_move:float,
-                 min_div_days:int, max_div_days:int,
-                 rng: np.random.Generator | None = None) -> None:
 
-        self.width, self.height = width, height
-        self.max_cell_density = max_cell_density
-        self.apoptosis_prob = apoptosis_prob
-        self.enable_migration = enable_migration
-        self.p_move = p_move
-        self.min_div_days = min_div_days
-        self.max_div_days = max_div_days
+    def __init__(self, cfg: ABMConfig, rng: Optional[np.random.Generator] = None) -> None:
+        self.cfg = cfg
+        self.width = cfg.width
+        self.height = cfg.height
+        self.max_cell_density = cfg.max_cell_density
 
-        self.agents: List[Cell] = []
-        self.pde: "PDEManager | None" = None  # set by model
+        self.rng = np.random.default_rng() if rng is None else rng
 
-        # run-time factor levels (set by model each day)
-        self.aa = 1.0
-        self.dexa = 1.0
+        # External handle (set by model): used only if secretion is enabled.
+        self.pde = None  # type: ignore
 
-        # secretion bookkeeping (reset each day)
+        # Agent store
+        self.cells: List[Cell] = []
+
+        # Daily event tracking
+        self.committed_today: int = 0
+        self.died_today: int = 0
+        self.deaths_today_xy: List[Tuple[int, int]] = []
+
+        # Cumulative counters
+        self.cum_committed: int = 0
+        self.cum_died: int = 0
+
+        # Per-day secretion book-keeping
         self.last_collagen_added: float = 0.0
         self.last_alp_added: float = 0.0
 
-        # event counters
-        self.cum_committed: int = 0
-        self.cum_died: int = 0
-        self.committed_today: int = 0
-        self.died_today: int = 0
-        self.deaths_today_xy: List[Tuple[int,int]] = []
+    # ---------- Seeding ----------
+    def seed_from_coords(self, coords: List[Tuple[int, int]], day0: int = 0) -> None:
+        for (x, y) in coords:
+            if 0 <= x < self.width and 0 <= y < self.height:
+                self.cells.append(self._spawn_cell(x, y, day0))
 
-        self._rng = rng or np.random.default_rng()
+    def _spawn_cell(self, x: int, y: int, day: int) -> Cell:
+        c = Cell(x=x, y=y, state=CellState.ACTIVE, age_days=0, last_div_day=day)
+        if self.cfg.min_div_days <= self.cfg.max_div_days:
+            c.division_interval = int(self.rng.integers(self.cfg.min_div_days,
+                                                        self.cfg.max_div_days + 1))
+        else:
+            c.division_interval = None
+        return c
 
-    # -------------------------- helpers --------------------------
-    def _sample_cycle_days(self) -> int:
-        # inclusive range [min, max]
-        return int(self._rng.integers(self.min_div_days, self.max_div_days + 1))
+    # ---------- Day step ----------
+    def step_day(self, day: int) -> None:
+        cfg = self.cfg
+        rng = self.rng
 
-    def add_cell(self, c: Cell) -> None:
-        # Ensure ACTIVE cells have a valid division interval from config
-        if c.state == CellState.ACTIVE and (c.division_interval is None or c.division_interval < 1):
-            c.division_interval = self._sample_cycle_days()
-        self.agents.append(c)
-
-    def _occupancy_grid(self) -> np.ndarray:
-        occ = np.zeros((self.height, self.width), dtype=np.int16)
-        for a in self.agents:
-            # only live cells occupy space
-            if a.state in (CellState.ACTIVE, CellState.OSTEOBLAST):
-                occ[a.y, a.x] += 1
-        return occ
-
-    def _local_supersat(self, x:int, y:int) -> float:
-        if self.pde is None:
-            return 0.0
-        # collagen-templated supersaturation (bounded via tanh)
-        return float((self.pde.ca[y, x] * self.pde.po4[y, x]) *
-                     (1.0 + 1.5 * np.tanh(self.pde.collagen[y, x])))
-
-    # --------------------------- stepper -------------------------
-    def step_all(self, day: int) -> None:
-        # reset per-day logs/counters
-        self.last_collagen_added = 0.0
-        self.last_alp_added = 0.0
+        # reset daily trackers
         self.committed_today = 0
         self.died_today = 0
         self.deaths_today_xy = []
+        self.last_collagen_added = 0.0
+        self.last_alp_added = 0.0
 
-        occ = self._occupancy_grid()
-        daughters: List[Cell] = []
-        survivors: List[Cell] = []
+        # ---- Day 0: pure baseline (no state changes) ----
+        if day == 0:
+            # If you want migration on day 0, uncomment the two lines below.
+            # if cfg.enable_migration and cfg.p_move > 0.0:
+            #     self._do_movement(rng)
+            return
+        # -------------------------------------------------
 
-        for c in self.agents:
-            d = self._step_cell(c, day, occ)
-            if isinstance(d, Cell):
-                daughters.append(d)
-            # keep live cells only
-            if c.state != CellState.APOPTOTIC:
-                survivors.append(c)
+        # 1) Movement (if enabled)
+        if cfg.enable_migration and cfg.p_move > 0.0:
+            self._do_movement(rng)
 
-        self.agents = survivors + daughters
+        # 2) Commitment (ACTIVE → OSTEOBLAST)
+        if cfg.enable_commitment and cfg.base_commit_prob > 0.0:
+            self._do_commitment(day, rng)
 
-    def _step_cell(self, c: Cell, day: int, occ: np.ndarray) -> Optional[Cell]:
-        # 1) apoptosis → remove immediately (but record event + position)
-        if c.state in (CellState.ACTIVE, CellState.OSTEOBLAST) and self._rng.random() < self.apoptosis_prob:
-            c.state = CellState.APOPTOTIC
-            if c.day_died is None:
-                c.day_died = day
-            self.cum_died += 1
-            self.died_today += 1
-            self.deaths_today_xy.append((c.x, c.y))
-            # live-only occupancy: free the spot
-            if occ[c.y, c.x] > 0:
-                occ[c.y, c.x] -= 1
-            return None
-        if c.state == CellState.APOPTOTIC:
-            return None
+        # 3) Apoptosis
+        if cfg.enable_apoptosis and cfg.apoptosis_prob > 0.0:
+            self._do_apoptosis(day, rng)
 
-        # 2) random walk with occupancy update (guard against overcrowding)
-        if self.enable_migration and self._rng.random() < self.p_move:
-            oldx, oldy = c.x, c.y
-            dx, dy = [(-1,0),(1,0),(0,-1),(0,1)][self._rng.integers(0,4)]
-            nx = (c.x + dx) % self.width
-            ny = (c.y + dy) % self.height
-            if occ[ny, nx] < self.max_cell_density:
-                if occ[oldy, oldx] > 0:
-                    occ[oldy, oldx] -= 1
-                occ[ny, nx] += 1
-                c.x, c.y = nx, ny
-                c.trajectory.append((c.x, c.y))
-                c.move_count += 1
+        # Remove apoptotic cells immediately (keeps density “live-only”)
+        if self.died_today:
+            self._purge_apoptotic()
 
-        # 3) commitment (Dexa + local S + crowding)
-        if c.state == CellState.ACTIVE:
-            S = self._local_supersat(c.x, c.y)
-            # Dexa effect but moderated by local mineral environment
-            p_switch = 0.26 * (0.2 + 0.8 * self.dexa) * (S / (0.2 + S))
-            if occ[c.y, c.x] >= self.max_cell_density:
-                p_switch *= 3.0
-            if self._rng.random() < p_switch:
-                c.state = CellState.OSTEOBLAST
-                if not c.ever_ob:
-                    c.ever_ob = True
-                    c.day_committed = day
-                    self.cum_committed += 1
-                    self.committed_today += 1
+        # 4) Proliferation (ACTIVE only; osteoblasts never divide)
+        if cfg.enable_proliferation:
+            self._do_proliferation(day, rng)
 
-        # 4) proliferation — ONLY ACTIVE; reset parent's cycle clock; update occ
-        if c.state == CellState.ACTIVE:
-            age = day - c.day_created
-            if c.division_interval is None:
-                c.division_interval = self._sample_cycle_days()
-            if age >= c.division_interval and occ[c.y, c.x] < self.max_cell_density:
-                # Parent resets and resamples
-                c.day_created = day
-                c.division_interval = self._sample_cycle_days()
+        # 5) Secretion (osteoblasts contribute per day)
+        if cfg.enable_secretion:
+            self._do_secretion()
 
-                # Daughter inherits position; independent cycle
-                d = Cell(x=c.x, y=c.y, day_created=day, state=CellState.ACTIVE,
-                         division_interval=self._sample_cycle_days())
-                # Update live occupancy
-                occ[c.y, c.x] += 1
-                return d
+        # 6) Aging
+        for c in self.cells:
+            c.age_days += 1
 
-        # 5) secretion (per-cell, local) – consumption bookkeeping
-        if self.pde is not None:
-            if c.state == CellState.ACTIVE:
-                dc = 0.010 * self.aa
-                self.pde.collagen[c.y, c.x] += dc
-                self.last_collagen_added += dc
-            elif c.state == CellState.OSTEOBLAST:
-                dc = 0.020 * self.aa
-                da = 0.030 * self.dexa
-                self.pde.collagen[c.y, c.x] += dc
-                self.pde.alp[c.y, c.x]      += da
-                self.last_collagen_added += dc
-                self.last_alp_added      += da
-        return None
+    # ---------- Subsystems ----------
+    def _do_movement(self, rng: np.random.Generator) -> None:
+        w, h = self.width, self.height
+        p = self.cfg.p_move
+        # 4-neighborhood moves
+        deltas = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+        occ = {(c.x, c.y): c for c in self.cells}  # occupancy
+
+        for c in self.cells:
+            if c.state != CellState.ACTIVE:
+                continue
+            if rng.random() < p:
+                dx, dy = deltas[int(rng.integers(0, len(deltas)))]
+                nx, ny = c.x + dx, c.y + dy
+                if 0 <= nx < w and 0 <= ny < h and (nx, ny) not in occ:
+                    # update occupancy
+                    occ.pop((c.x, c.y), None)
+                    c.record_move(nx, ny)
+                    occ[(nx, ny)] = c
+
+    def _do_commitment(self, day: int, rng: np.random.Generator) -> None:
+        p = self.cfg.base_commit_prob
+        for c in self.cells:
+            if c.state == CellState.ACTIVE and rng.random() < p:
+                c.mark_committed(day)
+                self.committed_today += 1
+                self.cum_committed += 1
+
+    def _do_apoptosis(self, day: int, rng: np.random.Generator) -> None:
+        p = self.cfg.apoptosis_prob
+        for c in self.cells:
+            if c.state == CellState.APOPTOTIC:
+                continue
+            if rng.random() < p:
+                c.mark_apoptotic(day)
+                self.died_today += 1
+                self.cum_died += 1
+                self.deaths_today_xy.append((c.x, c.y))
+
+    def _purge_apoptotic(self) -> None:
+        self.cells = [c for c in self.cells if c.state != CellState.APOPTOTIC]
+
+    def _do_proliferation(self, day: int, rng: np.random.Generator) -> None:
+        # One cell per node (default). Spawn into empty von Neumann neighbor if division due.
+        if self.cfg.min_div_days > self.cfg.max_div_days:
+            return  # disabled via invalid window
+
+        w, h = self.width, self.height
+        deltas = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+        occ = {(c.x, c.y): True for c in self.cells}
+
+        new_cells: List[Cell] = []
+        for c in self.cells:
+            if c.state != CellState.ACTIVE:
+                continue
+            if c.division_interval is None or c.last_div_day is None:
+                continue
+            if (day - c.last_div_day) < c.division_interval:
+                continue
+
+            # try up to 4 neighbors for an empty slot
+            rng.shuffle(deltas)
+            for dx, dy in deltas:
+                nx, ny = c.x + dx, c.y + dy
+                if 0 <= nx < w and 0 <= ny < h and (nx, ny) not in occ:
+                    child = self._spawn_cell(nx, ny, day)
+                    new_cells.append(child)
+                    occ[(nx, ny)] = True
+                    c.last_div_day = day
+                    # re-sample next division interval for parent and set for child
+                    break
+            # If all neighbors are full, skip division (contact inhibition).
+
+        if new_cells:
+            self.cells.extend(new_cells)
+
+    def _do_secretion(self) -> None:
+        # Only if a PDE object is connected AND declares collagen/alp sinks
+        if self.pde is None:
+            return
+        n_ob = sum(1 for c in self.cells if c.state == CellState.OSTEOBLAST)
+        if n_ob == 0:
+            return
+
+        collagen = float(n_ob) * self.cfg.collagen_per_ob
+        alp = float(n_ob) * self.cfg.alp_per_ob
+
+        if hasattr(self.pde, "add_collagen"):
+            self.pde.add_collagen(collagen)
+            self.last_collagen_added = collagen
+        if hasattr(self.pde, "add_alp"):
+            self.pde.add_alp(alp)
+            self.last_alp_added = alp

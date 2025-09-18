@@ -1,280 +1,304 @@
 from __future__ import annotations
 from pathlib import Path
-from typing import Sequence, Dict, Tuple
-import numpy as np
+from typing import List, Tuple
 import polars as pl
+import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
-import matplotlib.patheffects as pe
-from matplotlib.lines import Line2D
+from matplotlib.colors import ListedColormap, BoundaryNorm
+from matplotlib.patches import Patch
 
 __all__ = ["plot_summary", "export_single_panels"]
 
-# ------------------------------- Styling -------------------------------------
-plt.rcParams.update({
-    "figure.dpi": 300, "savefig.dpi": 300,
-    "figure.facecolor": "white", "axes.facecolor": "white",
-    "axes.edgecolor": "black", "axes.linewidth": 0.8,
-    "font.family": "DejaVu Sans", "font.size": 9,
-    "axes.titlesize": 11, "legend.fontsize": 8,
-    "xtick.labelsize": 8, "ytick.labelsize": 8,
-})
-
-# state_id: (label, color, marker)
-STATE_INFO: Dict[int, Tuple[str, str, str]] = {
-    1: ("Active",     "#2ca02c", "o"),
-    2: ("Apoptotic",  "#d62728", "X"),
-    3: ("Osteoblast", "#1f77b4", "s"),
+# --------------------- colors (Active ↔ Osteoblast swapped) ---------------------
+COLORS = {
+    "total":        "#000000",
+    "active":       "#009E73",  # green
+    "osteoblast":   "#56B4E9",  # blue
+    "apoptotic":    "#D55E00",  # orange/red
+    "cum committed":"#E69F00",
+    "cum died":     "#D55E00",
+    "collagen":     "#0072B2",
+    "alp":          "#CC79A7",
+    "ha":           "#666666",
+    "commit":       "#E69F00",
+    "death":        "#D55E00",
 }
 
-CMAP = {
-    "collagen": "Greens",
-    "alp":      "Reds",
-    "acp":      "Blues",
-    "ha":       "Purples",
-    "density":  "YlGnBu",
-    "nodule":   "Greens",
-}
+# distinct overlay tints for split deaths
+OVERLAY_DEAD_ACTIVE = (0.90, 0.45, 0.00, 0.80)   # orange-ish
+OVERLAY_DEAD_OB     = (0.25, 0.20, 0.55, 0.80)   # purple-ish
+OVERLAY_DEAD_TOTAL  = (0.84, 0.37, 0.00, 0.80)   # fallback single mask
 
-# ----------------------------- Helpers ---------------------------------------
-def _vlines(ax, xs=(7, 14, 21)):
-    for x in xs:
-        ax.axvline(x, ls="--", lw=1, color="#8a8a8a", alpha=0.6)
-
-def _read_table(pathlike):
-    p = Path(pathlike)
-    ext = p.suffix.lower()
-    if ext in (".parquet", ".pq"):
-        return pl.read_parquet(p)
-    if ext in (".xlsx", ".xls"):
-        return pl.read_excel(p)
-    if ext == ".csv":
-        return pl.read_csv(p)
-    for reader in (pl.read_excel, pl.read_parquet, pl.read_csv):
-        try:
-            return reader(p)
-        except Exception:
-            continue
-    raise ValueError(f"Unsupported results file: {p}")
-
-def _load_cumulative_deaths(src_dir: Path, up_to_day: int) -> tuple[np.ndarray, np.ndarray]:
-    """Load and stack all deaths_{d}.csv for d ≤ up_to_day. Returns (xs, ys) or (empty, empty)."""
-    xs_all, ys_all = [], []
-    for d in range(1, up_to_day + 1):
-        f = src_dir / f"deaths_{d}.csv"
-        if f.exists():
-            try:
-                df = pl.read_csv(f)
-                if {"x", "y"}.issubset(df.columns):
-                    xs_all.append(df["x"].to_numpy())
-                    ys_all.append(df["y"].to_numpy())
-            except Exception:
-                pass
-    if xs_all:
-        return np.concatenate(xs_all), np.concatenate(ys_all)
-    return np.array([], dtype=int), np.array([], dtype=int)
-
-# ---------------------------- Time-series figure -----------------------------
-def plot_summary(results_path: str | Path, output: str | Path = "summary.png") -> None:
-    """Time-series summary figure from results.xlsx/.csv/.parquet."""
-    df = _read_table(results_path)
-    days = df["Day"].to_numpy()
-
-    fig, axarr = plt.subplots(3, 3, figsize=(13, 9), constrained_layout=True)
-
-    # cell counts (+ cumulative)
-    ax = axarr[0, 0]
-    for lbl, col, _ in STATE_INFO.values():
-        colname = f"Cells_{lbl}"
-        if colname in df.columns:
-            pretty = "Apoptotic (daily)" if lbl == "Apoptotic" else lbl
-            ax.plot(days, df[colname].to_numpy(), lw=2.2, color=col, label=pretty,
-                    path_effects=[pe.Stroke(linewidth=3, foreground="white"), pe.Normal()])
-    if "Cells_Osteoblast_Cum" in df.columns and "Cells_Apoptotic_Cum" in df.columns:
-        ax.plot(days, df["Cells_Osteoblast_Cum"].to_numpy(), ls="--", lw=1.6,
-                color=STATE_INFO[3][1], label="Osteoblast (cum)")
-        ax.plot(days, df["Cells_Apoptotic_Cum"].to_numpy(), ls="--", lw=1.6,
-                color=STATE_INFO[2][1], label="Apoptotic (cum)")
-    _vlines(ax); ax.set(title="Cell counts", xlabel="Day", ylabel="Count")
-    ax.legend(frameon=False, ncol=3, loc="upper left")
-
-    panels = [
-        (axarr[0,1], "Collagen_Avg", "Collagen (ECM)"),
-        (axarr[0,2], "ALP_Avg", "ALP"),
-        (axarr[1,0], "ACP_Avg", "Amorphous CaP"),
-        (axarr[1,1], "HA_Avg",  "Hydroxyapatite"),
-        (axarr[1,2], "Nodule_Index", "Nodule index (clustered HA mass)"),
-        (axarr[2,0], "Ca_Avg",  "Ca²⁺"),
-        (axarr[2,1], "PO4_Avg", "PO₄³⁻"),
-        (axarr[2,2], "Supersat_Avg", "Supersaturation ⟨S⟩"),
-    ]
-    for a, col, title in panels:
-        if col in df.columns:
-            a.plot(days, df[col].to_numpy(), lw=2, color="black")
-            _vlines(a)
-            a.set(title=title, xlabel="Day")
-        else:
-            a.axis("off")
-
-    fig.savefig(output)
-    plt.close(fig)
-    print(f"[viz] summary → {output}")
-
-# ------------------------- Single-panel export utils -------------------------
-def _save_field_imshow(arr: np.ndarray, title: str, outpath: Path,
-                       cmap: str, log: bool = False,
-                       vmin: float | None = None, vmax: float | None = None) -> None:
-    """Save a single field as PNG with robust scaling."""
-    fig, ax = plt.subplots(figsize=(4.8, 4.8))
-    ax.set_title(title, pad=6)
-
-    if log:
-        if np.any(arr > 0):
-            vmin = max(vmin or np.percentile(arr[arr > 0], 1), 1e-9)
-            vmax = vmax or np.percentile(arr, 99.9)
-            vmax = max(vmax, vmin * 1.01)
-            norm = mcolors.LogNorm(vmin=vmin, vmax=vmax)
-            im = ax.imshow(arr, cmap=cmap, origin="lower", norm=norm)
-        else:
-            im = ax.imshow(arr, cmap=cmap, origin="lower")
+# --------------------- helpers ---------------------
+def _to_pandas(df: pl.DataFrame) -> pd.DataFrame:
+    pdf = df.to_pandas()
+    if {"free_ca", "free_pi"}.issubset(pdf.columns):
+        pdf["ha_proxy"] = (1.0 - pdf[["free_ca", "free_pi"]].min(axis=1)).clip(lower=0.0)
     else:
-        if vmin is None: vmin = np.percentile(arr, 1)
-        if vmax is None: vmax = np.percentile(arr, 99.5)
-        if vmin == vmax: vmax = vmin + 1e-9
-        im = ax.imshow(arr, cmap=cmap, origin="lower", vmin=vmin, vmax=vmax)
+        if "ha_proxy" not in pdf.columns:
+            pdf["ha_proxy"] = np.nan
+    return pdf
 
-    ax.set_xticks([]); ax.set_yticks([])
-    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.03)
-    for spine in ax.spines.values(): spine.set_visible(False)
-    fig.tight_layout()
-    out = Path(outpath).with_suffix(".png")
-    fig.savefig(out)
+def _find(paths_dir: Path, pattern: str) -> List[Path]:
+    return sorted((paths_dir.glob(pattern))) if paths_dir.exists() else []
+
+def _nearest_upsample(arr: np.ndarray, scale: int) -> np.ndarray:
+    return np.kron(arr, np.ones((scale, scale), dtype=arr.dtype))
+
+def _load(path: Path) -> np.ndarray | None:
+    try:
+        return np.load(path) if path.exists() else None
+    except Exception as e:
+        print(f"[viz] Failed to load {path}: {e}")
+        return None
+
+def _state_colormap() -> Tuple[ListedColormap, BoundaryNorm, dict]:
+    """0=empty, 1=ACTIVE, 2=APOPTOTIC, 3=OSTEOBLAST"""
+    colors = ["#FFFFFF", COLORS["active"], COLORS["apoptotic"], COLORS["osteoblast"]]
+    cmap = ListedColormap(colors)
+    bounds = [-0.5, 0.5, 1.5, 2.5, 3.5]
+    norm = BoundaryNorm(bounds, cmap.N)
+    legend = {"Active": COLORS["active"], "Apoptotic": COLORS["apoptotic"], "Osteoblast": COLORS["osteoblast"]}
+    return cmap, norm, legend
+
+def _load_cumulative_any(gdir: Path, day: int) -> np.ndarray | None:
+    """OR all deaths_day_000..day masks; returns None if none exist."""
+    cum = None
+    for d in range(day + 1):
+        p = gdir / f"deaths_day_{d:03d}.npy"
+        if p.exists():
+            arr = _load(p)
+            if arr is None:
+                continue
+            arr = arr.astype(np.uint8)
+            cum = arr if cum is None else np.maximum(cum, arr)
+    return cum
+
+def _load_cumulative_split(gdir: Path, day: int) -> tuple[np.ndarray | None, np.ndarray | None]:
+    """
+    Optional split: deaths_active_day_###.npy and deaths_ob_day_###.npy.
+    Returns (cum_dead_active, cum_dead_ob) or (None, None) if not available.
+    """
+    cum_a, cum_ob = None, None
+    found_any = False
+    for d in range(day + 1):
+        pa = gdir / f"deaths_active_day_{d:03d}.npy"
+        po = gdir / f"deaths_ob_day_{d:03d}.npy"
+        if pa.exists():
+            found_any = True
+            aa = _load(pa)
+            if aa is not None:
+                aa = aa.astype(np.uint8)
+                cum_a = aa if cum_a is None else np.maximum(cum_a, aa)
+        if po.exists():
+            found_any = True
+            oo = _load(po)
+            if oo is not None:
+                oo = oo.astype(np.uint8)
+                cum_ob = oo if cum_ob is None else np.maximum(cum_ob, oo)
+    if not found_any:
+        return None, None
+    return cum_a, cum_ob
+
+def _finish_ax(ax, title: str, xlabel: str, ylabel: str, legend_loc="best"):
+    ax.set_title(title, fontsize=12, weight="bold")
+    ax.set_xlabel(xlabel, fontsize=10)
+    ax.set_ylabel(ylabel, fontsize=10)
+    ax.grid(True, which="major", color="#EAEAEA")
+    ax.grid(True, which="minor", color="#F3F3F3", alpha=0.6)
+    ax.legend(loc=legend_loc, frameon=False, fontsize=9)
+
+def _save_fig(fig: plt.Figure, path: Path, dpi=450):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(str(path), dpi=dpi, bbox_inches="tight", facecolor="white")
     plt.close(fig)
 
-def _compute_nodule_map(ha: np.ndarray) -> np.ndarray:
-    """Robust nodule mask from HA (progressive threshold + local mean; fallback Otsu)."""
-    if not np.any(ha > 0):
-        return np.zeros_like(ha, dtype=float)
+# --------------------- SUMMARY FIGURES (matplotlib only) ---------------------
+def plot_summary(df: pl.DataFrame, outdir: str | Path) -> Path:
+    out = Path(outdir); out.mkdir(parents=True, exist_ok=True)
+    pdf = _to_pandas(df).copy()
 
-    nz = ha[ha > 0.0]
-    H, W = ha.shape
-    for q, local_frac in [(99.9, 0.6), (99.5, 0.55), (99.0, 0.5), (97.5, 0.45), (95.0, 0.40)]:
-        tau = float(np.quantile(nz, q / 100.0))
-        sum9 = (ha + np.roll(ha,1,0)+np.roll(ha,-1,0)+np.roll(ha,1,1)+np.roll(ha,-1,1)+
-                np.roll(np.roll(ha,1,0),1,1)+np.roll(np.roll(ha,1,0),-1,1)+
-                np.roll(np.roll(ha,-1,0),1,1)+np.roll(np.roll(ha,-1,0),-1,1))
-        local_mean = sum9 / 9.0
-        mask = ((ha > tau) & (local_mean > local_frac * tau))
-        if int(mask.sum()) >= max(5, int(0.0005 * H * W)):
-            return mask.astype(float)
+    # Safe defaults
+    for c in ["n_total", "n_active", "n_osteoblast", "cum_committed", "cum_died",
+              "collagen_total", "alp_total", "ha_proxy", "committed_today", "died_today"]:
+        if c not in pdf.columns:
+            pdf[c] = 0 if "cum" in c or "n_" in c or "today" in c else np.nan
 
-    x = np.log1p(ha)
-    hist, edges = np.histogram(x, bins=256)
-    w0, w1 = np.cumsum(hist), np.cumsum(hist[::-1])[::-1]
-    mu = np.cumsum(hist * (edges[:-1] + edges[1:]) / 2)
-    mu_t = mu[-1]
-    sigma_b2 = (mu_t * w0 - mu) ** 2 / (w0 * (w1 + 1e-12) + 1e-12)
-    t_idx = int(np.nanargmax(sigma_b2))
-    thr = (edges[t_idx] + edges[t_idx + 1]) / 2
-    return (x > thr).astype(float)
+    x = pdf["day"].to_numpy()
 
-def _plot_cell_states(cells_df: "pl.DataFrame", shape_hw: tuple[int, int],
-                      day: int, outpath: Path, src_dir: Path | None = None,
-                      max_points_per_state: int = 2000) -> None:
-    """
-    Scatter agents with crisp markers and counts per state (PNG only).
-    If src_dir is provided, overlays **Apoptotic (cumulative)** using all
-    deaths_{d}.csv for d ≤ day.
-    """
-    rng = np.random.default_rng(42)
-    H, W = shape_hw
-    fig, ax = plt.subplots(figsize=(5.0, 5.0))
-    ax.set_title(f"Cell states — Day {day}", pad=6)
-    ax.set_xlim(0, W-1); ax.set_ylim(0, H-1)
-    ax.set_xticks([]); ax.set_yticks([])
-    for spine in ax.spines.values():
-        spine.set_linewidth(0.8)
+    # 01) Absolute counts
+    fig, ax = plt.subplots(figsize=(8.8, 4.8))
+    ax.plot(x, pdf["n_total"], label="Total", linewidth=2.0, color=COLORS["total"])
+    ax.plot(x, pdf["n_active"], label="Active", linewidth=2.0, color=COLORS["active"])
+    ax.plot(x, pdf["n_osteoblast"], label="Osteoblast", linewidth=2.0, color=COLORS["osteoblast"])
+    ax.set_ylim(bottom=0)
+    _finish_ax(ax, "Agent-based cell counts", "Day", "Cells")
+    _save_fig(fig, out / "01_states_counts.png")
 
-    handles, labels = [], []
+    # 02) Cumulative events
+    fig, ax = plt.subplots(figsize=(8.8, 4.8))
+    ax.plot(x, pdf["cum_committed"], label="Committed (cum)", linewidth=2.0, color=COLORS["cum committed"])
+    ax.plot(x, pdf["cum_died"], label="Died (cum)", linewidth=2.0, color=COLORS["cum died"], linestyle="--")
+    ax.set_ylim(bottom=0)
+    _finish_ax(ax, "Cumulative events", "Day", "Cumulative count")
+    _save_fig(fig, out / "02_events_cumulative.png")
 
-    # Live states
-    for st, (lbl, colr, marker) in STATE_INFO.items():
-        sub = cells_df.filter(pl.col("state") == st)
-        if sub.height == 0:
-            continue
-        xs = sub["x"].to_numpy(); ys = sub["y"].to_numpy()
-        if sub.height > max_points_per_state:
-            idx = rng.choice(sub.height, size=max_points_per_state, replace=False)
-            xs, ys = xs[idx], ys[idx]
-        ax.scatter(xs, ys, c=colr, marker=marker, s=18,
-                   edgecolor="black", linewidths=0.25, alpha=0.95, zorder=3)
-        lbl_pretty = "Apoptotic (present)" if lbl == "Apoptotic" else lbl
-        handles.append(Line2D([], [], ls="", marker=marker, markersize=6,
-                              markerfacecolor=colr, markeredgecolor="black"))
-        labels.append(f"{lbl_pretty} (n={sub.height})")
+    # 03) Matrix/biochem + HA proxy
+    fig, ax = plt.subplots(figsize=(8.8, 4.8))
+    ax.plot(x, pdf["collagen_total"], label="Collagen (total)", linewidth=2.0, color=COLORS["collagen"])
+    ax.plot(x, pdf["alp_total"], label="ALP (total)", linewidth=2.0, color=COLORS["alp"])
+    ax.plot(x, pdf["ha_proxy"], label="HA proxy (1−min)", linewidth=2.0, color=COLORS["ha"])
+    _finish_ax(ax, "Matrix & biochem", "Day", "a.u.")
+    _save_fig(fig, out / "03_matrix_biochem.png")
 
-    # Cumulative deaths overlay (X markers, slightly larger)
-    if src_dir is not None:
-        xs, ys = _load_cumulative_deaths(src_dir, day)
-        if xs.size > 0:
-            lbl, colr, marker = STATE_INFO[2]
-            ax.scatter(xs, ys, c=colr, marker=marker, s=26,
-                       edgecolor="black", linewidths=0.4, alpha=0.95, zorder=4)
-            handles.append(Line2D([], [], ls="", marker=marker, markersize=6,
-                                  markerfacecolor=colr, markeredgecolor="black"))
-            labels.append(f"Apoptotic (n={xs.size})")
+    # 04) Daily events (bars)
+    fig, ax = plt.subplots(figsize=(8.8, 4.8))
+    width = 0.45
+    ax.bar(x - width/2, pdf["committed_today"], width=width, label="Committed (today)", color=COLORS["commit"])
+    ax.bar(x + width/2, pdf["died_today"],      width=width, label="Died (today)",      color=COLORS["death"])
+    _finish_ax(ax, "Daily events", "Day", "Count")
+    _save_fig(fig, out / "04_events_daily.png")
 
-    ax.legend(handles, labels, frameon=False, loc="lower right", ncol=1)
-    fig.tight_layout()
-    out = Path(outpath).with_suffix(".png")
-    fig.savefig(out)
+    return out / "01_states_counts.png"
+
+# --------------------- SPATIAL MAPS (true states + split/cumulative deaths overlay) ---------------------
+def _render_spatial_panel(
+    state_grid: np.ndarray,
+    deaths_cum_any: np.ndarray | None,
+    deaths_cum_active: np.ndarray | None,
+    deaths_cum_ob: np.ndarray | None,
+    out_png: Path,
+    day: int,
+    dpi: int = 500,
+    scale: int = 8
+) -> None:
+    cmap, norm, legend = _state_colormap()
+
+    if state_grid is None:
+        print(f"[viz] Missing state grid for day {day}, skipped.")
+        return
+
+    # Alive counts from state grid
+    bc = np.bincount(state_grid.ravel().astype(np.int16), minlength=4)
+    active_alive, apoptotic_alive, ob_alive = int(bc[1]), int(bc[2]), int(bc[3])
+
+    # Split death counts if present, else use the any-mask
+    n_dead_act = int((deaths_cum_active > 0).sum()) if deaths_cum_active is not None else 0
+    n_dead_ob  = int((deaths_cum_ob > 0).sum()) if deaths_cum_ob is not None else 0
+    n_dead_any = int((deaths_cum_any > 0).sum()) if deaths_cum_any is not None else (n_dead_act + n_dead_ob)
+
+    # Prefer split totals if available
+    died_total = (n_dead_act + n_dead_ob) if (deaths_cum_active is not None or deaths_cum_ob is not None) else n_dead_any
+
+    # Total = alive(active+OB) + Apoptotic total
+    total_all = active_alive + ob_alive + died_total
+
+    # Upscale for crisp viewing
+    big = _nearest_upsample(state_grid, scale=scale)
+    h, w = big.shape
+
+    fig = plt.figure(figsize=(w/130, h/130), dpi=130)
+    ax = plt.axes([0.02, 0.08, 0.76, 0.90])  # room for legend
+    ax.imshow(big, cmap=cmap, norm=norm, interpolation="nearest", origin="upper")
+    ax.set_axis_off()
+
+    # --- overlays ---
+    # Split overlays if available
+    if deaths_cum_active is not None or deaths_cum_ob is not None:
+        if deaths_cum_active is not None:
+            overlay_a = _nearest_upsample((deaths_cum_active > 0).astype(np.uint8), scale=scale)
+            cmap_a = ListedColormap([(1, 1, 1, 0), OVERLAY_DEAD_ACTIVE])
+            ax.imshow(overlay_a, cmap=cmap_a, interpolation="nearest", origin="upper")
+        if deaths_cum_ob is not None:
+            overlay_ob = _nearest_upsample((deaths_cum_ob > 0).astype(np.uint8), scale=scale)
+            cmap_ob = ListedColormap([(1, 1, 1, 0), OVERLAY_DEAD_OB])
+            ax.imshow(overlay_ob, cmap=cmap_ob, interpolation="nearest", origin="upper")
+    # Fallback overlay (single cumulative mask)
+    elif deaths_cum_any is not None:
+        overlay_any = _nearest_upsample((deaths_cum_any > 0).astype(np.uint8), scale=scale)
+        cmap_any = ListedColormap([(1, 1, 1, 0), OVERLAY_DEAD_TOTAL])
+        ax.imshow(overlay_any, cmap=cmap_any, interpolation="nearest", origin="upper")
+
+    # Legend (outside)
+    handles = [
+        Patch(facecolor=legend["Active"], edgecolor="#222222", label=f"Active ({active_alive})"),
+        Patch(facecolor=legend["Osteoblast"], edgecolor="#222222", label=f"Osteoblast ({ob_alive})"),
+    ]
+
+    # Add split death legend if present
+    if deaths_cum_active is not None or deaths_cum_ob is not None:
+        if deaths_cum_active is not None:
+            handles.append(Patch(facecolor=OVERLAY_DEAD_ACTIVE, edgecolor="#222222",
+                                 label=f"Died while active ({n_dead_act})"))
+        if deaths_cum_ob is not None:
+            handles.append(Patch(facecolor=OVERLAY_DEAD_OB, edgecolor="#222222",
+                                 label=f"Died while osteoblast ({n_dead_ob})"))
+        handles.append(Patch(facecolor=(0.85, 0.85, 0.85, 0.7), edgecolor="#222222",
+                             label=f"Apoptotic total ({died_total})"))
+    else:
+        # Fallback: only total
+        handles.append(Patch(facecolor=COLORS["cum died"], edgecolor="#222222",
+                             label=f"Apoptotic total ({n_dead_any})"))
+
+    leg_ax = fig.add_axes([0.80, 0.23, 0.18, 0.54]); leg_ax.axis("off")
+    leg_ax.legend(handles=handles, loc="upper left", frameon=False, fontsize=10)
+
+    # Title with exact breakdown
+    title = (
+        f"Day {day}  |  Total {total_all} cells  |  "
+        f"act: {active_alive}, osteo: {ob_alive}, dead: {died_total}"
+    )
+    fig.suptitle(title, fontsize=14, fontweight="bold", x=0.02, ha="left", y=0.99)
+
+    out_png.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(str(out_png), dpi=dpi, bbox_inches="tight", pad_inches=0.04, facecolor="white")
     plt.close(fig)
 
-# ----------------------------- Public API ------------------------------------
-def export_single_panels(snapshot_dir: str | Path,
-                         days: Sequence[int],
-                         out_dir: str | Path = "panels_pub") -> None:
+def export_single_panels(df: pl.DataFrame, outdir: str | Path) -> None:
     """
-    Exports SEPARATE publication-ready panels for each requested day (PNG only):
-      - cell_states_day{d}.png   (Active, Osteoblast, and Apoptotic cumulative overlay)
-      - nodule_day{d}.png
-      - ha_day{d}.png            [log scale]
-      - collagen_day{d}.png
-      - density_day{d}.png
+    Renders spatial maps for first, middle, last day using:
+      <out>/grids/state_day_###.npy
+      Optional split overlays:
+        <out>/grids/deaths_active_day_###.npy
+        <out>/grids/deaths_ob_day_###.npy
+      Fallback single overlay:
+        <out>/grids/deaths_day_###.npy
     """
-    src, dst = Path(snapshot_dir), Path(out_dir)
-    dst.mkdir(parents=True, exist_ok=True)
-    for day in days:
+    out = Path(outdir)
+    gdir = out / "grids"
+    states = _find(gdir, "state_day_*.npy")
+    if not states:
+        print(f"[viz] No state grids at {gdir}. Skipping spatial maps.")
+        return
+
+    picks = [states[0], states[len(states)//2], states[-1]]
+
+    for spath in picks:
         try:
-            col = np.load(src / f"col_{day}.npy")
-            ha  = np.load(src / f"ha_{day}.npy")
-            dens = np.load(src / f"density_{day}.npy")
-            cells = pl.read_csv(src / f"cells_{day}.csv")
-        except FileNotFoundError:
-            print(f"[viz] panels: missing snapshot day {day}")
+            day = int(spath.stem.split("_")[-1])
+        except Exception:
+            print(f"[viz] Could not parse day from {spath.name}, skipping.")
             continue
 
-        # 1) Cell states (with cumulative deaths overlay)
-        _plot_cell_states(cells, shape_hw=ha.shape, day=day,
-                          outpath=dst / f"cell_states_day{day}",
-                          src_dir=src)
+        sgrid = _load(spath)
+        if sgrid is None:
+            print(f"[viz] Invalid state grid at {spath}, skipping.")
+            continue
 
-        # 2) Nodule map (robust, non-cumulative; or switch to cumulative logic if desired)
-        nodule = _compute_nodule_map(ha)
-        _save_field_imshow(nodule, f"Nodule map — Day {day}",
-                           dst / f"nodule_day{day}", cmap=CMAP["nodule"],
-                           log=False, vmin=0.0, vmax=1.0)
+        # Try split; if not available, fall back to single cumulative mask
+        cum_a, cum_ob = _load_cumulative_split(gdir, day)
+        cum_any = _load_cumulative_any(gdir, day) if (cum_a is None and cum_ob is None) else None
 
-        # 3) HA (log scale)
-        _save_field_imshow(ha, f"Hydroxyapatite (HA) — Day {day}",
-                           dst / f"ha_day{day}", cmap=CMAP["ha"], log=True)
-
-        # 4) Collagen
-        _save_field_imshow(col, f"Collagen — Day {day}",
-                           dst / f"collagen_day{day}", cmap=CMAP["collagen"], log=False)
-
-        # 5) Cell density (live occupancy)
-        _save_field_imshow(dens.astype(float), f"Cell density — Day {day}",
-                           dst / f"density_day{day}", cmap=CMAP["density"], log=False)
-
-        print(f"[viz] wrote panels for day {day} → {dst.resolve()}")
+        out_png = out / f"spatial_day_{day:03d}.png"
+        _render_spatial_panel(
+            sgrid,
+            cum_any,
+            cum_a,
+            cum_ob,
+            out_png,
+            day=day,
+            dpi=500,
+            scale=8
+        )
+        print(f"[viz] wrote {out_png}")
