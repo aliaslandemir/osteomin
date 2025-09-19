@@ -46,35 +46,30 @@ class ABMManager:
 
     # ----- step -----
     def step_day(self, day: int) -> None:
-        # reset dailies
         self.dead_cells = []
         self.dead_active_coords = []
         self.dead_ob_coords = []
         self.committed_today = 0
 
-        # migration
         if self.cfg.enable_migration:
             self._migration_step()
 
-        # commitment
-        if self.cfg.enable_commitment:
-            self._commitment_step(day)
-
-        # apoptosis
-        if self.cfg.enable_apoptosis:
-            self._apoptosis_step(day)
-
-        # proliferation
+        # MOVE proliferation BEFORE commitment
         if self.cfg.enable_proliferation:
             self._proliferation_step(day)
 
-        # secretion
+        if self.cfg.enable_commitment:
+            self._commitment_step(day)
+
+        if self.cfg.enable_apoptosis:
+            self._apoptosis_step(day)
+
         if self.cfg.enable_secretion:
             self._secretion_step()
 
-        # PDE tick last
         if self.pde is not None:
             self.pde.step_day()
+
 
     # ---- internals ----
     def _neighbors4(self, x: int, y: int):
@@ -113,12 +108,22 @@ class ABMManager:
                 steps += 1
 
     def _commitment_step(self, day: int) -> None:
-        p = float(self.cfg.base_commit_prob)
-        if p <= 0.0: return
+        # Scale probability by occupancy (optional realism tweak)
+        occ = (self.occupancy != -1).mean()  # fraction of grid occupied
+        p = float(self.cfg.base_commit_prob) * (0.9 + 0.5 * occ)
+        if p <= 0.0:
+            return
+
         for c in self.cells:
-            if c.state == CellState.ACTIVE and self.rng.random() < p:
+            # Add an age guard: don't let brand-new daughters commit immediately
+            if (
+                c.state == CellState.ACTIVE
+                and (day - c.last_div_day) >= 1
+                and self.rng.random() < p
+            ):
                 c.mark_committed(day)
                 self.committed_today += 1
+
 
     def _apoptosis_step(self, day: int) -> None:
         died_indices = []

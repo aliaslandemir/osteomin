@@ -17,7 +17,7 @@ class Cell:
     y: int
     state: CellState = CellState.ACTIVE
     last_div_day: int = 0
-    division_interval: int = 3
+    division_interval: int = 2
     move_count: int = 0
     trajectory: List[Tuple[int,int]] = field(default_factory=list)
     ever_ob: bool = False

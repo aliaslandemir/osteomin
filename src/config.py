@@ -12,7 +12,7 @@ class ABMConfig:
     enable_apoptosis: bool = True
     enable_proliferation: bool = True
     enable_secretion: bool = True
-    base_commit_prob: float = 0.3
+    base_commit_prob: float = 0.5
     apoptosis_prob: float = 0.01
     min_div_days: int = 2
     max_div_days: int = 3

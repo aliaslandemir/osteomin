@@ -1,6 +1,6 @@
 {
   "days": 21,
-  "seed": 64194103,
+  "seed": 1782131786,
   "abm_cfg": {
     "width": 100,
     "height": 100,
@@ -9,7 +9,7 @@
     "enable_apoptosis": true,
     "enable_proliferation": true,
     "enable_secretion": true,
-    "base_commit_prob": 0.3,
+    "base_commit_prob": 0.5,
     "apoptosis_prob": 0.01,
     "min_div_days": 2,
     "max_div_days": 3,
