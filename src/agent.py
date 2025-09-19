@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import IntEnum
@@ -17,14 +16,10 @@ class Cell:
     x: int
     y: int
     state: CellState = CellState.ACTIVE
-
-    age_days: int = 0
-    last_div_day: Optional[int] = None
-    division_interval: Optional[int] = None
-
-    trajectory: List[Tuple[int, int]] = field(default_factory=list, init=False)
+    last_div_day: int = 0
+    division_interval: int = 3
     move_count: int = 0
-
+    trajectory: List[Tuple[int,int]] = field(default_factory=list)
     ever_ob: bool = False
     day_committed: Optional[int] = None
     day_died: Optional[int] = None

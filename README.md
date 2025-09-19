@@ -1,111 +1,127 @@
-# 🧬 **Osteogenic Potential of MC3T3-E1 (osteomin)**
-*A 2-D, object-oriented simulator of MC3T3-E1 osteogenic differentiation on coverslips*
+# OsteoMin – Agent-Based & PDE Bone Remodeling Simulator
 
----
+## 📂 Project Structure
 
-## 📖 Overview
-**osteomin** is a lightweight agent-based + field simulator for **bone biomineralization** studies.  
-It models **MC3T3-E1 pre-osteoblasts** on **2-D coverslips** in osteogenic medium containing:
-
-- 🍊 **Ascorbic Acid (AA)** — stimulates collagen deposition  
-- 🧴 **β-Glycerophosphate (β-GP)** — phosphate reservoir (ALP-hydrolyzed)  
-- 💊 **Dexamethasone (Dexa)** — biases osteogenic commitment & ALP secretion  
-- 🟨 **Vitamin K2 (MK-4)** — accelerates **ACP → HA** maturation
-
-Supplements are **present from day 0-2**, **consumed** as cells use them, and **replenished** on each **media change**.
-
----
-
-## ✨ Features
-- 📐 **Object-oriented design** — clear modules in `src/` (ABM, PDE/kinetics, I/O, viz)
-- 🧫 **ABM** — proliferation, migration, apoptosis, osteoblast commitment
-- 🔬 **Local kinetics** — β-GP → PO₄³⁻ (ALP), collagen-guided ACP nucleation, MK-4-scaled HA maturation
-- 🧪 **Supplement dynamics** — AA, Dexa, MK-4 **deplete with use** and **reset** on media change
-- 📊 **Outputs**
-  - `results.xlsx` (when `--xlsx` is set) — daily metrics (ions, ECM/mineral, cell states, supplements)
-  - PNG time-series: `01_states_counts.png`, `02_events_cumulative.png`, `03_matrix_biochem.png`, `04_events_daily.png`
-  - Spatial panels for selected days: `spatial_day_###.png`
-  - Raw grids (for overlays): `out/grids/state_day_###.npy`, `deaths_day_###.npy` (and optionally split masks)
-
----
-
-## 📂 Repository Structure
 ```
-osteomin/
-├─ main.py                 # CLI entry point
-├─ requirements.txt
-├─ README.md
-└─ src/
-   ├─ agent.py             # Cell object & state enum
-   ├─ abm_manager.py       # Cell behavior logic (prolif/move/commit/apoptosis)
-   ├─ pde_manager.py       # Local chemistry/kinetics (no spatial diffusion)
-   ├─ model.py             # ABM↔fields coupling, supplements, run loop
-   ├─ config.py            # Tunable parameters
-   ├─ io_utils.py          # Excel/CSV writers + optional snapshots
-   └─ viz.py               # Matplotlib summary & per-day panel plotting
+.
+├── main.py           # Entry point (run from here)
+├── README.md         # This file
+├── requirements.txt  # Dependencies (include openpyxl, numpy, matplotlib, etc.)
+├── out/              # Default output folder
+└── src/              # Python package
+    ├── __init__.py
+    ├── abm_manager.py
+    ├── agent.py
+    ├── config.py
+    ├── io_utils.py
+    ├── model.py
+    ├── pde_manager.py
+    └── viz.py
+```
+
+> ✅ **Imports:** `main.py` uses `from src.model import OsteoModel`. Keep modules in `src/` as shown.
+
+---
+
+## ▶️ Quick Start
+
+```bash
+# Create venv & install deps
+python -m venv .venv
+source .venv/bin/activate   # (Windows: .venv\Scripts\activate)
+pip install -r requirements.txt
+
+# Run with defaults
+python main.py
 ```
 
 ---
 
-## ⚙️ Command-line Options
-| Flag              | Default      | Description                                                       |
-|-------------------|--------------|-------------------------------------------------------------------|
-| `--w`, `--h`      | 120          | Grid width & height                                               |
-| `--days`          | 21           | Total simulation days                                             |
-| `--cells`         | 300          | Initial cell count                                                |
-| `--aa`            | 1.0          | Initial AA level [0–1]                                            |
-| `--bgp`           | 1.0          | Initial β-GP reservoir level [0–1]                                 |
-| `--dexa`          | 1.0          | Initial Dexa level [0–1]                                          |
-| `--mk4`           | 1.0          | Initial MK-4 level [0–1]                                          |
-| `--media-interval`| 2            | Days between medium changes                                       |
-| `--cell-movement` | (off)        | Enable random cell movement                                       |
-| `--osteogenic-commitment`| (off) | Enable osteoblast commitment                                      |
-| `--apoptosis`     | (off)        | Enable apoptosis                                                  |
-| `--proliferation` | (off)        | Enable proliferation                                              |
-| `--secretion`     | (off)        | Enable ALP secretion & ECM deposition                              |
-| `--xlsx`          | (off)        | Write results.xlsx                                                |
-| `--csv`           | (off)        | Also write results.csv                                            |
-| `--snapshots`     | (off)        | Save per-day grids and PNG panels                                 |
-| `--out`           | results      | Output directory                                                  |
+## ⚙️ Defaults (match code)
+
+| Parameter            | Default                                                             |
+| -------------------- | ------------------------------------------------------------------- |
+| width (`--w`)        | 100                                                                 |
+| height (`--h`)       | 100                                                                 |
+| output dir (`--out`) | out                                                                 |
+| days                 | 21                                                                  |
+| media interval       | 2                                                                   |
+| switches             | movement ✅, commitment ✅, apoptosis ✅, proliferation ✅, secretion ✅ |
+| output filename      | timeseries.xlsx                                                     |
 
 ---
 
-## ▶ How to Run
+## 🧪 Example Runs
 
-### PowerShell (Windows)
+### PowerShell Positive Control (Windows)
+
 ```powershell
 python main.py `
-  --days 21 `
-  --cells 300 `
-  --media-interval 2 `
-  --aa 1.0 --bgp 1.0 --dexa 1.0 --mk4 1.0 `
-  --cell-movement --osteogenic-commitment --apoptosis --proliferation --secretion `
-  --move-prob 0.5 --max-moves 2 `
-  --spatial-days 0,5,10,15,20 `
-  --xlsx --snapshots --out out
+   --days 21 `
+   --cells 300 `
+   --w 100 `
+   --h 100 `
+   --media-interval 2 `
+   --seed $(Get-Random) `
+   --aa 1.0 `
+   --bgp 1.0 `
+   --dexa 1.0 `
+   --mk4 1.0 `
+   --cell-movement `
+   --osteogenic-commitment `
+   --apoptosis `
+   --proliferation `
+   --secretion `
+   --move-prob 0.5 `
+   --max-moves 1 `
+   --ob-div-prob 0.0 `
+   --spatial-every 5 `
+   --snapshots `
+   --xlsx `
+   --out out
 ```
-*(Use backticks ` for line continuation in PowerShell.)*
 
-### macOS/Linux
-```bash
- python main.py --days 21 --cells 300 --aa 1.0 --bgp 1.0 --dexa 1.0 --mk4 1.0 --media-interval 2 --snapshots --xlsx
+### PowerShell Negative Control (Windows)
+
+```powershell
+python main.py `
+   --days 21 `
+   --cells 300 `
+   --w 100 `
+   --h 100 `
+   --media-interval 2 `
+   --seed $(Get-Random) `
+   --aa 1.0 `
+   --bgp 1.0 `
+   --dexa 1.0 `
+   --mk4 1.0 `
+   --no-cell-movement `
+   --no-osteogenic-commitment `
+   --no-apoptosis `
+   --no-proliferation `
+   --no-secretion `
+   --move-prob 0.5 `
+   --max-moves 1 `
+   --ob-div-prob 0.0 `
+   --spatial-every 5 `
+   --snapshots `
+   --xlsx `
+   --out out
 ```
 
 ---
 
-## 📊 Outputs
-| File / Folder  | Description                                                        |
-|----------------|------------------------------------------------------------------|
-| results.xlsx   | Daily metrics for easy plotting                                   |
-| results.csv    | (Optional) CSV copy if --csv is specified                         |
-| 01_states_counts.png, etc.| Matplotlib time-series summaries                        |
-| spatial_day_###.png | Spatial panels with split-death overlays                      |
-| grids/         | Raw NumPy grids for post-processing                               |
+## 📊 Output
+
+* `out/timeseries.xlsx` – Time-series metrics.
+* PNG snapshots (if `--snapshots`) under `out/`.
+* Spatial heatmaps at intervals specified by `--spatial-every`.
 
 ---
 
-## 🧪 Biological Assumptions
-- Supplements start at **day 0**, decrease with cellular use, and reset on media change.  
-- β-GP is hydrolyzed by ALP to release PO₄³⁻.  
-- Dexa biases osteoblast commitment.  
-- ACP nucleates on collagen scaffold and matures to HA accelerated by MK-4.  
+## 🧬 Notes on Biology Consistency
+
+* Supplements (AA, β-GP, Dexa, MK-4) currently stay constant between media changes. Implement depletion if needed.
+* Dexa only nudges Pi in code—extend to influence commitment probability and ALP secretion for closer biological realism.
+* MK-4 acts as a Pi sink proxy; to fully model ACP→HA conversion, add explicit ACP/HA kinetics or update docs.
+

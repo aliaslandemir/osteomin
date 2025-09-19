@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 from dataclasses import dataclass
 
@@ -12,27 +11,19 @@ class _Supplements:
     mk4: float = 1.0
 
 class PDEManager:
-    """Scalar 'PDE' accumulator with media refresh + clamps."""
-    def __init__(
-        self,
-        width: int,
-        height: int,
-        media_interval: int = 3,
-        supplements: dict | None = None,
-        ca_max: float = 3.0,
-        pi_max: float = 3.0,
-    ) -> None:
-        self.width, self.height = int(width), int(height)
+    """Scalar 'PDE' accumulator with media refresh + simple clamps."""
+    def __init__(self, width: int, height: int, media_interval: int, supplements: dict):
+        self.width = int(width); self.height = int(height)
         self.media_interval = int(media_interval)
-        self.supp = _Supplements(**(supplements or {}))
+        self.supp = _Supplements(**supplements)
 
-        self.free_ca: float = 1.0
-        self.free_pi: float = 1.0
-        self.total_collagen: float = 0.0
-        self.total_alp: float = 0.0
+        self.free_ca = 1.0
+        self.free_pi = 1.0
+        self.total_collagen = 0.0
+        self.total_alp = 0.0
 
-        self.ca_max = float(ca_max)
-        self.pi_max = float(pi_max)
+        self.ca_max = 2.0
+        self.pi_max = 2.0
         self._day = 0
 
     def add_collagen(self, amount: float) -> None:

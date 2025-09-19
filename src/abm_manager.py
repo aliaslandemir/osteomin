@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 from typing import List, Tuple
 import numpy as np
@@ -15,13 +14,14 @@ class ABMManager:
         self.rng = rng
         self.width, self.height = int(cfg.width), int(cfg.height)
 
+        # state
         self.cells: List[Cell] = []
         self.occupancy = np.full((self.height, self.width), -1, dtype=np.int32)
 
         # daily event logs
-        self.dead_cells: List[Tuple[int,int]] = []           # (row, col)
-        self.dead_active_coords: List[Tuple[int,int]] = []   # died while ACTIVE
-        self.dead_ob_coords: List[Tuple[int,int]] = []       # died while OB
+        self.dead_cells: List[Tuple[int,int]] = []          # (row, col)
+        self.dead_active_coords: List[Tuple[int,int]] = []  # died while ACTIVE
+        self.dead_ob_coords: List[Tuple[int,int]] = []      # died while OB
         self.committed_today: int = 0
 
         self.pde = None
@@ -52,38 +52,49 @@ class ABMManager:
         self.dead_ob_coords = []
         self.committed_today = 0
 
+        # migration
         if self.cfg.enable_migration:
             self._migration_step()
+
+        # commitment
         if self.cfg.enable_commitment:
             self._commitment_step(day)
+
+        # apoptosis
         if self.cfg.enable_apoptosis:
             self._apoptosis_step(day)
+
+        # proliferation
         if self.cfg.enable_proliferation:
             self._proliferation_step(day)
+
+        # secretion
         if self.cfg.enable_secretion:
             self._secretion_step()
 
-    # ----- behaviors -----
-    def _neighbors4(self, x: int, y: int) -> List[Tuple[int,int]]:
-        res = []
-        if x > 0: res.append((x-1, y))
-        if x < self.width-1: res.append((x+1, y))
-        if y > 0: res.append((x, y-1))
-        if y < self.height-1: res.append((x, y+1))
-        return res
+        # PDE tick last
+        if self.pde is not None:
+            self.pde.step_day()
+
+    # ---- internals ----
+    def _neighbors4(self, x: int, y: int):
+        # wrap-free, clamp to grid (ignore out-of-bounds)
+        nbrs = []
+        if x > 0: nbrs.append((x-1, y))
+        if x < self.width-1: nbrs.append((x+1, y))
+        if y > 0: nbrs.append((x, y-1))
+        if y < self.height-1: nbrs.append((x, y+1))
+        return nbrs
 
     def _migration_step(self) -> None:
-        # Each ACTIVE cell can take up to cfg.max_moves_per_day steps per day.
         for idx, c in enumerate(self.cells):
             if c.state != CellState.ACTIVE:
                 continue
+            if self.rng.random() >= self.cfg.move_prob:
+                continue
 
             steps = 0
-            while steps < int(self.cfg.max_moves_per_day):
-                # probabilistic attempt
-                if self.rng.random() > float(self.cfg.move_prob):
-                    break
-
+            while steps < self.cfg.max_moves_per_day:
                 nbrs = self._neighbors4(c.x, c.y)
                 self.rng.shuffle(nbrs)
 
@@ -118,33 +129,32 @@ class ABMManager:
                     self.dead_active_coords.append((c.y, c.x))
                 elif c.state == CellState.OSTEOBLAST:
                     self.dead_ob_coords.append((c.y, c.x))
+                self.dead_cells.append((c.y, c.x))
                 c.mark_apoptotic(day)
                 died_indices.append(idx)
 
-        # record all dead coords (union)
-        self.dead_cells = self.dead_active_coords + self.dead_ob_coords
+        if not died_indices:
+            return
 
-        # purge
-        if died_indices:
-            keep = np.ones(len(self.cells), dtype=bool)
-            keep[died_indices] = False
-            for i in died_indices:
-                c = self.cells[i]
-                if self.occupancy[c.y, c.x] == i:
-                    self.occupancy[c.y, c.x] = -1
-            self.cells = [c for i,c in enumerate(self.cells) if keep[i]]
-            self.occupancy[:] = -1
-            for i, c in enumerate(self.cells):
-                self.occupancy[c.y, c.x] = i
+        # remove dead cells and rebuild occupancy
+        keep = [i for i in range(len(self.cells)) if i not in died_indices]
+        self.cells = [self.cells[i] for i in keep]
+        self.occupancy[:] = -1
+        for i, c in enumerate(self.cells):
+            self.occupancy[c.y, c.x] = i
 
     def _proliferation_step(self, day: int) -> None:
         newborns: List[Cell] = []
-        for i, c in enumerate(self.cells):
-            if c.state != CellState.ACTIVE: continue
-            interval = c.division_interval
-            if interval is None: continue
-            if (day - c.last_div_day) < interval: continue
+        for idx, c in enumerate(self.cells):
+            if c.state == CellState.APOPTOTIC:
+                continue
+            # NEW: Osteoblasts normally do not divide; allow rare division via cfg.ob_division_prob
+            if c.state == CellState.OSTEOBLAST and self.rng.random() >= self.cfg.ob_division_prob:
+                continue
+            if (day - c.last_div_day) < c.division_interval:
+                continue
 
+            # attempt to divide into a free neighbor
             nbrs = self._neighbors4(c.x, c.y)
             self.rng.shuffle(nbrs)
             placed = False
@@ -152,16 +162,18 @@ class ABMManager:
                 if self.occupancy[ny, nx] == -1:
                     child = self._spawn_cell(nx, ny, day)
                     newborns.append(child)
-                    self.occupancy[ny, nx] = -2
+                    self.occupancy[ny, nx] = len(self.cells) + len(newborns) - 1
+                    c.last_div_day = day
                     placed = True
                     break
-            if placed:
-                c.last_div_day = day
-                # re-sample to avoid periodicity
-                c.division_interval = int(self.rng.integers(self.cfg.min_div_days,
-                                                            self.cfg.max_div_days + 1))
+
+            if not placed:
+                # delay division if no space
+                c.last_div_day += 1
+
         for child in newborns:
             self.cells.append(child)
+        # rebuild occupancy to be safe
         self.occupancy[:] = -1
         for i, c in enumerate(self.cells):
             self.occupancy[c.y, c.x] = i
