@@ -46,27 +46,30 @@ class ABMManager:
 
     # ----- step -----
     def step_day(self, day: int) -> None:
-        self.dead_cells = []
-        self.dead_active_coords = []
-        self.dead_ob_coords = []
+        self.dead_cells = []; self.dead_active_coords = []; self.dead_ob_coords = []
         self.committed_today = 0
 
-        if self.cfg.enable_migration:
-            self._migration_step()
-
-        # MOVE proliferation BEFORE commitment
-        if self.cfg.enable_proliferation:
-            self._proliferation_step(day)
-
-        if self.cfg.enable_commitment:
-            self._commitment_step(day)
-
+        # 1) apoptosis first
         if self.cfg.enable_apoptosis:
             self._apoptosis_step(day)
 
+        # 2) migration before division/commitment
+        if self.cfg.enable_migration:
+            self._migration_step()
+
+        # 3) proliferation before commitment
+        if self.cfg.enable_proliferation:
+            self._proliferation_step(day)
+
+        # 4) time-gated commitment (guard: no same-day commit after division)
+        if self.cfg.enable_commitment:
+            self._commitment_step(day)   # inside: if (day - c.last_div_day) < 1: continue
+
+        # 5) secretion after we know who survived & is OB
         if self.cfg.enable_secretion:
             self._secretion_step()
 
+        # 6) chemistry update once per day
         if self.pde is not None:
             self.pde.step_day()
 
