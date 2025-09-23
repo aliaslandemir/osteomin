@@ -72,10 +72,17 @@ class ABMManager:
         if self.cfg.enable_apoptosis:
             self._apoptosis_step(day)
 
-        # 6) chemistry update – PDE tick / media refresh
+        # 6) chemistry update – send OB mask, then PDE tick / media refresh
         if self.pde is not None:
+            # build boolean mask of alive osteoblast positions (H×W)
+            ob_mask = np.zeros((self.height, self.width), dtype=bool)
+            for c in self.cells:
+                if c.state == CellState.OSTEOBLAST:  # only alive cells remain in self.cells
+                    ob_mask[c.y, c.x] = True
+            # provide mask to PDE (enables localized secretion & nucleation)
+            if hasattr(self.pde, "set_ob_mask"):
+                self.pde.set_ob_mask(ob_mask)
             self.pde.step_day()
-
 
     # ---- internals ----
     def _neighbors4(self, x: int, y: int):
@@ -116,12 +123,12 @@ class ABMManager:
     def _commitment_step(self, day: int) -> None:
         # Scale probability by occupancy (optional realism tweak)
         occ = (self.occupancy != -1).mean()  # fraction of grid occupied
-        p = float(self.cfg.base_commit_prob) * (0.9 + 0.5 * occ)
+        p = float(self.cfg.base_commit_prob) * (4.4 + 0.4 * occ)
         if p <= 0.0:
             return
 
         for c in self.cells:
-            # Add an age guard: don't let brand-new daughters commit immediately
+            # guard: don't let brand-new daughters commit immediately
             if (
                 c.state == CellState.ACTIVE
                 and (day - c.last_div_day) >= 1
@@ -129,7 +136,6 @@ class ABMManager:
             ):
                 c.mark_committed(day)
                 self.committed_today += 1
-
 
     def _apoptosis_step(self, day: int) -> None:
         died_indices = []
@@ -159,7 +165,7 @@ class ABMManager:
         for idx, c in enumerate(self.cells):
             if c.state == CellState.APOPTOTIC:
                 continue
-            # NEW: Osteoblasts normally do not divide; allow rare division via cfg.ob_division_prob
+            # OBs normally do not divide; allow only if enabled
             if c.state == CellState.OSTEOBLAST and self.rng.random() >= self.cfg.ob_division_prob:
                 continue
             if (day - c.last_div_day) < c.division_interval:
@@ -190,8 +196,10 @@ class ABMManager:
             self.occupancy[c.y, c.x] = i
 
     def _secretion_step(self) -> None:
-        if self.pde is None: return
+        if self.pde is None:
+            return
         n_ob = sum(1 for c in self.cells if c.state == CellState.OSTEOBLAST)
-        if n_ob <= 0: return
+        if n_ob <= 0:
+            return
         self.pde.add_collagen(n_ob * self.cfg.collagen_per_ob)
         self.pde.add_alp(n_ob * self.cfg.alp_per_ob)

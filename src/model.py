@@ -12,6 +12,7 @@ from .agent import CellState
 from .io_utils import cell_grids, save_timeseries_excel, save_timeseries_csv, coords_to_mask
 from .viz import export_spatial_for_day
 
+
 __all__ = ["OsteoModel"]
 
 class OsteoModel:
@@ -86,14 +87,18 @@ class OsteoModel:
         deaths_active_mask = deaths_mask.copy()
         deaths_ob_mask = deaths_mask.copy()
 
+        # ---------- DAY 0 ----------
         dens, state = cell_grids(self.abm.height, self.abm.width, self.abm.cells)
-
         if self.snapshots_enabled:
             np.save(self.grids_dir / f"density_day_000.npy", dens.astype(np.uint16))
             np.save(self.grids_dir / f"state_day_000.npy",   state.astype(np.uint8))
             np.save(self.grids_dir / f"deaths_day_000.npy",  deaths_mask)
             np.save(self.grids_dir / f"deaths_active_day_000.npy", deaths_active_mask)
             np.save(self.grids_dir / f"deaths_ob_day_000.npy",     deaths_ob_mask)
+            # NEW: chemistry snapshots
+            np.save(self.grids_dir / f"collagen_day_000.npy", self.pde.collagen.astype(np.float32))
+            np.save(self.grids_dir / f"ha_day_000.npy",       self.pde.ha.astype(np.float32))
+
 
         self._append_row(0)
         dead_total_cum = 0
@@ -118,6 +123,10 @@ class OsteoModel:
                 np.save(self.grids_dir / f"deaths_day_{day:03d}.npy",  deaths_mask)
                 np.save(self.grids_dir / f"deaths_active_day_{day:03d}.npy", deaths_active_mask.astype(np.uint8))
                 np.save(self.grids_dir / f"deaths_ob_day_{day:03d}.npy",     deaths_ob_mask.astype(np.uint8))
+                # NEW: chemistry snapshots
+                np.save(self.grids_dir / f"collagen_day_{day:03d}.npy", self.pde.collagen.astype(np.float32))
+                np.save(self.grids_dir / f"ha_day_{day:03d}.npy",       self.pde.ha.astype(np.float32))
+
 
             self._append_row(day)
 
@@ -130,11 +139,14 @@ class OsteoModel:
                 )
 
         return pd.DataFrame(self._rows)
+    
 
     def _append_row(self, day: int) -> None:
+        n_active = sum(1 for c in self.abm.cells if c.state == CellState.ACTIVE)
+        n_ob     = sum(1 for c in self.abm.cells if c.state == CellState.OSTEOBLAST)
+
         if day == 0:
-            n_active = sum(1 for c in self.abm.cells if c.state == CellState.ACTIVE)
-            n_ob     = sum(1 for c in self.abm.cells if c.state == CellState.OSTEOBLAST)
+            # use current PDE scalars at t0
             self._rows.append({
                 "day": int(day),
                 "n_active": int(n_active),
@@ -143,15 +155,15 @@ class OsteoModel:
                 "dead_active_today": 0,
                 "dead_ob_today": 0,
                 "committed_today": 0,
-                "free_ca": 1.0,
-                "free_pi": 1.0,
+                "free_ca": float(self.pde.free_ca),
+                "free_pi": float(self.pde.free_pi),
                 "collagen_total": float(self.pde.total_collagen),
                 "alp_total": float(self.pde.total_alp),
+                "acp_total": 0.0,
+                "ha_total": 0.0,
             })
             return
 
-        n_active = sum(1 for c in self.abm.cells if c.state == CellState.ACTIVE)
-        n_ob     = sum(1 for c in self.abm.cells if c.state == CellState.OSTEOBLAST)
         scalars = self.pde.snapshot_scalars()
         self._rows.append({
             "day": int(day),
@@ -165,7 +177,10 @@ class OsteoModel:
             "free_pi": float(scalars["free_pi"]),
             "collagen_total": float(scalars["collagen_total"]),
             "alp_total": float(scalars["alp_total"]),
+            "acp_total": float(scalars.get("acp_total", 0.0)),
+            "ha_total": float(scalars.get("ha_total", 0.0)),
         })
+
 
     def save_timeseries_excel(self, df: pd.DataFrame, basename: str = "timeseries") -> Path:
         out = self.outdir / f"{basename}.xlsx"

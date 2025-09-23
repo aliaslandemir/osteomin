@@ -1,73 +1,125 @@
+"""
+main.py — Entry point for OsteoMin ABM–PDE bone remodeling simulator.
+
+Run with:
+    python main.py --days 21 --cells 300 --w 100 --h 100 --xlsx --snapshots
+"""
+
 from __future__ import annotations
 import argparse
 from pathlib import Path
 
 from src.model import OsteoModel
 from src.config import PDEConfig, ABMConfig
-from src.viz import plot_summary
+from src.viz import plot_summary, export_overlay_collagen_ha_from_npy
 
+
+# ----------------------------------------------------------------------
+# Argument parser
+# ----------------------------------------------------------------------
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Osteogenic ABM/PDE runner")
+    p = argparse.ArgumentParser(
+        description="OsteoMin: MC3T3-E1 ABM/PDE bone remodeling simulator",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
 
-    # Core sim settings
-    p.add_argument("--days", type=int, default=21, help="number of days to simulate")
-    p.add_argument("--cells", type=int, default=300, help="initial number of cells")
-    p.add_argument("--media-interval", type=int, default=2, help="days between media changes")
-    p.add_argument("--seed", type=int, default=None, help="RNG seed (int)")
+    # --- core simulation ---
+    p.add_argument("--days", type=int, default=21,
+                   help="number of days to simulate")
+    p.add_argument("--cells", type=int, default=300,
+                   help="initial number of seeded cells")
+    p.add_argument("--media-interval", type=int, default=2,
+                   help="days between media changes")
+    p.add_argument("--seed", type=int, default=None,
+                   help="random seed for reproducibility")
 
-    # Grid size
+    # --- lattice size ---
     p.add_argument("--w", type=int, default=100, help="grid width")
     p.add_argument("--h", type=int, default=100, help="grid height")
 
-    # Supplements (unitless scalars)
-    p.add_argument("--aa", type=float, default=1.0, help="ascorbic acid scaling")
-    p.add_argument("--bgp", type=float, default=1.0, help="beta-glycerophosphate scaling")
+    # --- supplements (scalars) ---
+    p.add_argument("--aa",   type=float, default=1.0, help="ascorbic acid scaling")
+    p.add_argument("--bgp",  type=float, default=1.0, help="beta-glycerophosphate scaling")
     p.add_argument("--dexa", type=float, default=1.0, help="dexamethasone scaling")
-    p.add_argument("--mk4", type=float, default=1.0, help="menaquinone-4 scaling")
+    p.add_argument("--mk4",  type=float, default=1.0, help="menaquinone-4 scaling")
 
-    # Switches
-    p.add_argument("--cell-movement", dest="cell_movement", action="store_true", help="enable cell migration")
-    p.add_argument("--no-cell-movement", dest="cell_movement", action="store_false", help="disable cell migration")
+    # --- cell-level switches ---
+    p.add_argument("--cell-movement", dest="cell_movement", action="store_true",
+                   help="enable cell migration")
+    p.add_argument("--no-cell-movement", dest="cell_movement", action="store_false",
+                   help="disable cell migration")
     p.set_defaults(cell_movement=True)
 
-    p.add_argument("--move-prob", type=float, default=0.8, help="daily probability an ACTIVE cell attempts a move")
-    p.add_argument("--max-moves", type=int,   default=1,   help="max random-walk steps per ACTIVE cell per day")
+    p.add_argument("--move-prob", type=float, default=0.8,
+                   help="probability an ACTIVE cell attempts a move per day")
+    p.add_argument("--max-moves", type=int, default=1,
+                   help="max random-walk steps per ACTIVE cell per day")
 
-    p.add_argument("--ob-div-prob", type=float, default=0.0, help="per-check division probability for osteoblasts (default 0.0)")
+    p.add_argument("--ob-div-prob", type=float, default=0.0,
+                   help="rare division probability for osteoblasts")
 
-    p.add_argument("--osteogenic-commitment", dest="commitment", action="store_true", help="enable osteogenic commitment")
-    p.add_argument("--no-osteogenic-commitment", dest="commitment", action="store_false", help="disable osteogenic commitment")
+    p.add_argument("--osteogenic-commitment", dest="commitment", action="store_true",
+                   help="enable ACTIVE → OB differentiation")
+    p.add_argument("--no-osteogenic-commitment", dest="commitment", action="store_false",
+                   help="disable ACTIVE → OB differentiation")
     p.set_defaults(commitment=True)
 
-    p.add_argument("--apoptosis", dest="apoptosis", action="store_true", help="enable apoptosis")
-    p.add_argument("--no-apoptosis", dest="apoptosis", action="store_false", help="disable apoptosis")
+    p.add_argument("--apoptosis", dest="apoptosis", action="store_true",
+                   help="enable apoptosis")
+    p.add_argument("--no-apoptosis", dest="apoptosis", action="store_false",
+                   help="disable apoptosis")
     p.set_defaults(apoptosis=True)
 
-    p.add_argument("--proliferation", dest="proliferation", action="store_true", help="enable proliferation")
-    p.add_argument("--no-proliferation", dest="proliferation", action="store_false", help="disable proliferation")
+    p.add_argument("--proliferation", dest="proliferation", action="store_true",
+                   help="enable proliferation")
+    p.add_argument("--no-proliferation", dest="proliferation", action="store_false",
+                   help="disable proliferation")
     p.set_defaults(proliferation=True)
 
-    p.add_argument("--secretion", dest="secretion", action="store_true", help="enable secretion (ABM→PDE)")
-    p.add_argument("--no-secretion", dest="secretion", action="store_false", help="disable secretion (ABM→PDE)")
+    p.add_argument("--secretion", dest="secretion", action="store_true",
+                   help="enable secretion (OB → collagen/ALP)")
+    p.add_argument("--no-secretion", dest="secretion", action="store_false",
+                   help="disable secretion")
     p.set_defaults(secretion=True)
 
-    # Spatial export control
-    p.add_argument("--spatial-every", type=int, default=0, help="export spatial PNG every N days (0 = off)")
-    p.add_argument("--spatial-days", type=str, default="", help="comma-separated explicit days to export, e.g. '0,5,10,20'")
+    # --- mineralization parameters (new) ---
+    p.add_argument("--c-thresh", type=float, default=5.0,
+                   help="collagen threshold for ACP nucleation")
+    p.add_argument("--s-thresh", type=float, default=0.15,
+                   help="supersaturation threshold for ACP nucleation")
+    p.add_argument("--k-nuc", type=float, default=0.02,
+                   help="ACP nucleation rate per day")
+    p.add_argument("--k-ha", type=float, default=0.05,
+                   help="ACP → HA maturation rate per day")
+    p.add_argument("--nuc-radius", type=int, default=1,
+                   help="neighborhood radius around OBs for nucleation")
 
-    # Output
+    # --- export control ---
+    p.add_argument("--spatial-every", type=int, default=0,
+                   help="export spatial PNG every N days (0 = off)")
+    p.add_argument("--spatial-days", type=str, default="",
+                   help="explicit export days, comma-separated e.g. '0,5,10,20'")
     p.add_argument("--out", type=str, default="out", help="output directory")
     p.add_argument("--xlsx", action="store_true", help="write Excel timeseries")
     p.add_argument("--csv", action="store_true", help="write CSV timeseries")
-    p.add_argument("--snapshots", action="store_true", help="also save .npy grids per day (gated)")
+    p.add_argument("--snapshots", action="store_true",
+                   help="also save raw .npy grids per day")
 
     return p.parse_args()
 
+
+# ----------------------------------------------------------------------
+# Main entry point
+# ----------------------------------------------------------------------
 def main() -> None:
     args = parse_args()
     outdir = Path(args.out); outdir.mkdir(parents=True, exist_ok=True)
 
-    # Configs
+    # clamp probabilities for safety
+    args.move_prob   = max(0.0, min(1.0, args.move_prob))
+    args.ob_div_prob = max(0.0, min(1.0, args.ob_div_prob))
+
+    # configs
     abm_cfg = ABMConfig(
         width=args.w, height=args.h,
         enable_migration=args.cell_movement,
@@ -79,15 +131,17 @@ def main() -> None:
         max_moves_per_day=args.max_moves,
         ob_division_prob=args.ob_div_prob,
     )
-    pde_cfg = PDEConfig(width=args.w, height=args.h, media_interval=args.media_interval)
+    pde_cfg = PDEConfig(width=args.w, height=args.h,
+                        media_interval=args.media_interval)
 
-    # Supplements
-    supplements = dict(aa=args.aa, bgp=args.bgp, dexa=args.dexa, mk4=args.mk4)
+    # supplements
+    supplements = dict(aa=args.aa, bgp=args.bgp,
+                       dexa=args.dexa, mk4=args.mk4)
 
-    # Spatial days parse
-    explicit_spatial_days = [int(x) for x in args.spatial_days.split(",") if x.strip() != ""]
+    # explicit spatial export days
+    spatial_days = [int(x) for x in args.spatial_days.split(",") if x.strip()]
 
-    # Build model
+    # build model
     model = OsteoModel(
         outdir=outdir,
         days=args.days,
@@ -96,31 +150,46 @@ def main() -> None:
         supplements=supplements,
         seed=args.seed,
         spatial_every=args.spatial_every,
-        spatial_days=explicit_spatial_days,
+        spatial_days=spatial_days,
         snapshots_enabled=args.snapshots,
     )
 
-    # Seed & run
+    # inject mineralization params into PDE
+    pde = model.pde
+    pde.C_THRESH   = args.c_thresh
+    pde.S_THRESH   = args.s_thresh
+    pde.K_NUC      = args.k_nuc
+    pde.K_HA       = args.k_ha
+    pde.NUC_RADIUS = args.nuc_radius
+
+    # seed and run
     model.seed_random(args.cells, abm_cfg.width, abm_cfg.height)
     df = model.run()
 
-    # Enrich DF with cumulative series for plots
+    # enrich DF with cumulative series for plots
     df["dead_total_today"] = df["dead_active_today"] + df["dead_ob_today"]
     df["dead_active_cum"] = df["dead_active_today"].cumsum()
     df["dead_ob_cum"]     = df["dead_ob_today"].cumsum()
     df["dead_total_cum"]  = df["dead_total_today"].cumsum()
 
-    # Save timeseries
+    # save timeseries
     if args.xlsx:
         model.save_timeseries_excel(df, "timeseries")
     if args.csv:
         model.save_timeseries_csv(df, "timeseries")
 
-    # Plots
+    # plots
     plot_summary(df, outdir)
 
-    # Log tail
+    # overlays every 5 days + last day, using saved per-day chemistry
+    for day in range(0, args.days, 5):
+        export_overlay_collagen_ha_from_npy(model.grids_dir, outdir, day)
+    if (args.days - 1) % 5 != 0:
+        export_overlay_collagen_ha_from_npy(model.grids_dir, outdir, args.days - 1)
+
+    # log tail to console
     print(df.tail(5))
+
 
 if __name__ == "__main__":
     main()

@@ -2,10 +2,12 @@ from __future__ import annotations
 from pathlib import Path
 import numpy as np
 import pandas as pd
+import matplotlib
+matplotlib.use("Agg")   # safe non-GUI backend
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 
-__all__ = ["plot_summary", "export_spatial_for_day"]
+__all__ = ["plot_summary", "export_spatial_for_day", "export_overlay_collagen_ha", "export_overlay_collagen_ha_from_npy"]
 
 COLORS = {
     "active":      "#2ca25f",
@@ -119,4 +121,51 @@ def export_spatial_for_day(outdir: str | Path, day: int,
     outdir = Path(outdir); outdir.mkdir(parents=True, exist_ok=True)
     plt.tight_layout()
     plt.savefig(outdir / f"spatial_day_{day:03d}.png", dpi=220, bbox_inches="tight")
+    plt.close(fig)
+
+
+def _robust_norm(arr: np.ndarray, p: float = 99.0) -> np.ndarray:
+    """Normalize to [0,1] using a robust upper bound (percentile)."""
+    if arr.size == 0:
+        return arr
+    vmax = np.percentile(arr[arr > 0], p) if (arr > 0).any() else 1.0
+    vmax = max(vmax, 1e-9)
+    out = np.clip(arr / vmax, 0.0, 1.0)
+    return out
+
+def export_overlay_collagen_ha_from_npy(grids_dir: str | Path, outdir: str | Path, day: int) -> None:
+    """
+    Overlay using saved per-day arrays from /grids:
+      - collagen_day_XXX.npy
+      - ha_day_XXX.npy
+    """
+    grids_dir = Path(grids_dir)
+    outdir = Path(outdir); outdir.mkdir(parents=True, exist_ok=True)
+    col = np.load(grids_dir / f"collagen_day_{day:03d}.npy")
+    ha  = np.load(grids_dir / f"ha_day_{day:03d}.npy")
+
+    # robust p99 scaling for alpha
+    def _p99(x): return float(np.percentile(x[x > 0], 99)) if (x > 0).any() else 1.0
+    vmax_col = max(_p99(col), 1e-9)
+    vmax_ha  = max(_p99(ha),  1e-9)
+    a_col = np.clip(col / vmax_col, 0, 1) * 0.70
+    a_ha  = np.clip(ha  / vmax_ha,  0, 1) * 0.70
+
+    fig, ax = plt.subplots(figsize=(7, 7))
+    _set_white(ax)
+    ax.imshow(np.ones((*col.shape, 3)), origin="lower", interpolation="nearest")
+    im_col = ax.imshow(col, cmap="Reds",   vmin=0, vmax=vmax_col, origin="lower",
+                       interpolation="nearest", alpha=a_col)
+    im_ha  = ax.imshow(ha,  cmap="Greens", vmin=0, vmax=vmax_ha,  origin="lower",
+                       interpolation="nearest", alpha=a_ha)
+    ax.set_xticks([]); ax.set_yticks([])
+    ax.set_title(f"Day {day:02d} — Collagen (red, α-scaled) over HAp (green, α-scaled)")
+
+    cbar_left  = fig.colorbar(im_col, ax=ax, orientation="vertical", fraction=0.04, pad=0.02, location="left")
+    cbar_left.set_label("Collagen-I (a.u.)")
+    cbar_right = fig.colorbar(im_ha,  ax=ax, orientation="vertical", fraction=0.04, pad=0.02, location="right")
+    cbar_right.set_label("Hydroxyapatite (a.u.)")
+
+    plt.tight_layout()
+    fig.savefig(outdir / f"collagen_ha_day_{day:03d}.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
