@@ -71,28 +71,33 @@ python main.py
 
 ```bash
 python main.py \
-   --days 21 \
-   --cells 300 \
-   --w 100 \
-   --h 100 \
-   --media-interval 2 \
-   --seed $(shuf -i 1-999999 -n 1) \
-   --aa 1.0 \
-   --bgp 1.0 \
-   --mk4 1.0 \
-   --cell-movement \
-   --osteogenic-commitment \
-   --apoptosis \
-   --proliferation \
-   --secretion \
-   --move-prob 0.5 \
-   --max-moves 1 \
-   --ob-div-prob 0.0 \
-   --apoptosis-prob 0.01 \
-   --spatial-every 5 \
-   --snapshots \
-   --xlsx \
-   --out out
+  --days 29 \
+  --cells 700 \
+  --w 100 \
+  --h 100 \
+  --boundary-mode periodic \
+  --media-interval 2 \
+  --seed $(shuf -i 1-999999 -n 1) \
+  --aa 1.0 \
+  --bgp 1.0 \
+  --mk4 1.0 \
+  --dexa 1.0 \
+  --cell-movement \
+  --osteogenic-commitment \
+  --apoptosis \
+  --proliferation \
+  --secretion \
+  --move-prob 1.0 \
+  --max-moves 1 \
+  --ob-div-prob 0.0 \
+  --spatial-every 1 \
+  --snapshots \
+  --xlsx \
+  --out out \
+  --proliferation-chance 1.0 \
+  --apoptosis-prob 0.01 \
+  --commit-growth 0.02
+
 ```
 
 
