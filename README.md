@@ -55,11 +55,12 @@ python main.py
 ## 🛠️ CLI Control Overview
 
 - **Simulation size/time:** `--days`, `--cells`, `--w`, `--h`, `--media-interval`, `--seed` let you set duration, population, lattice dimensions, media cadence, and RNG seed.
-- **Supplements:** `--aa`, `--bgp`, `--dexa`, `--mk4` scale extracellular factors; adjusting them skews PI/Ca handling inside `PDEManager`.
+- **Supplements:** `--aa`, `--bgp`, `--mk4`, `--dexa` scale extracellular factors; adjusting them skews Pi/Ca handling inside `PDEManager`. Dexa and MK-4 are currently tracked but do nothing beyond being recorded.
 - **Cellular switches:** `--cell-movement/--no-cell-movement`, `--osteogenic-commitment/--no-osteogenic-commitment`, `--apoptosis/--no-apoptosis`, `--proliferation/--no-proliferation`, `--secretion/--no-secretion`, plus `--ob-div-prob`, `--proliferation-chance`, and `--apoptosis-prob` control migration, fate, death, and division rules.
 - **Movement tuning:** `--move-prob`, `--max-moves` adjust motility probability/steps per day; both migration and division now sample the Moore (8-neighbor) grid (axial ~0.0333, diagonal ~0.0667) with a 60 % stay chance before attempting another direction.
 - **Boundary handling:** `--boundary-mode clamp|periodic` keeps agents inside the lattice (`clamp`) or wraps neighbors and daughters across opposite edges (`periodic`).
-- **Mineralization knobs:** `--c-thresh`, `--s-thresh`, `--k-nuc`, `--k-ha`, `--nuc-radius` influence ACP nucleation/maturation behavior in the PDE.
+- **Mineralization knobs:** `--s-thresh`, `--k-nuc`, and `--k-ha` control supersaturation and transition rates; the PDE no longer enforces a collagen threshold or neighborhood dilation.
+- **Commitment tuning:** `--commit-growth` raises the daily ACTIVE→OB probability linearly (default 0.01) so you can space out the differentiation wave without changing the base probability.
 - **Output/export:** `--spatial-every`, `--spatial-days`, `--out`, `--xlsx`, `--csv`, `--snapshots` configure PNG/Excel/CSV exports and snapshot cadence.
 
 ---
@@ -78,7 +79,6 @@ python main.py \
    --seed $(shuf -i 1-999999 -n 1) \
    --aa 1.0 \
    --bgp 1.0 \
-   --dexa 1.0 \
    --mk4 1.0 \
    --cell-movement \
    --osteogenic-commitment \
@@ -108,7 +108,6 @@ python main.py \
    --seed $(shuf -i 1-999999 -n 1) \
    --aa 1.0 \
    --bgp 1.0 \
-   --dexa 1.0 \
    --mk4 1.0 \
    --no-cell-movement \
    --no-osteogenic-commitment \
@@ -141,18 +140,18 @@ python main.py \
   - `04_events_daily.png` – Daily commitments and deaths
   - `spatial_day_XXX.png` – Cell-state map at day `XXX`
   - `collagen_ha_day_XXX.png` – Collagen–HA overlay at day `XXX`
-- Color scheme (colorblind‑friendly):
+  - Color scheme (colorblind‑friendly):
   - Active `#0072B2` (blue), Osteoblast `#D55E00` (vermillion)
   - Died while active `#E69F00`, died while osteoblast `#CC79A7`
   - Collagen overlay uses `magma`; HA overlay uses `Blues`; both alpha‑scaled with robust p99 normalization.
 - Layout notes:
   - Spatial maps and collagen–HA overlays are square and fill the figure; side colorbars are narrow and height‑matched for consistent subfigure sizing.
-  - Default overlays are exported every 5 days and on the last day of the run. Spatial maps follow `--spatial-every` or explicit `--spatial-days`.
+  - Default overlays are exported every 5 days and on the last day of the run (with `--snapshots` enabled); spatial maps follow `--spatial-every` or explicit `--spatial-days`, and every overlay now uses the global collagen/HA range so early days preserve the same color scale.
 
 ---
 
 ## 🧬 Notes on Biology Consistency
 
 * Supplements (AA, β-GP, Dexa, MK-4) currently stay constant between media changes. Implement depletion if needed.
-* Dexa only nudges Pi in code—extend to influence commitment probability and ALP secretion for closer biological realism.
-* MK-4 acts as a Pi sink proxy; to fully model ACP→HA conversion, add explicit ACP/HA kinetics or update docs.
+* Dexa and MK-4 are recorded now but the PDE doesn’t yet use them; hook them into secretion/commitment if you want later behavior.
+* Overlays require `--snapshots` so the raw grids exist; without snapshots the `collagen_ha_day_*` exports will be skipped and only the time series/spatial maps are written.

@@ -8,10 +8,27 @@ Run with:
 from __future__ import annotations
 import argparse
 from pathlib import Path
+from typing import Iterable
+
+import numpy as np
 
 from src.model import OsteoModel
 from src.config import PDEConfig, ABMConfig
 from src.viz import plot_summary, export_overlay_collagen_ha_from_npy
+
+
+def _global_field_max(grids_dir: Path, field_prefix: str, days: Iterable[int]) -> float:
+    """Compute the maximum value across stored grids for `field_prefix`."""
+    max_val = 0.0
+    for day in days:
+        path = grids_dir / f"{field_prefix}_day_{day:03d}.npy"
+        if not path.exists():
+            continue
+        arr = np.load(path)
+        if arr.size == 0:
+            continue
+        max_val = max(max_val, float(np.nanmax(arr)))
+    return max(max_val, 1e-9)
 
 
 # ----------------------------------------------------------------------
@@ -24,94 +41,177 @@ def parse_args() -> argparse.Namespace:
     )
 
     # --- core simulation ---
-    p.add_argument("--days", type=int, default=21,
-                   help="number of days to simulate")
-    p.add_argument("--cells", type=int, default=300,
-                   help="initial number of seeded cells")
-    p.add_argument("--media-interval", type=int, default=2,
-                   help="days between media changes")
-    p.add_argument("--seed", type=int, default=None,
-                   help="random seed for reproducibility")
+    p.add_argument("--days", type=int, default=21, help="number of days to simulate")
+    p.add_argument(
+        "--cells", type=int, default=300, help="initial number of seeded cells"
+    )
+    p.add_argument(
+        "--media-interval", type=int, default=2, help="days between media changes"
+    )
+    p.add_argument(
+        "--seed", type=int, default=None, help="random seed for reproducibility"
+    )
 
     # --- lattice size ---
     p.add_argument("--w", type=int, default=100, help="grid width")
     p.add_argument("--h", type=int, default=100, help="grid height")
-    p.add_argument("--boundary-mode", choices=["clamp", "periodic"], default="clamp",
-                   help="treat edges as hard boundaries (clamp) or wrap around (periodic)")
+    p.add_argument(
+        "--boundary-mode",
+        choices=["clamp", "periodic"],
+        default="clamp",
+        help="treat edges as hard boundaries (clamp) or wrap around (periodic)",
+    )
 
     # --- supplements (scalars) ---
-    p.add_argument("--aa",   type=float, default=1.0, help="ascorbic acid scaling")
-    p.add_argument("--bgp",  type=float, default=1.0, help="beta-glycerophosphate scaling")
+    p.add_argument("--aa", type=float, default=1.0, help="ascorbic acid scaling")
+    p.add_argument(
+        "--bgp", type=float, default=1.0, help="beta-glycerophosphate scaling"
+    )
+    p.add_argument("--mk4", type=float, default=1.0, help="menaquinone-4 scaling")
     p.add_argument("--dexa", type=float, default=1.0, help="dexamethasone scaling")
-    p.add_argument("--mk4",  type=float, default=1.0, help="menaquinone-4 scaling")
 
     # --- cell-level switches ---
-    p.add_argument("--cell-movement", dest="cell_movement", action="store_true",
-                   help="enable cell migration")
-    p.add_argument("--no-cell-movement", dest="cell_movement", action="store_false",
-                   help="disable cell migration")
+    p.add_argument(
+        "--cell-movement",
+        dest="cell_movement",
+        action="store_true",
+        help="enable cell migration",
+    )
+    p.add_argument(
+        "--no-cell-movement",
+        dest="cell_movement",
+        action="store_false",
+        help="disable cell migration",
+    )
     p.set_defaults(cell_movement=True)
 
-    p.add_argument("--move-prob", type=float, default=0.8,
-                   help="probability an ACTIVE cell attempts a move per day")
-    p.add_argument("--max-moves", type=int, default=1,
-                   help="max random-walk steps per ACTIVE cell per day")
+    p.add_argument(
+        "--move-prob",
+        type=float,
+        default=0.8,
+        help="probability an ACTIVE cell attempts a move per day",
+    )
+    p.add_argument(
+        "--max-moves",
+        type=int,
+        default=1,
+        help="max random-walk steps per ACTIVE cell per day",
+    )
 
-    p.add_argument("--ob-div-prob", type=float, default=0.0,
-                   help="rare division probability for osteoblasts")
+    p.add_argument(
+        "--ob-div-prob",
+        type=float,
+        default=0.0,
+        help="rare division probability for osteoblasts",
+    )
 
-    p.add_argument("--osteogenic-commitment", dest="commitment", action="store_true",
-                   help="enable ACTIVE → OB differentiation")
-    p.add_argument("--no-osteogenic-commitment", dest="commitment", action="store_false",
-                   help="disable ACTIVE → OB differentiation")
+    p.add_argument(
+        "--osteogenic-commitment",
+        dest="commitment",
+        action="store_true",
+        help="enable ACTIVE → OB differentiation",
+    )
+    p.add_argument(
+        "--no-osteogenic-commitment",
+        dest="commitment",
+        action="store_false",
+        help="disable ACTIVE → OB differentiation",
+    )
     p.set_defaults(commitment=True)
 
-    p.add_argument("--apoptosis", dest="apoptosis", action="store_true",
-                   help="enable apoptosis")
-    p.add_argument("--no-apoptosis", dest="apoptosis", action="store_false",
-                   help="disable apoptosis")
+    p.add_argument(
+        "--commit-growth",
+        type=float,
+        default=0.01,
+        help="per-day increase in osteogenic commitment probability",
+    )
+
+    p.add_argument(
+        "--apoptosis", dest="apoptosis", action="store_true", help="enable apoptosis"
+    )
+    p.add_argument(
+        "--no-apoptosis",
+        dest="apoptosis",
+        action="store_false",
+        help="disable apoptosis",
+    )
     p.set_defaults(apoptosis=True)
 
-    p.add_argument("--apoptosis-prob", type=float, default=0.01,
-                   help="per-cell apoptosis probability each day")
+    p.add_argument(
+        "--apoptosis-prob",
+        type=float,
+        default=0.01,
+        help="per-cell apoptosis probability each day",
+    )
 
-    p.add_argument("--proliferation", dest="proliferation", action="store_true",
-                   help="enable proliferation")
-    p.add_argument("--no-proliferation", dest="proliferation", action="store_false",
-                   help="disable proliferation")
+    p.add_argument(
+        "--proliferation",
+        dest="proliferation",
+        action="store_true",
+        help="enable proliferation",
+    )
+    p.add_argument(
+        "--no-proliferation",
+        dest="proliferation",
+        action="store_false",
+        help="disable proliferation",
+    )
     p.set_defaults(proliferation=True)
 
-    p.add_argument("--proliferation-chance", type=float, default=1.0,
-                   help="per-cell chance to attempt division once the interval passes")
+    p.add_argument(
+        "--proliferation-chance",
+        type=float,
+        default=1.0,
+        help="per-cell chance to attempt division once the interval passes",
+    )
 
-    p.add_argument("--secretion", dest="secretion", action="store_true",
-                   help="enable secretion (OB → collagen/ALP)")
-    p.add_argument("--no-secretion", dest="secretion", action="store_false",
-                   help="disable secretion")
+    p.add_argument(
+        "--secretion",
+        dest="secretion",
+        action="store_true",
+        help="enable secretion (OB → collagen/ALP)",
+    )
+    p.add_argument(
+        "--no-secretion",
+        dest="secretion",
+        action="store_false",
+        help="disable secretion",
+    )
     p.set_defaults(secretion=True)
 
     # --- mineralization parameters (new) ---
-    p.add_argument("--c-thresh", type=float, default=5.0,
-                   help="collagen threshold for ACP nucleation")
-    p.add_argument("--s-thresh", type=float, default=0.15,
-                   help="supersaturation threshold for ACP nucleation")
-    p.add_argument("--k-nuc", type=float, default=0.02,
-                   help="ACP nucleation rate per day")
-    p.add_argument("--k-ha", type=float, default=0.05,
-                   help="ACP → HA maturation rate per day")
-    p.add_argument("--nuc-radius", type=int, default=1,
-                   help="neighborhood radius around OBs for nucleation")
+    p.add_argument(
+        "--s-thresh",
+        type=float,
+        default=0.15,
+        help="supersaturation threshold for ACP nucleation",
+    )
+    p.add_argument(
+        "--k-nuc", type=float, default=0.02, help="ACP nucleation rate per day"
+    )
+    p.add_argument(
+        "--k-ha", type=float, default=0.05, help="ACP → HA maturation rate per day"
+    )
 
     # --- export control ---
-    p.add_argument("--spatial-every", type=int, default=0,
-                   help="export spatial PNG every N days (0 = off)")
-    p.add_argument("--spatial-days", type=str, default="",
-                   help="explicit export days, comma-separated e.g. '0,5,10,20'")
+    p.add_argument(
+        "--spatial-every",
+        type=int,
+        default=0,
+        help="export spatial PNG every N days (0 = off)",
+    )
+    p.add_argument(
+        "--spatial-days",
+        type=str,
+        default="",
+        help="explicit export days, comma-separated e.g. '0,5,10,20'",
+    )
     p.add_argument("--out", type=str, default="out", help="output directory")
     p.add_argument("--xlsx", action="store_true", help="write Excel timeseries")
     p.add_argument("--csv", action="store_true", help="write CSV timeseries")
-    p.add_argument("--snapshots", action="store_true",
-                   help="also save raw .npy grids per day")
+    p.add_argument(
+        "--snapshots", action="store_true", help="also save raw .npy grids per day"
+    )
 
     return p.parse_args()
 
@@ -121,17 +221,19 @@ def parse_args() -> argparse.Namespace:
 # ----------------------------------------------------------------------
 def main() -> None:
     args = parse_args()
-    outdir = Path(args.out); outdir.mkdir(parents=True, exist_ok=True)
+    outdir = Path(args.out)
+    outdir.mkdir(parents=True, exist_ok=True)
 
     # clamp probabilities for safety
-    args.move_prob   = max(0.0, min(1.0, args.move_prob))
+    args.move_prob = max(0.0, min(1.0, args.move_prob))
     args.ob_div_prob = max(0.0, min(1.0, args.ob_div_prob))
     args.proliferation_chance = max(0.0, min(1.0, args.proliferation_chance))
     args.apoptosis_prob = max(0.0, min(1.0, args.apoptosis_prob))
 
     # configs
     abm_cfg = ABMConfig(
-        width=args.w, height=args.h,
+        width=args.w,
+        height=args.h,
         boundary_mode=args.boundary_mode,
         enable_migration=args.cell_movement,
         enable_commitment=args.commitment,
@@ -143,13 +245,12 @@ def main() -> None:
         ob_division_prob=args.ob_div_prob,
         apoptosis_prob=args.apoptosis_prob,
         proliferation_chance=args.proliferation_chance,
+        commit_prob_growth=args.commit_growth,
     )
-    pde_cfg = PDEConfig(width=args.w, height=args.h,
-                        media_interval=args.media_interval)
+    pde_cfg = PDEConfig(width=args.w, height=args.h, media_interval=args.media_interval)
 
     # supplements
-    supplements = dict(aa=args.aa, bgp=args.bgp,
-                       dexa=args.dexa, mk4=args.mk4)
+    supplements = dict(aa=args.aa, bgp=args.bgp, dexa=args.dexa, mk4=args.mk4)
 
     # explicit spatial export days
     spatial_days = [int(x) for x in args.spatial_days.split(",") if x.strip()]
@@ -169,11 +270,9 @@ def main() -> None:
 
     # inject mineralization params into PDE
     pde = model.pde
-    pde.C_THRESH   = args.c_thresh
-    pde.S_THRESH   = args.s_thresh
-    pde.K_NUC      = args.k_nuc
-    pde.K_HA       = args.k_ha
-    pde.NUC_RADIUS = args.nuc_radius
+    pde.S_THRESH = args.s_thresh
+    pde.K_NUC = args.k_nuc
+    pde.K_HA = args.k_ha
 
     # seed and run
     model.seed_random(args.cells, abm_cfg.width, abm_cfg.height)
@@ -182,8 +281,8 @@ def main() -> None:
     # enrich DF with cumulative series for plots
     df["dead_total_today"] = df["dead_active_today"] + df["dead_ob_today"]
     df["dead_active_cum"] = df["dead_active_today"].cumsum()
-    df["dead_ob_cum"]     = df["dead_ob_today"].cumsum()
-    df["dead_total_cum"]  = df["dead_total_today"].cumsum()
+    df["dead_ob_cum"] = df["dead_ob_today"].cumsum()
+    df["dead_total_cum"] = df["dead_total_today"].cumsum()
 
     # save timeseries
     if args.xlsx:
@@ -194,11 +293,26 @@ def main() -> None:
     # plots
     plot_summary(df, outdir)
 
-    # overlays every 5 days + last day, using saved per-day chemistry
-    for day in range(0, args.days, 5):
-        export_overlay_collagen_ha_from_npy(model.grids_dir, outdir, day)
-    if (args.days - 1) % 5 != 0:
-        export_overlay_collagen_ha_from_npy(model.grids_dir, outdir, args.days - 1)
+    # overlays driven by spatial export policy (frequency + explicit days)
+    overlay_days = sorted({d for d in model.spatial_days if 0 <= d < args.days})
+    if args.spatial_every > 0:
+        overlay_days = sorted(
+            {*overlay_days, *{day for day in range(0, args.days, args.spatial_every)}}
+        )
+    if not args.snapshots:
+        print("snapshots disabled; skipping collagen/HA overlays")
+    else:
+        all_days = range(args.days)
+        collagen_vmax = _global_field_max(model.grids_dir, "collagen", all_days)
+        ha_vmax = _global_field_max(model.grids_dir, "ha", all_days)
+        for day in overlay_days:
+            export_overlay_collagen_ha_from_npy(
+                model.grids_dir,
+                outdir,
+                day,
+                global_vmax_col=collagen_vmax,
+                global_vmax_ha=ha_vmax,
+            )
 
     # log tail to console
     print(df.tail(5))

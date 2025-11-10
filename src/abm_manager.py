@@ -77,7 +77,18 @@ class ABMManager:
 
         # 3) commitment – differentiate some ACTIVE to OB
         if self.cfg.enable_commitment:
-            self._commitment_step(day)  # guard inside: skip if just divided
+            commit_prob = min(
+                1.0,
+                float(self.cfg.base_commit_prob + day * self.cfg.commit_prob_growth)
+            )
+            for c in self.cells:
+                if (
+                    c.state == CellState.ACTIVE
+                    and (day - c.last_div_day) >= 1
+                    and self.rng.random() < commit_prob
+                ):
+                    c.mark_committed(day)
+                    self.committed_today += 1
 
         # 4) secretion – OBs deposit collagen & ALP before any deaths
         if self.cfg.enable_secretion:
@@ -148,23 +159,6 @@ class ABMManager:
                     self.occupancy[ny, nx] = idx
                     c.record_move(nx, ny)
                     break
-
-    def _commitment_step(self, day: int) -> None:
-        # Scale probability by occupancy (optional realism tweak)
-        occ = (self.occupancy != -1).mean()  # fraction of grid occupied
-        p = float(self.cfg.base_commit_prob) * (4.4 + 0.4 * occ)
-        if p <= 0.0:
-            return
-
-        for c in self.cells:
-            # guard: don't let brand-new daughters commit immediately
-            if (
-                c.state == CellState.ACTIVE
-                and (day - c.last_div_day) >= 1
-                and self.rng.random() < p
-            ):
-                c.mark_committed(day)
-                self.committed_today += 1
 
     def _apoptosis_step(self, day: int) -> None:
         died_indices = []
