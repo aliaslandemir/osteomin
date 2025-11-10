@@ -13,10 +13,25 @@ class ABMManager:
         self.cfg = cfg
         self.rng = rng
         self.width, self.height = int(cfg.width), int(cfg.height)
+        mode = getattr(cfg, "boundary_mode", "clamp")
+        mode = mode.lower() if isinstance(mode, str) else "clamp"
+        if mode not in ("clamp", "periodic"):
+            raise ValueError(f"unsupported boundary_mode '{cfg.boundary_mode}'")
+        self.boundary_mode = mode
 
         # state
         self.cells: List[Cell] = []
         self.occupancy = np.full((self.height, self.width), -1, dtype=np.int32)
+        self._stay_prob = 0.6
+        self._direction_offsets = [
+            (-1, 0), (1, 0), (0, -1), (0, 1),     # axial neighbors
+            (-1, -1), (1, -1), (-1, 1), (1, 1),   # diagonal neighbors
+        ]
+        base_axial = 1 / 30
+        base_diag = 2 / 30
+        direction_weights = [base_axial] * 4 + [base_diag] * 4
+        total = sum(direction_weights)
+        self._direction_probs = [w / total for w in direction_weights]
 
         # daily event logs
         self.dead_cells: List[Tuple[int,int]] = []          # (row, col)
@@ -86,13 +101,33 @@ class ABMManager:
 
     # ---- internals ----
     def _neighbors4(self, x: int, y: int):
-        # wrap-free, clamp to grid (ignore out-of-bounds)
+        # returns 4-neighbors; periodic mode wraps, otherwise ignore out-of-bounds
+        offsets = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+        if self.boundary_mode == "periodic":
+            return [((x + dx) % self.width, (y + dy) % self.height) for dx, dy in offsets]
+
         nbrs = []
-        if x > 0: nbrs.append((x-1, y))
-        if x < self.width-1: nbrs.append((x+1, y))
-        if y > 0: nbrs.append((x, y-1))
-        if y < self.height-1: nbrs.append((x, y+1))
+        if x > 0: nbrs.append((x - 1, y))
+        if x < self.width - 1: nbrs.append((x + 1, y))
+        if y > 0: nbrs.append((x, y - 1))
+        if y < self.height - 1: nbrs.append((x, y + 1))
         return nbrs
+
+    def _resolve_offset(self, x: int, y: int, dx: int, dy: int) -> Tuple[int, int] | None:
+        if self.boundary_mode == "periodic":
+            return ((x + dx) % self.width, (y + dy) % self.height)
+        nx = x + dx
+        ny = y + dy
+        if 0 <= nx < self.width and 0 <= ny < self.height:
+            return nx, ny
+        return None
+
+    def _movement_target(self, x: int, y: int) -> Tuple[int, int] | None:
+        if self.rng.random() < self._stay_prob:
+            return None
+        idx = self.rng.choice(len(self._direction_offsets), p=self._direction_probs)
+        dx, dy = self._direction_offsets[idx]
+        return self._resolve_offset(x, y, dx, dy)
 
     def _migration_step(self) -> None:
         for idx, c in enumerate(self.cells):
@@ -103,22 +138,16 @@ class ABMManager:
 
             steps = 0
             while steps < self.cfg.max_moves_per_day:
-                nbrs = self._neighbors4(c.x, c.y)
-                self.rng.shuffle(nbrs)
-
-                moved = False
-                for (nx, ny) in nbrs:
-                    if self.occupancy[ny, nx] == -1:
-                        # vacate old and occupy new
-                        self.occupancy[c.y, c.x] = -1
-                        self.occupancy[ny, nx] = idx
-                        c.record_move(nx, ny)
-                        moved = True
-                        break
-
-                if not moved:
-                    break  # no free neighbor; stop trying
+                target = self._movement_target(c.x, c.y)
                 steps += 1
+                if target is None:
+                    continue
+                nx, ny = target
+                if self.occupancy[ny, nx] == -1:
+                    self.occupancy[c.y, c.x] = -1
+                    self.occupancy[ny, nx] = idx
+                    c.record_move(nx, ny)
+                    break
 
     def _commitment_step(self, day: int) -> None:
         # Scale probability by occupancy (optional realism tweak)
@@ -165,17 +194,19 @@ class ABMManager:
         for idx, c in enumerate(self.cells):
             if c.state == CellState.APOPTOTIC:
                 continue
-            # OBs normally do not divide; allow only if enabled
             if c.state == CellState.OSTEOBLAST and self.rng.random() >= self.cfg.ob_division_prob:
                 continue
             if (day - c.last_div_day) < c.division_interval:
                 continue
+            if self.rng.random() >= self.cfg.proliferation_chance:
+                continue
 
-            # attempt to divide into a free neighbor
-            nbrs = self._neighbors4(c.x, c.y)
-            self.rng.shuffle(nbrs)
             placed = False
-            for (nx, ny) in nbrs:
+            for _ in range(len(self._direction_offsets)):
+                target = self._movement_target(c.x, c.y)
+                if target is None:
+                    continue
+                nx, ny = target
                 if self.occupancy[ny, nx] == -1:
                     child = self._spawn_cell(nx, ny, day)
                     newborns.append(child)
@@ -185,12 +216,10 @@ class ABMManager:
                     break
 
             if not placed:
-                # delay division if no space
                 c.last_div_day += 1
 
         for child in newborns:
             self.cells.append(child)
-        # rebuild occupancy to be safe
         self.occupancy[:] = -1
         for i, c in enumerate(self.cells):
             self.occupancy[c.y, c.x] = i

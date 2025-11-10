@@ -43,70 +43,86 @@ python main.py
 | -------------------- | ------------------------------------------------------------------- |
 | width (`--w`)        | 100                                                                 |
 | height (`--h`)       | 100                                                                 |
+| boundary mode (`--boundary-mode`) | clamp (hard edges; periodic wraps around)               |
 | output dir (`--out`) | out                                                                 |
 | days                 | 21                                                                  |
 | media interval       | 2                                                                   |
 | switches             | movement ✅, commitment ✅, apoptosis ✅, proliferation ✅, secretion ✅ |
 | output filename      | timeseries.xlsx                                                     |
+| apoptosis probability (`--apoptosis-prob`) | 0.01 (per-cell death chance each day)                         |
+| proliferation chance (`--proliferation-chance`) | 1.0 (multiplies the per-day division attempt probability after the interval test) |
+| apoptosis probability (`--apoptosis-prob`) | 0.01 (per-cell death chance each day) |
+
+## 🛠️ CLI Control Overview
+
+- **Simulation size/time:** `--days`, `--cells`, `--w`, `--h`, `--media-interval`, `--seed` let you set duration, population, lattice dimensions, media cadence, and RNG seed.
+- **Supplements:** `--aa`, `--bgp`, `--dexa`, `--mk4` scale extracellular factors; adjusting them skews PI/Ca handling inside `PDEManager`.
+- **Cellular switches:** `--cell-movement/--no-cell-movement`, `--osteogenic-commitment/--no-osteogenic-commitment`, `--apoptosis/--no-apoptosis`, `--proliferation/--no-proliferation`, `--secretion/--no-secretion`, plus `--ob-div-prob`, `--proliferation-chance`, and `--apoptosis-prob` control migration, fate, death, and division rules.
+- **Movement tuning:** `--move-prob`, `--max-moves` adjust motility probability/steps per day; both migration and division now sample the Moore (8-neighbor) grid (axial ~0.0333, diagonal ~0.0667) with a 60 % stay chance before attempting another direction.
+- **Boundary handling:** `--boundary-mode clamp|periodic` keeps agents inside the lattice (`clamp`) or wraps neighbors and daughters across opposite edges (`periodic`).
+- **Mineralization knobs:** `--c-thresh`, `--s-thresh`, `--k-nuc`, `--k-ha`, `--nuc-radius` influence ACP nucleation/maturation behavior in the PDE.
+- **Output/export:** `--spatial-every`, `--spatial-days`, `--out`, `--xlsx`, `--csv`, `--snapshots` configure PNG/Excel/CSV exports and snapshot cadence.
 
 ---
 
 ## 🧪 Example Runs
 
-### PowerShell Positive Control (Windows)
+### Linux / WSL Positive Control
 
-```powershell
-python main.py `
-   --days 21 `
-   --cells 300 `
-   --w 100 `
-   --h 100 `
-   --media-interval 2 `
-   --seed $(Get-Random) `
-   --aa 1.0 `
-   --bgp 1.0 `
-   --dexa 1.0 `
-   --mk4 1.0 `
-   --cell-movement `
-   --osteogenic-commitment `
-   --apoptosis `
-   --proliferation `
-   --secretion `
-   --move-prob 0.5 `
-   --max-moves 1 `
-   --ob-div-prob 0.0 `
-   --spatial-every 5 `
-   --snapshots `
-   --xlsx `
+```bash
+python main.py \
+   --days 21 \
+   --cells 300 \
+   --w 100 \
+   --h 100 \
+   --media-interval 2 \
+   --seed $(shuf -i 1-999999 -n 1) \
+   --aa 1.0 \
+   --bgp 1.0 \
+   --dexa 1.0 \
+   --mk4 1.0 \
+   --cell-movement \
+   --osteogenic-commitment \
+   --apoptosis \
+   --proliferation \
+   --secretion \
+   --move-prob 0.5 \
+   --max-moves 1 \
+   --ob-div-prob 0.0 \
+   --apoptosis-prob 0.01 \
+   --spatial-every 5 \
+   --snapshots \
+   --xlsx \
    --out out
 ```
 
 
-### PowerShell Negative Control (Windows)
+### Linux / WSL Negative Control
 
-```powershell
-python main.py `
-   --days 21 `
-   --cells 300 `
-   --w 100 `
-   --h 100 `
-   --media-interval 2 `
-   --seed $(Get-Random) `
-   --aa 1.0 `
-   --bgp 1.0 `
-   --dexa 1.0 `
-   --mk4 1.0 `
-   --no-cell-movement `
-   --no-osteogenic-commitment `
-   --no-apoptosis `
-   --no-proliferation `
-   --no-secretion `
-   --move-prob 0.5 `
-   --max-moves 1 `
-   --ob-div-prob 0.0 `
-   --spatial-every 5 `
-   --snapshots `
-   --xlsx `
+```bash
+python main.py \
+   --days 21 \
+   --cells 300 \
+   --w 100 \
+   --h 100 \
+   --media-interval 2 \
+   --seed $(shuf -i 1-999999 -n 1) \
+   --aa 1.0 \
+   --bgp 1.0 \
+   --dexa 1.0 \
+   --mk4 1.0 \
+   --no-cell-movement \
+   --no-osteogenic-commitment \
+   --no-apoptosis \
+   --no-proliferation \
+   --no-secretion \
+   --move-prob 0.5 \
+   --max-moves 1 \
+   --ob-div-prob 0.0 \
+   --apoptosis-prob 0.01 \
+   --spatial-every 5 \
+   --snapshots \
+   --xlsx \
    --out out
 ```
 
@@ -118,6 +134,22 @@ python main.py `
 * PNG snapshots (if `--snapshots`) under `out/`.
 * Spatial heatmaps at intervals specified by `--spatial-every`.
 
+### Figures & Visualization
+- Exports (300 DPI, tight margins for papers):
+  - `01_states_counts.png` – Active/OB/Total counts vs. day
+  - `02_events_cumulative.png` – Cumulative deaths by class
+  - `03_matrix_biochem.png` – Collagen/ALP totals + free Ca/Pi
+  - `04_events_daily.png` – Daily commitments and deaths
+  - `spatial_day_XXX.png` – Cell-state map at day `XXX`
+  - `collagen_ha_day_XXX.png` – Collagen–HA overlay at day `XXX`
+- Color scheme (colorblind‑friendly):
+  - Active `#0072B2` (blue), Osteoblast `#D55E00` (vermillion)
+  - Died while active `#E69F00`, died while osteoblast `#CC79A7`
+  - Collagen overlay uses `magma`; HA overlay uses `Blues`; both alpha‑scaled with robust p99 normalization.
+- Layout notes:
+  - Spatial maps and collagen–HA overlays are square and fill the figure; side colorbars are narrow and height‑matched for consistent subfigure sizing.
+  - Default overlays are exported every 5 days and on the last day of the run. Spatial maps follow `--spatial-every` or explicit `--spatial-days`.
+
 ---
 
 ## 🧬 Notes on Biology Consistency
@@ -125,4 +157,3 @@ python main.py `
 * Supplements (AA, β-GP, Dexa, MK-4) currently stay constant between media changes. Implement depletion if needed.
 * Dexa only nudges Pi in code—extend to influence commitment probability and ALP secretion for closer biological realism.
 * MK-4 acts as a Pi sink proxy; to fully model ACP→HA conversion, add explicit ACP/HA kinetics or update docs.
-

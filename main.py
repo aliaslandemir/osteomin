@@ -36,6 +36,8 @@ def parse_args() -> argparse.Namespace:
     # --- lattice size ---
     p.add_argument("--w", type=int, default=100, help="grid width")
     p.add_argument("--h", type=int, default=100, help="grid height")
+    p.add_argument("--boundary-mode", choices=["clamp", "periodic"], default="clamp",
+                   help="treat edges as hard boundaries (clamp) or wrap around (periodic)")
 
     # --- supplements (scalars) ---
     p.add_argument("--aa",   type=float, default=1.0, help="ascorbic acid scaling")
@@ -70,11 +72,17 @@ def parse_args() -> argparse.Namespace:
                    help="disable apoptosis")
     p.set_defaults(apoptosis=True)
 
+    p.add_argument("--apoptosis-prob", type=float, default=0.01,
+                   help="per-cell apoptosis probability each day")
+
     p.add_argument("--proliferation", dest="proliferation", action="store_true",
                    help="enable proliferation")
     p.add_argument("--no-proliferation", dest="proliferation", action="store_false",
                    help="disable proliferation")
     p.set_defaults(proliferation=True)
+
+    p.add_argument("--proliferation-chance", type=float, default=1.0,
+                   help="per-cell chance to attempt division once the interval passes")
 
     p.add_argument("--secretion", dest="secretion", action="store_true",
                    help="enable secretion (OB → collagen/ALP)")
@@ -118,10 +126,13 @@ def main() -> None:
     # clamp probabilities for safety
     args.move_prob   = max(0.0, min(1.0, args.move_prob))
     args.ob_div_prob = max(0.0, min(1.0, args.ob_div_prob))
+    args.proliferation_chance = max(0.0, min(1.0, args.proliferation_chance))
+    args.apoptosis_prob = max(0.0, min(1.0, args.apoptosis_prob))
 
     # configs
     abm_cfg = ABMConfig(
         width=args.w, height=args.h,
+        boundary_mode=args.boundary_mode,
         enable_migration=args.cell_movement,
         enable_commitment=args.commitment,
         enable_apoptosis=args.apoptosis,
@@ -130,6 +141,8 @@ def main() -> None:
         move_prob=args.move_prob,
         max_moves_per_day=args.max_moves,
         ob_division_prob=args.ob_div_prob,
+        apoptosis_prob=args.apoptosis_prob,
+        proliferation_chance=args.proliferation_chance,
     )
     pde_cfg = PDEConfig(width=args.w, height=args.h,
                         media_interval=args.media_interval)

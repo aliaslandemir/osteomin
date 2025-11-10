@@ -7,6 +7,7 @@ __all__ = ["ABMConfig", "PDEConfig"]
 class ABMConfig:
     width: int = 100
     height: int = 100
+    boundary_mode: str = "clamp"
     enable_migration: bool = True
     enable_commitment: bool = True
     enable_apoptosis: bool = True
@@ -21,6 +22,7 @@ class ABMConfig:
     move_prob: float = 0.8
     max_moves_per_day: int = 1
     ob_division_prob: float = 0.0
+    proliferation_chance: float = 1.0
 
     # Mineralization thresholds/kinetics
     C_THRESH: float = 2.0         # collagen threshold (a.u.)
