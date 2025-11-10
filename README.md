@@ -1,14 +1,13 @@
-# OsteoMin – Agent-Based & PDE Bone Remodeling Simulator
+# OsteoMin – Agent-Based Pre-Osteoblast Differentiation Model (NO PDE)
 
 ## 📂 Project Structure
-
 ```
 .
-├── main.py           # Entry point (run from here)
-├── README.md         # This file
-├── requirements.txt  # Dependencies (include openpyxl, numpy, matplotlib, etc.)
+├── main.py           # Main control
+├── README.md         # Read
+├── requirements.txt  # Dependencies
 ├── out/              # Default output folder
-└── src/              # Python package
+└── src/              # Python handling
     ├── __init__.py
     ├── abm_manager.py
     ├── agent.py
