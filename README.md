@@ -72,32 +72,40 @@ python main.py
 
 ```bash
 python main.py \
-  --days 29 \
-  --cells 700 \
-  --w 100 \
-  --h 100 \
-  --boundary-mode periodic \
-  --media-interval 2 \
-  --seed $(shuf -i 1-999999 -n 1) \
-  --aa 1.0 \
-  --bgp 1.0 \
-  --mk4 1.0 \
-  --dexa 1.0 \
-  --random-move \
-  --osteogenic-commitment \
-  --apoptosis \
-  --proliferation \
-  --secretion \
-  --move-prob 1.0 \
-  --max-moves 1 \
-  --ob-div-prob 0.0 \
-  --spatial-every 1 \
-  --snapshots \
-  --xlsx \
-  --out out \
-  --proliferation-chance 1.0 \
-  --apoptosis-prob 0.01 \
-  --commit-growth 0.02
+  # --- Simulation setup ---
+  --days 29 \                     # total simulation duration
+  --cells 700 \                   # initial number of cells
+  --w 100 --h 100 \               # grid size (width × height)
+  --boundary-mode periodic \      # periodic boundary conditions
+  --seed $(shuf -i 1-999999 -n 1) # random seed for reproducibility
+  --media-interval 2 \            # media refresh interval (days)
+
+  # --- Biochemical environment ---
+  --aa 1.0 \                      # ascorbic acid level
+  --bgp 1.0 \                     # β-glycerophosphate level
+  --mk4 1.0 \                     # vitamin K2 (MK-4) level
+  --dexa 1.0 \                    # dexamethasone level
+
+  # --- Cell behaviors ---
+  --random-move \                 # enable random cell movement
+  --move-prob 1.0 \               # movement probability per day
+  --max-moves 1 \                 # max steps per cell per day
+  --proliferation \               # enable cell proliferation
+  --proliferation-chance 1.0 \    # daily proliferation chance
+  --ob-div-prob 0.0 \             # osteoblast division probability
+  --apoptosis \                   # enable apoptosis
+  --apoptosis-prob 0.01 \         # base apoptosis probability
+  --apoptosis-osteo 0.0005 \      # apoptosis for osteoblasts
+  --osteogenic-commitment \       # enable OB differentiation
+  --commit-growth 0.02 \          # commitment growth rate
+  --secretion \                   # enable matrix secretion
+
+  # --- Output and logging ---
+  --spatial-every 1 \             # save spatial maps every day
+  --snapshots \                   # store visual snapshots
+  --xlsx \                        # export summary data to Excel
+  --out out                       # output directory
+
 
 ```
 
