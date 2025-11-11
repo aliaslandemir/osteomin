@@ -33,11 +33,11 @@ class PDEManager:
 
     # --- simple chemistry params ---
     CA0: float = 1.0  # media Ca baseline (a.u.)
-    PI0: float = 1.0  # media Pi baseline (a.u.)
+    PI0: float = 0.0  # media Pi baseline (a.u.); Pi is made via β-GP → ALP
     ALP_TO_PI_RATE: float = 0.01  # Pi increase per ALP (scaled by bgp)
     AA_TO_COLLAGEN_RATE: float = 0.2  # Collagen-I increase per AA (scaled by aa)
-    # --- nucleation / maturation ---
-    S_THRESH: float = 0.05  # Ca*Pi supersaturation threshold
+    # --- nucleation / maturation ---|
+    S_THRESH: float = 0.01  # Ca*Pi supersaturation threshold
     K_NUC: float = 0.05  # ACP nucleation rate per day (a.u.)
     K_HA: float = 0.05  # ACP -> HA conversion per day
 
@@ -51,20 +51,28 @@ class PDEManager:
     KW: float = 1.0
     H_BASE: float = 1.0
     OH_BASE: float = 1.0
+    # --- supplement depletion ---
+    AA_USAGE_PER_COLLAGEN: float = 1e-5  # AA units consumed per collagen unit
+    BGP_USAGE_PER_PI: float = 3e-4  # β-GP units consumed per Pi unit released
 
     def __init__(self, width: int, height: int, media_interval: int, supplements: dict):
         self.width = int(width)
         self.height = int(height)
-        self.media_interval = int(media_interval)
         self._day = 0
+        self.media_interval = int(media_interval)
+        self.days_since_media = 0
 
         # Supplements (clamped to non-negative)
         s = _Supplements(**{k: float(v) for k, v in dict(supplements).items()})
         self.supp = s
+        self.aa_pool = max(0.0, s.aa)
+        self.bgp_pool = max(0.0, s.bgp)
+        self.mk4_level = max(0.0, s.mk4)
+        self.dexa_level = max(0.0, s.dexa)
 
         # Spatial fields
-        self.ca = np.full((self.height, self.width), self.CA0, dtype=float)
-        self.pi = np.full((self.height, self.width), self.PI0, dtype=float)
+        self.ca = np.zeros((self.height, self.width), dtype=float)
+        self.pi = np.zeros((self.height, self.width), dtype=float)
         self.collagen = np.zeros((self.height, self.width), dtype=float)
         self.alp = np.zeros((self.height, self.width), dtype=float)
         self.acp = np.zeros((self.height, self.width), dtype=float)
@@ -73,13 +81,18 @@ class PDEManager:
         self.oh_minus = np.full((self.height, self.width), self.OH_BASE, dtype=float)
 
         # Legacy scalars (for outputs/back-compat)
-        self.free_ca = float(self.CA0)
-        self.free_pi = float(self.PI0)
+        self.free_ca = 0.0
+        self.free_pi = 0.0
         self.total_collagen = 0.0
         self.total_alp = 0.0
+        self.ca_consumed_total = 0.0
+        self.pi_consumed_total = 0.0
 
         # Last-day OB mask (RAW, optional)
         self._ob_mask: Optional[np.ndarray] = None
+
+        # initialize baseline media so day 0 snapshots show CA0 / PI0
+        self.refresh_media()
 
     # ---------- helpers ----------
     # ---------- public API ----------
@@ -92,13 +105,28 @@ class PDEManager:
         self.free_pi = float(self.PI0)
         self.h_plus.fill(self.H_BASE)
         self.oh_minus.fill(self.OH_BASE)
+        self.aa_pool = max(0.0, self.supp.aa)
+        self.bgp_pool = max(0.0, self.supp.bgp)
+        self.days_since_media = 0
 
-    def add_collagen(self, amount: float) -> None:
+    def _consume_aa(self, collagen_added: float) -> None:
+        if collagen_added <= 0.0:
+            return
+        usage = collagen_added * self.AA_USAGE_PER_COLLAGEN
+        self.aa_pool = max(0.0, self.aa_pool - usage)
+
+    def _consume_bgp(self, pi_added_total: float) -> None:
+        if pi_added_total <= 0.0:
+            return
+        usage = pi_added_total * self.BGP_USAGE_PER_PI
+        self.bgp_pool = max(0.0, self.bgp_pool - usage)
+
+    def add_collagen(self, amount: float, ob_count: int = 0) -> None:
         """
         Accumulate collagen; AA availability scales how much matrix OBs can lay down.
         If the AA supplement is zero, collagen deposition is stalled.
         """
-        aa_factor = max(0.0, self.supp.aa)
+        aa_factor = max(0.0, self.aa_pool)
         if aa_factor <= 0.0:
             return
         amount = float(max(0.0, amount)) * aa_factor * self.AA_TO_COLLAGEN_RATE
@@ -110,8 +138,9 @@ class PDEManager:
         else:
             self.collagen += amount / (self.width * self.height)
         self.total_collagen += amount
+        self._consume_aa(amount)
 
-    def add_alp(self, amount: float) -> None:
+    def add_alp(self, amount: float, ob_count: int = 0) -> None:
         """Accumulate ALP; if OB mask known, distribute locally on RAW OB pixels."""
         amount = float(max(0.0, amount))
         if amount <= 0.0:
@@ -138,12 +167,18 @@ class PDEManager:
     # ---------- daily chemistry ----------
     def step_day(self) -> None:
         """
-        Update ions from secreted ALP/collagen and perform nucleation/maturation,
-        then apply media change if scheduled.
+        Update ions from secreted ALP/collagen and perform nucleation/maturation.
+        Media changes occur at the start of a day once the interval elapses so the
+        previous day's snapshot captures the depleted state.
         """
+        if self.media_interval > 0 and self.days_since_media >= self.media_interval:
+            self.refresh_media()
+
         # 1) ALP raises Pi (scaled by β-GP)
-        if self.total_alp > 0:
-            self.pi += self.ALP_TO_PI_RATE * self.supp.bgp * self.alp
+        if self.total_alp > 0 and self.bgp_pool > 0:
+            pi_delta = self.ALP_TO_PI_RATE * self.bgp_pool * self.alp
+            self.pi += pi_delta
+            self._consume_bgp(float(pi_delta.sum()))
 
         # 2) ACP nucleation where collagen & supersaturation thresholds met
         supersat = self.ca * self.pi
@@ -172,6 +207,8 @@ class PDEManager:
                 self.pi[eligible_idx] - pi_needed, 0.0, None
             )
             self.acp[eligible_idx] += formation
+            self.ca_consumed_total += float(ca_needed.sum())
+            self.pi_consumed_total += float(pi_needed.sum())
 
         # 4) ACP -> HA maturation once enough ACP is present and Ca is available
         ha_candidates = self.acp >= self.ACP_TO_HA_THRESHOLD
@@ -189,6 +226,7 @@ class PDEManager:
                 self.acp[ha_idx] -= conversion
                 self.ha[ha_idx] += ha_created
                 self.h_plus[ha_idx] += ha_created * self.H_PLUS_PER_HA
+                self.ca_consumed_total += float(ca_consumed.sum())
 
         # 5) maintain simple OH/H+ equilibrium
         self.oh_minus = np.clip(self.KW / (self.h_plus + 1e-12), 0.0, None)
@@ -198,8 +236,8 @@ class PDEManager:
         self.free_pi = float(self.pi.mean())
 
         self._day += 1
-        if (self._day % self.media_interval) == 0:
-            self.refresh_media()
+        if self.media_interval > 0:
+            self.days_since_media += 1
 
     # ---------- reporting ----------
     def snapshot_scalars(self) -> dict:
@@ -214,4 +252,6 @@ class PDEManager:
             "ha_total": float(self.ha.sum()),
             "h_plus_total": float(self.h_plus.sum()),
             "oh_minus_total": float(self.oh_minus.sum()),
+            "ca_used_total": float(self.ca_consumed_total),
+            "pi_used_total": float(self.pi_consumed_total),
         }

@@ -72,18 +72,20 @@ def parse_args() -> argparse.Namespace:
 
     # --- cell-level switches ---
     p.add_argument(
+        "--random-move",
         "--cell-movement",
-        dest="cell_movement",
+        dest="random_move",
         action="store_true",
-        help="enable cell migration",
+        help="enable random_move motility",
     )
     p.add_argument(
+        "--no-random-move",
         "--no-cell-movement",
-        dest="cell_movement",
+        dest="random_move",
         action="store_false",
-        help="disable cell migration",
+        help="disable random_move motility",
     )
-    p.set_defaults(cell_movement=True)
+    p.set_defaults(random_move=True)
 
     p.add_argument(
         "--move-prob",
@@ -142,6 +144,14 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=0.01,
         help="per-cell apoptosis probability each day",
+    )
+
+    p.add_argument(
+        "--apoptosis-osteo",
+        dest="ob_apoptosis_prob",
+        type=float,
+        default=0.001,
+        help="per-osteoblast apoptosis probability each day",
     )
 
     p.add_argument(
@@ -229,13 +239,14 @@ def main() -> None:
     args.ob_div_prob = max(0.0, min(1.0, args.ob_div_prob))
     args.proliferation_chance = max(0.0, min(1.0, args.proliferation_chance))
     args.apoptosis_prob = max(0.0, min(1.0, args.apoptosis_prob))
+    args.ob_apoptosis_prob = max(0.0, min(1.0, args.ob_apoptosis_prob))
 
     # configs
     abm_cfg = ABMConfig(
         width=args.w,
         height=args.h,
         boundary_mode=args.boundary_mode,
-        enable_migration=args.cell_movement,
+        enable_random_move=args.random_move,
         enable_commitment=args.commitment,
         enable_apoptosis=args.apoptosis,
         enable_proliferation=args.proliferation,
@@ -244,6 +255,7 @@ def main() -> None:
         max_moves_per_day=args.max_moves,
         ob_division_prob=args.ob_div_prob,
         apoptosis_prob=args.apoptosis_prob,
+        ob_apoptosis_prob=args.ob_apoptosis_prob,
         proliferation_chance=args.proliferation_chance,
         commit_prob_growth=args.commit_growth,
     )

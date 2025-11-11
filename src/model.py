@@ -145,23 +145,36 @@ class OsteoModel:
         n_active = sum(1 for c in self.abm.cells if c.state == CellState.ACTIVE)
         n_ob     = sum(1 for c in self.abm.cells if c.state == CellState.OSTEOBLAST)
 
+        supp_aa = float(getattr(self.pde, "aa_pool", 0.0))
+        supp_bgp = float(getattr(self.pde, "bgp_pool", 0.0))
+        supp_mk4 = float(getattr(self.pde, "mk4_level", 0.0))
+        supp_dexa = float(getattr(self.pde, "dexa_level", 0.0))
+
         if day == 0:
             # use current PDE scalars at t0
-            self._rows.append({
-                "day": int(day),
-                "n_active": int(n_active),
-                "n_osteoblast": int(n_ob),
-                "n_total": int(n_active + n_ob),
-                "dead_active_today": 0,
-                "dead_ob_today": 0,
-                "committed_today": 0,
-                "free_ca": float(self.pde.free_ca),
-                "free_pi": float(self.pde.free_pi),
-                "collagen_total": float(self.pde.total_collagen),
-                "alp_total": float(self.pde.total_alp),
-                "acp_total": 0.0,
-                "ha_total": 0.0,
-            })
+            self._rows.append(
+                {
+                    "day": int(day),
+                    "n_active": int(n_active),
+                    "n_osteoblast": int(n_ob),
+                    "n_total": int(n_active + n_ob),
+                    "dead_active_today": 0,
+                    "dead_ob_today": 0,
+                    "committed_today": 0,
+                    "free_ca": float(self.pde.free_ca),
+                    "free_pi": float(self.pde.free_pi),
+                    "collagen_total": float(self.pde.total_collagen),
+                    "alp_total": float(self.pde.total_alp),
+                    "acp_total": 0.0,
+                    "ha_total": 0.0,
+                    "ca_used_total": 0.0,
+                    "pi_used_total": 0.0,
+                    "supp_aa": supp_aa,
+                    "supp_bgp": supp_bgp,
+                    "supp_mk4": supp_mk4,
+                    "supp_dexa": supp_dexa,
+                }
+            )
             return
 
         scalars = self.pde.snapshot_scalars()
@@ -179,6 +192,12 @@ class OsteoModel:
             "alp_total": float(scalars["alp_total"]),
             "acp_total": float(scalars.get("acp_total", 0.0)),
             "ha_total": float(scalars.get("ha_total", 0.0)),
+            "ca_used_total": float(scalars.get("ca_used_total", 0.0)),
+            "pi_used_total": float(scalars.get("pi_used_total", 0.0)),
+            "supp_aa": supp_aa,
+            "supp_bgp": supp_bgp,
+            "supp_mk4": supp_mk4,
+            "supp_dexa": supp_dexa,
         })
 
 

@@ -1,11 +1,11 @@
 {
   "days": 29,
-  "seed": 124053,
+  "seed": 10683,
   "abm_cfg": {
     "width": 100,
     "height": 100,
     "boundary_mode": "periodic",
-    "enable_migration": true,
+    "enable_random_move": true,
     "enable_commitment": true,
     "enable_apoptosis": true,
     "enable_proliferation": true,
@@ -13,6 +13,7 @@
     "base_commit_prob": 0.1,
     "commit_prob_growth": 0.02,
     "apoptosis_prob": 0.01,
+    "ob_apoptosis_prob": 0.0005,
     "min_div_days": 2,
     "max_div_days": 4,
     "collagen_per_ob": 1.5,

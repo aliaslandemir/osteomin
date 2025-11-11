@@ -9,7 +9,7 @@ class ABMConfig:
     width: int = 100
     height: int = 100
     boundary_mode: str = "clamp"
-    enable_migration: bool = True
+    enable_random_move: bool = True
     enable_commitment: bool = True
     enable_apoptosis: bool = True
     enable_proliferation: bool = True
@@ -17,6 +17,7 @@ class ABMConfig:
     base_commit_prob: float = 0.1
     commit_prob_growth: float = 0.02
     apoptosis_prob: float = 0.01
+    ob_apoptosis_prob: float = 0.001
     min_div_days: int = 2
     max_div_days: int = 4
     collagen_per_ob: float = 1.5

@@ -67,9 +67,9 @@ class ABMManager:
         self.dead_ob_coords = []
         self.committed_today = 0
 
-        # 1) migration – small motility before division/commitment
-        if self.cfg.enable_migration:
-            self._migration_step()
+        # 1) random_move – small motility before division/commitment
+        if self.cfg.enable_random_move:
+            self._random_move_step()
 
         # 2) proliferation – cell cycle events and daughter placement
         if self.cfg.enable_proliferation:
@@ -140,7 +140,7 @@ class ABMManager:
         dx, dy = self._direction_offsets[idx]
         return self._resolve_offset(x, y, dx, dy)
 
-    def _migration_step(self) -> None:
+    def _random_move_step(self) -> None:
         for idx, c in enumerate(self.cells):
             if c.state != CellState.ACTIVE:
                 continue
@@ -163,7 +163,12 @@ class ABMManager:
     def _apoptosis_step(self, day: int) -> None:
         died_indices = []
         for idx, c in enumerate(self.cells):
-            if self.rng.random() < self.cfg.apoptosis_prob:
+            prob = (
+                self.cfg.ob_apoptosis_prob
+                if c.state == CellState.OSTEOBLAST
+                else self.cfg.apoptosis_prob
+            )
+            if self.rng.random() < prob:
                 # classify by state at time of death
                 if c.state == CellState.ACTIVE:
                     self.dead_active_coords.append((c.y, c.x))
@@ -224,5 +229,5 @@ class ABMManager:
         n_ob = sum(1 for c in self.cells if c.state == CellState.OSTEOBLAST)
         if n_ob <= 0:
             return
-        self.pde.add_collagen(n_ob * self.cfg.collagen_per_ob)
-        self.pde.add_alp(n_ob * self.cfg.alp_per_ob)
+        self.pde.add_collagen(n_ob * self.cfg.collagen_per_ob, ob_count=n_ob)
+        self.pde.add_alp(n_ob * self.cfg.alp_per_ob, ob_count=n_ob)

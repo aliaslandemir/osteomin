@@ -36,7 +36,8 @@ def _set_white(ax):
 
 def plot_summary(df: pd.DataFrame, outdir: str | Path) -> None:
     outdir = Path(outdir)
-    outdir.mkdir(parents=True, exist_ok=True)
+    img_dir = outdir / "collagen_ha"
+    img_dir.mkdir(parents=True, exist_ok=True)
     days = df["day"].to_numpy()
 
     fig, ax = plt.subplots(figsize=(6, 3.5))
@@ -91,20 +92,41 @@ def plot_summary(df: pd.DataFrame, outdir: str | Path) -> None:
 
     fig, ax = plt.subplots(figsize=(6, 3.5))
     _set_white(ax)
-    ax.plot(
-        days, df["collagen_total"], label="Collagen (total)", lw=2, color=COLORS["ob"]
-    )
-    ax.plot(days, df["alp_total"], label="ALP (total)", lw=2, color="#d33682")
-    ax2 = ax.twinx()
-    ax2.plot(days, df["free_ca"], label="free Ca", lw=1.8, color="#1f77b4", alpha=0.8)
-    ax2.plot(days, df["free_pi"], label="free Pi", lw=1.8, color="#ff7f0e", alpha=0.8)
+    ax.plot(days, df["free_ca"], label="free Ca", lw=2, color="#1f77b4")
+    ax.plot(days, df["free_pi"], label="free Pi", lw=2, color="#ff7f0e")
     ax.set_xlabel("Day")
-    ax.set_ylabel("Matrix (a.u.)")
-    ax2.set_ylabel("Ions (a.u.)")
-    ax.set_title("Matrix & biochemistry")
-    lines, labels = ax.get_legend_handles_labels()
-    lines2, labels2 = ax2.get_legend_handles_labels()
-    ax.legend(lines + lines2, labels + labels2, frameon=False, loc="upper left", ncol=2)
+    ax.set_ylabel("Free ions (a.u.)")
+    usage_ax = ax.twinx()
+    usage_handles = []
+    usage_labels = []
+    if "ca_used_total" in df.columns:
+        line = usage_ax.plot(
+            days, df["ca_used_total"], label="Ca used", lw=2, ls="-", color="#2ca02c"
+        )[0]
+        usage_handles.append(line)
+        usage_labels.append("Ca used")
+    if "pi_used_total" in df.columns:
+        line = usage_ax.plot(
+            days, df["pi_used_total"], label="Pi used", lw=2, ls="--", color="#9467bd"
+        )[0]
+        usage_handles.append(line)
+        usage_labels.append("Pi used")
+    if usage_handles:
+        usage_ax.set_ylabel("Cumulative ions consumed (a.u.)")
+    else:
+        fig.delaxes(usage_ax)
+        usage_ax = None
+    ax.set_title("Media ions & usage")
+    free_handles, free_labels = ax.get_legend_handles_labels()
+    if usage_ax:
+        ax.legend(
+            free_handles + usage_handles,
+            free_labels + usage_labels,
+            frameon=False,
+            ncol=2,
+        )
+    else:
+        ax.legend(frameon=False, ncol=2)
     ax.grid(alpha=0.25)
     fig.tight_layout(pad=0.6)
     fig.savefig(outdir / "03_matrix_biochem.png", dpi=300, bbox_inches="tight")
@@ -143,6 +165,26 @@ def plot_summary(df: pd.DataFrame, outdir: str | Path) -> None:
     fig.tight_layout(pad=0.6)
     fig.savefig(outdir / "04_events_daily.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
+
+    supp_cols = [
+        ("supp_aa", "Ascorbic acid (AA)", "#0d9488"),
+        ("supp_bgp", "β-GP", "#f97316"),
+        ("supp_mk4", "MK-4", "#6366f1"),
+        ("supp_dexa", "Dexa", "#dc2626"),
+    ]
+    if all(col in df.columns for col, _, _ in supp_cols):
+        fig, ax = plt.subplots(figsize=(6, 3.5))
+        _set_white(ax)
+        for col, label, color in supp_cols:
+            ax.plot(days, df[col], label=label, lw=2, color=color)
+        ax.set_xlabel("Day")
+        ax.set_ylabel("Supplement scale (a.u.)")
+        ax.set_title("Supplements schedule")
+        ax.legend(frameon=False, ncol=2)
+        ax.grid(alpha=0.25)
+        fig.tight_layout(pad=0.6)
+        fig.savefig(outdir / "05_supplements.png", dpi=300, bbox_inches="tight")
+        plt.close(fig)
 
 
 def export_spatial_for_day(
@@ -197,8 +239,9 @@ def export_spatial_for_day(
     legend.get_frame().set_edgecolor("black")
     legend.get_frame().set_linewidth(0.6)
     outdir = Path(outdir)
-    outdir.mkdir(parents=True, exist_ok=True)
-    plt.savefig(outdir / f"spatial_day_{day:03d}.png", dpi=300, bbox_inches="tight")
+    img_dir = outdir / "spatial_cells"
+    img_dir.mkdir(parents=True, exist_ok=True)
+    plt.savefig(img_dir / f"spatial_day_{day:03d}.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
 
 
@@ -226,7 +269,8 @@ def export_overlay_collagen_ha_from_npy(
     """
     grids_dir = Path(grids_dir)
     outdir = Path(outdir)
-    outdir.mkdir(parents=True, exist_ok=True)
+    img_dir = outdir / "collagen_ha"
+    img_dir.mkdir(parents=True, exist_ok=True)
     col = np.load(grids_dir / f"collagen_day_{day:03d}.npy")
     ha = np.load(grids_dir / f"ha_day_{day:03d}.npy")
     if not col.any() and not ha.any():
@@ -237,7 +281,7 @@ def export_overlay_collagen_ha_from_npy(
         ax.set_xticks([])
         ax.set_yticks([])
         ax.set_title(f"Day {day:02d} — No collagen/HA", fontsize=12, pad=10)
-        fig.savefig(outdir / f"collagen_ha_day_{day:03d}.png", dpi=300, bbox_inches="tight")
+        fig.savefig(img_dir / f"collagen_ha_day_{day:03d}.png", dpi=300, bbox_inches="tight")
         plt.close(fig)
         return
 
@@ -316,5 +360,5 @@ def export_overlay_collagen_ha_from_npy(
     cbar_bottom.set_label("Colocalized mineral (intensity)", fontsize=9)
     cbar_bottom.ax.tick_params(labelsize=8, colors="black")
 
-    fig.savefig(outdir / f"collagen_ha_day_{day:03d}.png", dpi=300, bbox_inches="tight")
+    fig.savefig(img_dir / f"collagen_ha_day_{day:03d}.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
