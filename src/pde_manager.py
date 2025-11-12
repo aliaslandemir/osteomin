@@ -45,8 +45,11 @@ class PDEManager:
     CA_PER_ACP: float = 3.0  # stoichiometric Ca per ACP unit
     PI_PER_ACP: float = 2.0  # stoichiometric Pi per ACP unit
     ACP_TO_HA_THRESHOLD: float = 0.25  # required local ACP before HA maturation
-    CA_PER_ACP_TO_HA: float = 1.0 / 3.0
-    HA_PER_ACP_RATIO: float = 2.0 / 3.0
+    # stoichiometry for the ACP → HA reaction:
+    #   3 ACP + 1 Ca²⁺ → 2 HA + 2 H⁺
+    ACP_PER_HA_REACTION: float = 3.0
+    CA_PER_REACTION: float = 1.0
+    HA_PER_REACTION: float = 2.0
     H_PLUS_PER_HA: float = 1.0  # protons released per HA formed
     KW: float = 1.0
     H_BASE: float = 1.0
@@ -215,15 +218,17 @@ class PDEManager:
         if ha_candidates.any():
             ha_idx = np.where(ha_candidates)
             available_acp = self.acp[ha_idx]
-            possible_conversion = np.minimum(available_acp, self.K_HA)
+            acp_lumps = available_acp / self.ACP_PER_HA_REACTION
+            possible_conversion = np.minimum(acp_lumps, self.K_HA)
             ca_avail = self.ca[ha_idx]
-            ca_capacity = ca_avail / self.CA_PER_ACP_TO_HA
+            ca_capacity = ca_avail / self.CA_PER_REACTION
             conversion = np.minimum(possible_conversion, ca_capacity)
             if conversion.any():
-                ca_consumed = conversion * self.CA_PER_ACP_TO_HA
-                ha_created = conversion * self.HA_PER_ACP_RATIO
+                acp_consumed = conversion * self.ACP_PER_HA_REACTION
+                ca_consumed = conversion * self.CA_PER_REACTION
+                ha_created = conversion * self.HA_PER_REACTION
                 self.ca[ha_idx] = np.clip(self.ca[ha_idx] - ca_consumed, 0.0, None)
-                self.acp[ha_idx] -= conversion
+                self.acp[ha_idx] -= acp_consumed
                 self.ha[ha_idx] += ha_created
                 self.h_plus[ha_idx] += ha_created * self.H_PLUS_PER_HA
                 self.ca_consumed_total += float(ca_consumed.sum())

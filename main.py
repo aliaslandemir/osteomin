@@ -129,6 +129,13 @@ def parse_args() -> argparse.Namespace:
     )
 
     p.add_argument(
+        "--commit-delay",
+        type=int,
+        default=0,
+        help="days before ACTIVE cells can start committing to osteoblasts",
+    )
+
+    p.add_argument(
         "--apoptosis", dest="apoptosis", action="store_true", help="enable apoptosis"
     )
     p.add_argument(
@@ -240,6 +247,7 @@ def main() -> None:
     args.proliferation_chance = max(0.0, min(1.0, args.proliferation_chance))
     args.apoptosis_prob = max(0.0, min(1.0, args.apoptosis_prob))
     args.ob_apoptosis_prob = max(0.0, min(1.0, args.ob_apoptosis_prob))
+    args.commit_delay = max(0, args.commit_delay)
 
     # configs
     abm_cfg = ABMConfig(
@@ -258,6 +266,7 @@ def main() -> None:
         ob_apoptosis_prob=args.ob_apoptosis_prob,
         proliferation_chance=args.proliferation_chance,
         commit_prob_growth=args.commit_growth,
+        commit_delay=args.commit_delay,
     )
     pde_cfg = PDEConfig(width=args.w, height=args.h, media_interval=args.media_interval)
 

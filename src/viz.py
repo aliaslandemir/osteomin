@@ -238,10 +238,12 @@ def export_spatial_for_day(
     )
     legend.get_frame().set_edgecolor("black")
     legend.get_frame().set_linewidth(0.6)
+    ax.set_aspect("equal")
+    fig.subplots_adjust(top=0.88, right=0.95, left=0.05, bottom=0.04)
     outdir = Path(outdir)
     img_dir = outdir / "spatial_cells"
     img_dir.mkdir(parents=True, exist_ok=True)
-    plt.savefig(img_dir / f"spatial_day_{day:03d}.png", dpi=300, bbox_inches="tight")
+    plt.savefig(img_dir / f"spatial_day_{day:03d}.png", dpi=300)
     plt.close(fig)
 
 

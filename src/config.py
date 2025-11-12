@@ -8,7 +8,7 @@ __all__ = ["ABMConfig", "PDEConfig"]
 class ABMConfig:
     width: int = 100
     height: int = 100
-    boundary_mode: str = "clamp"
+    boundary_mode: str = "periodic"
     enable_random_move: bool = True
     enable_commitment: bool = True
     enable_apoptosis: bool = True
@@ -16,8 +16,9 @@ class ABMConfig:
     enable_secretion: bool = True
     base_commit_prob: float = 0.1
     commit_prob_growth: float = 0.02
+    commit_delay: int = 0
     apoptosis_prob: float = 0.01
-    ob_apoptosis_prob: float = 0.001
+    ob_apoptosis_prob: float = 0.0005
     min_div_days: int = 2
     max_div_days: int = 4
     collagen_per_ob: float = 1.5

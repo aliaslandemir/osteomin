@@ -76,7 +76,7 @@ class ABMManager:
             self._proliferation_step(day)
 
         # 3) commitment – differentiate some ACTIVE to OB
-        if self.cfg.enable_commitment:
+        if self.cfg.enable_commitment and day >= self.cfg.commit_delay:
             commit_prob = min(
                 1.0,
                 float(self.cfg.base_commit_prob + day * self.cfg.commit_prob_growth)

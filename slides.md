@@ -79,7 +79,7 @@ class: grid-cols-[2fr_1fr] items-start
 # Active Cell Behaviour
 - Every agent begins in `CellState.ACTIVE` (`src/agent.py`) and can `random_move`, divide, commit, secrete, and die in that order each day.
 - `random_move` uses `_random_move_step` if enabled; division clocks (`last_div_day`, `division_interval`) gate proliferation attempts.
-- Commitment uses `base_commit_prob + day * commit_prob_growth` while requiring at least one day since the last division.
+- Commitment uses `base_commit_prob + day * commit_prob_growth`, but only starts once `day >= commit_delay`, so you can hold off osteoblast differentiation for the first few days while still requiring at least one day since the last division.
 - Active cells contribute to apoptosis statistics and can transition to osteoblasts or be culled before acting again.
 ::right::
 
