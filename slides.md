@@ -53,10 +53,11 @@ class: text-center bg-white
 
 
 # Model Initialization
-- `OsteoModel` (`src/model.py`) wires the ABM and PDE, sharing RNG and output folders.
-- `seed_random(n, w, h)` scatters up to `w×h` cells onto free lattice sites and records them in the occupancy grid.
+- `OsteoModel` (`src/model.py`) combine ABM and PDE, structure the model.
+- `seed_random(n, w, h)` scatters up to `w×h` cells onto free lattice sites and records them in the grid.
 - `ABMConfig` (width, height, boundary mode) dictates lattice size and behaviors; PDE fields start with uniform Ca/Pi and zero collagen/mineral.
-- Daily bookkeeping stores masks, density grids, and optional `.npy` chemistry snapshots for reproducibility.
+- Purpose of the PDE field; in case of diffusion plans.
+- Daily storing of masks, density grids, and optional `.npy` chemistry snapshots.
 ::right::
 
 <div class="border border-slate-300 rounded-lg p-3 text-xs font-mono leading-relaxed bg-white/80 shadow-sm">
@@ -70,7 +71,7 @@ class: text-center bg-white
 </div>
 
 ---
-transition: slide-right
+transition: fade-left
 layout: two-cols
 class: grid-cols-[2fr_1fr] items-start
 ---
@@ -78,9 +79,9 @@ class: grid-cols-[2fr_1fr] items-start
 
 # Active Cell Behaviour
 - Every agent begins in `CellState.ACTIVE` (`src/agent.py`) and can `random_move`, divide, commit, secrete, and die in that order each day.
-- `random_move` uses `_random_move_step` if enabled; division clocks (`last_div_day`, `division_interval`) gate proliferation attempts.
-- Commitment uses `base_commit_prob + day * commit_prob_growth`, but only starts once `day >= commit_delay`, so you can hold off osteoblast differentiation for the first few days while still requiring at least one day since the last division.
-- Active cells contribute to apoptosis statistics and can transition to osteoblasts or be culled before acting again.
+- `random_move` uses `_random_move_step` if enabled; division clocks (`last_div_day`, `division_interval`) so proliferation waits 1 days.
+- Commitment uses `base_commit_prob + day * commit_prob_growth`, but only starts once `day >= commit_delay`, so you can hold off osteoblast differentiation for the first few days (3).
+- Active cells contribute to apoptosis statistics and can transition to osteoblasts.
 ::right::
 
 <div class="border border-emerald-200 bg-emerald-50/80 rounded-lg p-3 text-xs font-mono leading-relaxed">
@@ -105,7 +106,7 @@ class: grid-cols-[2fr_1fr] items-start
 - Osteoblasts secrete collagen and ALP in `_secretion_step`, scaled per-cell (`collagen_per_ob`, `alp_per_ob`) before apoptosis runs.
 - A boolean OB mask is emitted to the PDE each day so matrix and mineral chemistry stays localized to living osteoblast pixels.
 - OBs remain subject to apoptosis, with deaths logged separately (`dead_ob_coords`) for overlays and statistics. 
- - OB-specific death probability (`ob_apoptosis_prob`, default 0.001) keeps committed cells alive longer than ACTIVE cells.
+ - OB-specific death probability (`ob_apoptosis_prob`, default 0.001) keeps committed cells alive longer than ACTIVE cells (20x less apoptotic).
 ::right::
 
 <div class="border border-orange-200 bg-orange-50/80 rounded-lg p-3 text-xs font-mono leading-relaxed">
@@ -129,7 +130,7 @@ class: grid-cols-[2fr_1fr] items-start
 - When `enable_random_move` (the `random_move` toggle) is true, ACTIVE cells can attempt up to `max_moves_per_day` hops.
 - `_movement_target` biases a stay-put probability (0.6) and samples 8-neighbor offsets with axial vs diagonal weights.
 - `boundary_mode` controls wrapping: `periodic` wraps coordinates; `clamp` aborts moves that leave the lattice.
-- Moves swap occupancy only if the destination is empty, so collisions naturally stall motility.
+- Moves swap occupancy only if the destination is empty.
 ::right::
 
 <div class="border border-sky-200 bg-sky-50/80 rounded-lg p-3 text-xs font-mono leading-relaxed">
@@ -143,7 +144,7 @@ class: grid-cols-[2fr_1fr] items-start
 </div>
 
 ---
-transition: slide-right
+transition: fade-left
 layout: two-cols
 class: grid-cols-[2fr_1fr] items-start
 ---
@@ -167,7 +168,7 @@ class: grid-cols-[2fr_1fr] items-start
 </div>
 
 ---
-transition: fade-right
+transition: fade-left
 layout: two-cols
 class: grid-cols-[2fr_1fr] items-start
 ---
@@ -175,7 +176,7 @@ class: grid-cols-[2fr_1fr] items-start
 
 # Collagen Production
 - Osteoblast counts feed `self.pde.add_collagen(n_ob * collagen_per_ob)` before apoptosis.
-- UnoCSS-like supplements scale output: AA availability multiplies matrix deposition via `AA_TO_COLLAGEN_RATE`.
+- AA availability multiplies matrix deposition via `AA_TO_COLLAGEN_RATE`.
 - If a PDE osteoblast mask exists, collagen is deposited only on those pixels; otherwise it spreads uniformly.
 - `collagen_total` accumulates globally and is written to timeseries/chemistry snapshots for plotting.
 ::right::
@@ -200,8 +201,7 @@ class: grid-cols-[2fr_1fr] items-start
 # Supplement Conservation
 - AA is reduced each time collagen is secreted via `_consume_aa`, so the `aa_pool` drops between media refreshes until the next dose.
 - ALP converts β-GP into Pi (`ALP_TO_PI_RATE * bgp_pool`), and `_consume_bgp` subtracts that usage so β-GP acts as a conserved resource.
-- The supplements figure (`05_supplements.png`) plus exported scalars (`supp_aa`, `supp_bgp`) now expose supply-limited behaviour; Dexa/MK-4 remain passive records.
-- Calcium is pulled from the media (`CA0`) and consumed during ACP/HA formation, so mineral accrual reflects ionic availability rather than secreted Ca.
+- Calcium is pulled from the media (`CA0`) and consumed during ACP/HA formation, so mineral reflects ionic availability rather than secreted Ca.
 ::right::
 
 <div class="border border-amber-200 bg-amber-50/80 rounded-lg p-3 text-xs font-mono leading-relaxed">
@@ -219,11 +219,11 @@ class: grid-cols-[2fr_1fr] items-start
 ---
 
 
-# Media Chemistry Workflow
+# Cell Media Workflow
 - Fresh media loads Ca but no Pi; Pi is generated only when ALP converts β-GP.
 - ACP nucleation checks the local product `Ca × Pi ≥ S_THRESH` on osteoblast pixels before consuming ions.
 - ACP that exceeds `ACP_TO_HA_THRESHOLD` converts to HA using additional Ca, releasing protons and updating the usage counters.
-- `03_matrix_biochem.png` now shows free Ca/Pi alongside cumulative Ca/Pi used so media depletion is visible between refreshes.
+
 ::right::
 
 <div class="border border-slate-200 bg-white/80 rounded-lg p-3 text-xs font-mono leading-relaxed space-y-1">
@@ -245,7 +245,7 @@ class: grid-cols-[2fr_1fr] items-start
 - PDE chemistry (`src/pde_manager.py`) first raises Pi via ALP (`ALP_TO_PI_RATE * β-GP`) to drive supersaturation.
 - ACP nucleates where `Ca * Pi >= S_THRESH`, consuming ions with stoichiometric caps and staying confined to the OB mask.
 - Once local ACP exceeds `ACP_TO_HA_THRESHOLD`, a fraction converts to HA at `K_HA`, consuming more Ca and releasing H⁺.
-- Resulting fields (`acp`, `ha`, `h_plus`, `oh_minus`) are exported when `--snapshots` or spatial overlays are enabled.
+
 ::right::
 
 <div class="border border-indigo-200 bg-indigo-50/70 rounded-lg p-3 text-xs leading-relaxed">
@@ -256,23 +256,18 @@ class: grid-cols-[2fr_1fr] items-start
 </div>
 
 ---
-transition: slide-right
+transition: fade-left
 layout: two-cols
 class: grid-cols-[2fr_1fr] items-start
 ---
 
 
 # Running the Code
-- Entry point `main.py` bundles CLI flags for days, cell count, supplements, export cadence, and mineralization kinetics.
+- Entry point `main.py` flags for days, cell count, supplements, export cadence, and mineralization kinetics.
 - Outputs: CSV/XLSX timeseries, PNG overlays (per `--spatial-every` or `--spatial-days`), and raw `.npy` grids when `--snapshots` is on.
 - Common run:
 
-```bash
-python main.py --days 21 --cells 300 --w 120 --h 120 --media-interval 2 \
-  --spatial-every 7 --snapshots --out out/demo_run
-```
-
-- Adjust supplements (`--aa`, `--bgp`, `--dexa`, `--mk4`) or kinetics (`--s-thresh`, `--k-nuc`, `--k-ha`) to probe mineralization regimes.
+README.md
 ::right::
 
 <div class="border border-slate-300 bg-white/70 rounded-lg p-3 text-xs leading-relaxed">
@@ -281,3 +276,23 @@ python main.py --days 21 --cells 300 --w 120 --h 120 --media-interval 2 \
   <p class="mt-1">Run → dataframe → XLSX/PNG/NPY outputs</p>
   <p class="mt-1">Check `out/spatial_cells` + `out/collagen_ha` folders</p>
 </div>
+
+
+
+---
+transition: slide-left
+layout: default
+class: grid-cols-[2fr_1fr] items-start
+---
+
+
+# Things to be discussed
+- Linear or Hill? (collagen + hap + Pi Production)
+- 1st: Collagen production simple function
+- 2nd: ACP production (Nucleation logic / no surface to volume growth)
+- 3rd: Abiotic CaP / Extravesicular Mineralization - Link to Nodule formations.
+- No diffusion?
+- 2 step osteoblast behaviour?
+- Do osteoblast cells trigger each other to differentiate?
+- For nucleation; 8+16+1 (nodule look for 25 block to decide threshold?)
+- 
