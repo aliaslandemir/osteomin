@@ -1,5 +1,5 @@
 """
-main.py — Entry point for OsteoMin ABM–PDE bone remodeling simulator.
+main.py — Entry point for OsteoMin ABM–field bone remodeling simulator.
 
 Run with:
     python main.py --days 21 --cells 300 --w 100 --h 100 --xlsx --snapshots
@@ -13,7 +13,7 @@ from typing import Iterable
 import numpy as np
 
 from src.model import OsteoModel
-from src.config import PDEConfig, ABMConfig
+from src.config import FieldConfig, ABMConfig
 from src.viz import plot_summary, export_overlay_collagen_ha_from_npy
 
 
@@ -36,7 +36,7 @@ def _global_field_max(grids_dir: Path, field_prefix: str, days: Iterable[int]) -
 # ----------------------------------------------------------------------
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="OsteoMin: MC3T3-E1 ABM/PDE bone remodeling simulator",
+        description="OsteoMin: MC3T3-E1 ABM/field bone remodeling simulator",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
@@ -281,7 +281,7 @@ def main() -> None:
         commit_prob_growth=args.commit_growth,
         commit_delay=args.commit_delay,
     )
-    pde_cfg = PDEConfig(
+    field_cfg = FieldConfig(
         width=args.w,
         height=args.h,
         media_interval=args.media_interval,
@@ -299,7 +299,7 @@ def main() -> None:
         outdir=outdir,
         days=args.days,
         abm_cfg=abm_cfg,
-        pde_cfg=pde_cfg,
+        field_cfg=field_cfg,
         supplements=supplements,
         seed=args.seed,
         spatial_every=args.spatial_every,
@@ -307,11 +307,11 @@ def main() -> None:
         snapshots_enabled=args.snapshots,
     )
 
-    # inject mineralization params into PDE
-    pde = model.pde
-    pde.S_THRESH = args.s_thresh
-    pde.K_NUC = args.k_nuc
-    pde.K_HA = args.k_ha
+    # inject mineralization params into the field manager
+    field = model.field
+    field.S_THRESH = args.s_thresh
+    field.K_NUC = args.k_nuc
+    field.K_HA = args.k_ha
 
     # seed and run
     model.seed_random(args.cells, abm_cfg.width, abm_cfg.height)

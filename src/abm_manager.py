@@ -39,7 +39,7 @@ class ABMManager:
         self.dead_ob_coords: List[Tuple[int,int]] = []      # died while OB
         self.committed_today: int = 0
 
-        self.pde = None
+        self.field = None
 
     # ----- seeding -----
     def seed_from_coords(self, coords: List[Tuple[int,int]], day0: int = 0) -> None:
@@ -56,8 +56,8 @@ class ABMManager:
                                                         self.cfg.max_div_days + 1))
         return c
 
-    def attach_pde(self, pde) -> None:
-        self.pde = pde
+    def attach_field(self, field) -> None:
+        self.field = field
 
     # ----- step -----
     def step_day(self, day: int) -> None:
@@ -98,17 +98,17 @@ class ABMManager:
         if self.cfg.enable_apoptosis:
             self._apoptosis_step(day)
 
-        # 6) chemistry update – send OB mask, then PDE tick / media refresh
-        if self.pde is not None:
+        # 6) chemistry update – send OB mask, then field tick / media refresh
+        if self.field is not None:
             # build boolean mask of alive osteoblast positions (H×W)
             ob_mask = np.zeros((self.height, self.width), dtype=bool)
             for c in self.cells:
                 if c.state == CellState.OSTEOBLAST:  # only alive cells remain in self.cells
                     ob_mask[c.y, c.x] = True
-            # provide mask to PDE (enables localized secretion & nucleation)
-            if hasattr(self.pde, "set_ob_mask"):
-                self.pde.set_ob_mask(ob_mask)
-            self.pde.step_day()
+            # provide mask to field (enables localized secretion & nucleation)
+            if hasattr(self.field, "set_ob_mask"):
+                self.field.set_ob_mask(ob_mask)
+            self.field.step_day()
 
     # ---- internals ----
     def _neighbors4(self, x: int, y: int):
@@ -224,10 +224,10 @@ class ABMManager:
             self.occupancy[c.y, c.x] = i
 
     def _secretion_step(self) -> None:
-        if self.pde is None:
+        if self.field is None:
             return
         n_ob = sum(1 for c in self.cells if c.state == CellState.OSTEOBLAST)
+        self.field.request_collagen_secretion(n_ob)
         if n_ob <= 0:
             return
-        self.pde.add_collagen(n_ob * self.cfg.collagen_per_ob, ob_count=n_ob)
-        self.pde.add_alp(n_ob * self.cfg.alp_per_ob, ob_count=n_ob)
+        self.field.add_alp(n_ob * self.cfg.alp_per_ob, ob_count=n_ob)

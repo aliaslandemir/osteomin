@@ -92,22 +92,33 @@ def plot_summary(df: pd.DataFrame, outdir: str | Path) -> None:
 
     fig, ax = plt.subplots(figsize=(6, 3.5))
     _set_white(ax)
-    ax.plot(days, df["free_ca"], label="free Ca", lw=2, color="#1f77b4")
-    ax.plot(days, df["free_pi"], label="free Pi", lw=2, color="#ff7f0e")
+    ax.plot(
+        days,
+        df["ca_media"],
+        label="media Ca",
+        lw=2,
+        color="#1f77b4",
+        ls=":",
+    )
+    ax.plot(days, df["bgp_pool"], label="β-GP pool", lw=2, color="#f15a24", ls="--")
+    ax.plot(days, df["cell_ca"], label="cell-processed Ca", lw=2, color="#009E73")
+    ax.plot(days, df["cell_pi"], label="cell-generated Pi", lw=2, color="#ff7f0e")
     ax.set_xlabel("Day")
     ax.set_ylabel("Free ions (a.u.)")
     usage_ax = ax.twinx()
     usage_handles = []
     usage_labels = []
-    if "ca_used_total" in df.columns:
+    ca_usage_series = df["ca_used_total"] if "ca_used_total" in df.columns else None
+    pi_usage_series = df["pi_used_total"] if "pi_used_total" in df.columns else None
+    if ca_usage_series is not None and (ca_usage_series.abs() > 0).any():
         line = usage_ax.plot(
-            days, df["ca_used_total"], label="Ca used", lw=2, ls="-", color="#2ca02c"
+            days, ca_usage_series, label="Ca used", lw=2, ls="-", color="#2ca02c"
         )[0]
         usage_handles.append(line)
         usage_labels.append("Ca used")
-    if "pi_used_total" in df.columns:
+    if pi_usage_series is not None and (pi_usage_series.abs() > 0).any():
         line = usage_ax.plot(
-            days, df["pi_used_total"], label="Pi used", lw=2, ls="--", color="#9467bd"
+            days, pi_usage_series, label="Pi used", lw=2, ls="--", color="#9467bd"
         )[0]
         usage_handles.append(line)
         usage_labels.append("Pi used")

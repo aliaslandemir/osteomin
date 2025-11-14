@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import Optional
 import numpy as np
 
-__all__ = ["PDEManager"]
+__all__ = ["FieldManager"]
 
 
 @dataclass(slots=True)
@@ -14,9 +14,9 @@ class _Supplements:
     mk4: float = 1.0
 
 
-class PDEManager:
+class FieldManager:
     """
-    Lightweight grid 'PDE' manager for ions and matrix/mineral fields.
+    Lightweight grid field manager for ions and matrix/mineral fields.
 
     Preserves scalar behaviours (free_ca/free_pi/collagen_total/alp_total)
     while adding spatial ACP/HA nucleation and maturation.
@@ -35,7 +35,6 @@ class PDEManager:
     CA0: float = 1.0  # media Ca baseline (a.u.)
     PI0: float = 0.0  # media Pi baseline (a.u.); Pi is made via β-GP → ALP
     ALP_TO_PI_RATE: float = 0.01  # Pi increase per ALP (scaled by bgp)
-    AA_TO_COLLAGEN_RATE: float = 0.2  # Collagen-I increase per AA (scaled by aa)
     # --- nucleation / maturation ---|
     S_THRESH: float = 0.01  # Ca*Pi supersaturation threshold
     K_NUC: float = 0.05  # ACP nucleation rate per day (a.u.)
@@ -55,8 +54,11 @@ class PDEManager:
     H_BASE: float = 1.0
     OH_BASE: float = 1.0
     # --- supplement depletion ---
-    AA_USAGE_PER_COLLAGEN: float = 1e-5  # AA units consumed per collagen unit
+    AA_USAGE_PER_COLLAGEN: float = 0.05  # AA units consumed per collagen unit
     BGP_USAGE_PER_PI: float = 3e-4  # β-GP units consumed per Pi unit released
+    # --- collagen kinetics ---
+    BASE_COLLAGEN_RATE: float = 0.001  # collagen units per OB per day at saturating AA
+    K_AA: float = 0.2  # AA level for half-maximal collagen effect
 
     def __init__(
         self,
@@ -68,6 +70,7 @@ class PDEManager:
     ):
         self.width = int(width)
         self.height = int(height)
+        self.area = float(self.width * self.height)
         self._day = 0
         self.media_interval = int(media_interval)
         self.days_since_media = 0
@@ -92,8 +95,8 @@ class PDEManager:
         self.oh_minus = np.full((self.height, self.width), self.OH_BASE, dtype=float)
 
         # Legacy scalars (for outputs/back-compat)
-        self.free_ca = 0.0
-        self.free_pi = 0.0
+        self.cell_ca = 0.0
+        self.cell_pi = 0.0
         self.total_collagen = 0.0
         self.total_alp = 0.0
         self.ca_consumed_total = 0.0
@@ -101,6 +104,9 @@ class PDEManager:
 
         # Last-day OB mask (RAW, optional)
         self._ob_mask: Optional[np.ndarray] = None
+
+        # pending secretion request (set by ABM prior to chemistry update)
+        self._pending_secretion_ob_count: int = 0
 
         # initialize baseline media so day 0 snapshots show CA0 / PI0
         self.refresh_media()
@@ -112,8 +118,8 @@ class PDEManager:
         self.ca.fill(self.CA0)
         self.pi.fill(self.PI0)
         # legacy scalars
-        self.free_ca = float(self.CA0)
-        self.free_pi = float(self.PI0)
+        self.cell_ca = 0.0
+        self.cell_pi = 0.0
         self.h_plus.fill(self.H_BASE)
         self.oh_minus.fill(self.OH_BASE)
         self.aa_pool = max(0.0, self.supp.aa)
@@ -132,15 +138,41 @@ class PDEManager:
         usage = pi_added_total * self.BGP_USAGE_PER_PI
         self.bgp_pool = max(0.0, self.bgp_pool - usage)
 
-    def add_collagen(self, amount: float, ob_count: int = 0) -> None:
-        """
-        Accumulate collagen; AA availability scales how much matrix OBs can lay down.
-        If the AA supplement is zero, collagen deposition is stalled.
-        """
-        aa_factor = max(0.0, self.aa_pool)
-        if aa_factor <= 0.0:
+    def _produce_pi_from_alp(self) -> float:
+        """Convert the ALP field to Pi without exceeding β-GP supply."""
+        if self.total_alp <= 0.0 or self.bgp_pool <= 0.0:
+            return 0.0
+        potential_pi = self.ALP_TO_PI_RATE * self.alp
+        total_potential = float(potential_pi.sum())
+        if total_potential <= 0.0:
+            return 0.0
+        max_pi = self.bgp_pool / max(1e-12, self.BGP_USAGE_PER_PI)
+        if max_pi <= 0.0:
+            return 0.0
+        scale = min(1.0, max_pi / total_potential)
+        pi_add = potential_pi * scale
+        self.pi += pi_add
+        produced = float(pi_add.sum())
+        self._consume_bgp(produced)
+        return produced
+
+    def request_collagen_secretion(self, ob_count: int) -> None:
+        """Queue the number of OBs that should secrete collagen this day."""
+        self._pending_secretion_ob_count = max(0, int(ob_count))
+
+    def _apply_collagen_secretion(self) -> None:
+        """Apply per-day AA→collagen using a saturating sigmoidal response."""
+        count = self._pending_secretion_ob_count
+        self._pending_secretion_ob_count = 0
+        if count <= 0 or self.BASE_COLLAGEN_RATE <= 0:
             return
-        amount = float(max(0.0, amount)) * aa_factor * self.AA_TO_COLLAGEN_RATE
+        denom = self.aa_pool + self.K_AA
+        if denom <= 0.0:
+            return
+        f_aa = self.aa_pool / denom
+        if f_aa <= 0.0:
+            return
+        amount = count * self.BASE_COLLAGEN_RATE * f_aa
         if amount <= 0.0:
             return
         if self._ob_mask is not None and self._ob_mask.any():
@@ -185,14 +217,14 @@ class PDEManager:
         if self.media_interval > 0 and self.days_since_media >= self.media_interval:
             self.refresh_media()
 
-        # 1) ALP raises Pi (scaled by β-GP)
-        if self.total_alp > 0 and self.bgp_pool > 0:
-            pi_delta = self.ALP_TO_PI_RATE * self.bgp_pool * self.alp
-            self.pi += pi_delta
-            self._consume_bgp(float(pi_delta.sum()))
+        # 1) ALP raises Pi (limited by β-GP)
+        self._produce_pi_from_alp()
+
+        # 2) Collagen deposition from osteoblasts (AA-limited)
+        self._apply_collagen_secretion()
 
         if self.enable_nucleation:
-            # 2) ACP nucleation where collagen & supersaturation thresholds met
+            # 4) ACP nucleation where collagen & supersaturation thresholds met
             supersat = self.ca * self.pi
             if self._ob_mask is not None:
                 # nucleation limited to osteoblast positions (no dilation)
@@ -246,8 +278,8 @@ class PDEManager:
         self.oh_minus = np.clip(self.KW / (self.h_plus + 1e-12), 0.0, None)
 
         # 6) legacy scalars and scheduling
-        self.free_ca = float(self.ca.mean())
-        self.free_pi = float(self.pi.mean())
+        self.cell_ca = float(self.ca_consumed_total) / max(1.0, self.area)
+        self.cell_pi = float(self.pi.mean())
 
         self._day += 1
         if self.media_interval > 0:
@@ -257,8 +289,10 @@ class PDEManager:
     def snapshot_scalars(self) -> dict:
         """Return scalars used by the timeseries writer (back-compat keys kept)."""
         return {
-            "free_ca": self.free_ca,
-            "free_pi": self.free_pi,
+            "cell_ca": float(self.cell_ca),
+            "cell_pi": float(self.cell_pi),
+            "ca_media": float(self.ca.mean()),
+            "bgp_pool": float(self.bgp_pool),
             "collagen_total": float(self.total_collagen),
             "alp_total": float(self.total_alp),
             # new mineral outputs

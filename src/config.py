@@ -1,7 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 
-__all__ = ["ABMConfig", "PDEConfig"]
+__all__ = ["ABMConfig", "FieldConfig"]
 
 
 @dataclass(slots=True)
@@ -28,14 +28,14 @@ class ABMConfig:
     ob_division_prob: float = 0.0
     proliferation_chance: float = 1.0
 
-    # Mineralization thresholds/kinetics (legacy; PDEManager now owns them)
+    # Mineralization thresholds/kinetics (legacy; FieldManager now owns them)
     S_THRESH: float = 0.15  # Ca*Pi supersaturation threshold
     K_NUC: float = 0.05  # ACP nucleation rate per day
     K_HA: float = 0.08  # ACP->HA conversion rate per day
 
 
 @dataclass(slots=True)
-class PDEConfig:
+class FieldConfig:
     width: int = 100
     height: int = 100
     media_interval: int = 2

@@ -53,10 +53,10 @@ class: text-center bg-white
 
 
 # Model Initialization
-- `OsteoModel` (`src/model.py`) combine ABM and PDE, structure the model.
+- `OsteoModel` (`src/model.py`) combine ABM and the field manager, structure the model.
 - `seed_random(n, w, h)` scatters up to `w×h` cells onto free lattice sites and records them in the grid.
-- `ABMConfig` (width, height, boundary mode) dictates lattice size and behaviors; PDE fields start with uniform Ca/Pi and zero collagen/mineral.
-- Purpose of the PDE field; in case of diffusion plans.
+- `ABMConfig` (width, height, boundary mode) dictates lattice size and behaviors; the field manager starts with uniform Ca/Pi and zero collagen/mineral.
+- Purpose of the field manager; in case of diffusion plans.
 - Daily storing of masks, density grids, and optional `.npy` chemistry snapshots.
 ::right::
 
@@ -65,7 +65,7 @@ class: text-center bg-white
   <div class="text-center">⬇︎</div>
   <div>occupancy grid</div>
   <div class="text-center">⬇︎</div>
-  <div>ABM ↔ PDE share RNG + masks</div>
+  <div>ABM ↔ field manager share RNG + masks</div>
   <div class="text-center">⬇︎</div>
   <div>daily exports (state, chem .npy, overlays)</div>
 </div>
@@ -104,7 +104,7 @@ class: grid-cols-[2fr_1fr] items-start
 # Osteoblast Behaviour
 - `mark_committed` flips a cell to `CellState.OSTEOBLAST`, tracks `day_committed`, and flags `ever_ob` for history.
 - Osteoblasts secrete collagen and ALP in `_secretion_step`, scaled per-cell (`collagen_per_ob`, `alp_per_ob`) before apoptosis runs.
-- A boolean OB mask is emitted to the PDE each day so matrix and mineral chemistry stays localized to living osteoblast pixels.
+- A boolean OB mask is emitted to the field manager each day so matrix and mineral chemistry stays localized to living osteoblast pixels.
 - OBs remain subject to apoptosis, with deaths logged separately (`dead_ob_coords`) for overlays and statistics. 
  - OB-specific death probability (`ob_apoptosis_prob`, default 0.001) keeps committed cells alive longer than ACTIVE cells (20x less apoptotic).
 ::right::
@@ -112,7 +112,7 @@ class: grid-cols-[2fr_1fr] items-start
 <div class="border border-orange-200 bg-orange-50/80 rounded-lg p-3 text-xs font-mono leading-relaxed">
   <div>ACTIVE + commit ✔ → mark OB</div>
   <div class="text-center">↓</div>
-  <div>emit OB mask → PDE uses pixels</div>
+  <div>emit OB mask → field manager uses pixels</div>
   <div class="text-center">↓</div>
   <div>secrete collagen + ALP per OB</div>
   <div class="text-center">↓</div>
@@ -154,7 +154,7 @@ class: grid-cols-[2fr_1fr] items-start
 - `_proliferation_step` enforces per-cell `division_interval` drawn between `min_div_days` and `max_div_days`.
 - Cells must also pass `proliferation_chance`; osteoblast division is further throttled by `ob_division_prob`.
 - Daughter cells spawn in the first free neighbor sampled; failure to place bumps `last_div_day` so the parent retries later.
-- After division, the occupancy grid is rebuilt so downstream steps (commitment, PDE coupling) see consistent positions.
+- After division, the occupancy grid is rebuilt so downstream steps (commitment, field coupling) see consistent positions.
 ::right::
 
 <div class="border border-purple-200 bg-purple-50/80 rounded-lg p-3 text-xs font-mono leading-relaxed">
@@ -175,9 +175,9 @@ class: grid-cols-[2fr_1fr] items-start
 
 
 # Collagen Production
-- Osteoblast counts feed `self.pde.add_collagen(n_ob * collagen_per_ob)` before apoptosis.
+- Osteoblast counts feed `self.field.add_collagen(n_ob * collagen_per_ob)` before apoptosis.
 - AA availability multiplies matrix deposition via `AA_TO_COLLAGEN_RATE`.
-- If a PDE osteoblast mask exists, collagen is deposited only on those pixels; otherwise it spreads uniformly.
+- If a field manager osteoblast mask exists, collagen is deposited only on those pixels; otherwise it spreads uniformly.
 - `collagen_total` accumulates globally and is written to timeseries/chemistry snapshots for plotting.
 ::right::
 
@@ -242,7 +242,7 @@ class: grid-cols-[2fr_1fr] items-start
 
 
 # Hydroxyapatite Production
-- PDE chemistry (`src/pde_manager.py`) first raises Pi via ALP (`ALP_TO_PI_RATE * β-GP`) to drive supersaturation.
+- Field manager chemistry (`src/field_manager.py`) first raises Pi via ALP (`ALP_TO_PI_RATE * β-GP`) to drive supersaturation.
 - ACP nucleates where `Ca * Pi >= S_THRESH`, consuming ions with stoichiometric caps and staying confined to the OB mask.
 - Once local ACP exceeds `ACP_TO_HA_THRESHOLD`, a fraction converts to HA at `K_HA`, consuming more Ca and releasing H⁺.
 

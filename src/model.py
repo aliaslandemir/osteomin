@@ -6,8 +6,8 @@ import numpy as np
 import pandas as pd
 
 from .abm_manager import ABMManager
-from .config import ABMConfig, PDEConfig
-from .pde_manager import PDEManager
+from .config import ABMConfig, FieldConfig
+from .field_manager import FieldManager
 from .agent import CellState
 from .io_utils import cell_grids, save_timeseries_excel, save_timeseries_csv, coords_to_mask
 from .viz import export_spatial_for_day
@@ -20,7 +20,7 @@ class OsteoModel:
                  outdir: str | Path,
                  days: int,
                  abm_cfg: ABMConfig,
-                 pde_cfg: PDEConfig,
+                 field_cfg: FieldConfig,
                  supplements: dict,
                  seed: Optional[int] = None,
                  spatial_every: int = 0,
@@ -35,14 +35,14 @@ class OsteoModel:
 
         self.rng = np.random.default_rng(seed)
         self.abm = ABMManager(abm_cfg, self.rng)
-        self.pde = PDEManager(
-            width=pde_cfg.width,
-            height=pde_cfg.height,
-            media_interval=pde_cfg.media_interval,
+        self.field = FieldManager(
+            width=field_cfg.width,
+            height=field_cfg.height,
+            media_interval=field_cfg.media_interval,
             supplements=supplements,
-            enable_nucleation=pde_cfg.enable_nucleation,
+            enable_nucleation=field_cfg.enable_nucleation,
         )
-        self.abm.attach_pde(self.pde)
+        self.abm.attach_field(self.field)
 
         self._rows: List[Dict] = []
 
@@ -57,7 +57,7 @@ class OsteoModel:
             "days": self.days,
             "seed": seed,
             "abm_cfg": __import__("dataclasses").asdict(abm_cfg),
-            "pde_cfg": __import__("dataclasses").asdict(pde_cfg),
+            "field_cfg": __import__("dataclasses").asdict(field_cfg),
             "supplements": supplements,
             "spatial_every": self.spatial_every,
             "spatial_days": sorted(list(self.spatial_days)),
@@ -97,8 +97,8 @@ class OsteoModel:
             np.save(self.grids_dir / f"deaths_active_day_000.npy", deaths_active_mask)
             np.save(self.grids_dir / f"deaths_ob_day_000.npy",     deaths_ob_mask)
             # NEW: chemistry snapshots
-            np.save(self.grids_dir / f"collagen_day_000.npy", self.pde.collagen.astype(np.float32))
-            np.save(self.grids_dir / f"ha_day_000.npy",       self.pde.ha.astype(np.float32))
+            np.save(self.grids_dir / f"collagen_day_000.npy", self.field.collagen.astype(np.float32))
+            np.save(self.grids_dir / f"ha_day_000.npy",       self.field.ha.astype(np.float32))
 
 
         self._append_row(0)
@@ -125,8 +125,8 @@ class OsteoModel:
                 np.save(self.grids_dir / f"deaths_active_day_{day:03d}.npy", deaths_active_mask.astype(np.uint8))
                 np.save(self.grids_dir / f"deaths_ob_day_{day:03d}.npy",     deaths_ob_mask.astype(np.uint8))
                 # NEW: chemistry snapshots
-                np.save(self.grids_dir / f"collagen_day_{day:03d}.npy", self.pde.collagen.astype(np.float32))
-                np.save(self.grids_dir / f"ha_day_{day:03d}.npy",       self.pde.ha.astype(np.float32))
+                np.save(self.grids_dir / f"collagen_day_{day:03d}.npy", self.field.collagen.astype(np.float32))
+                np.save(self.grids_dir / f"ha_day_{day:03d}.npy",       self.field.ha.astype(np.float32))
 
 
             self._append_row(day)
@@ -146,13 +146,13 @@ class OsteoModel:
         n_active = sum(1 for c in self.abm.cells if c.state == CellState.ACTIVE)
         n_ob     = sum(1 for c in self.abm.cells if c.state == CellState.OSTEOBLAST)
 
-        supp_aa = float(getattr(self.pde, "aa_pool", 0.0))
-        supp_bgp = float(getattr(self.pde, "bgp_pool", 0.0))
-        supp_mk4 = float(getattr(self.pde, "mk4_level", 0.0))
-        supp_dexa = float(getattr(self.pde, "dexa_level", 0.0))
+        supp_aa = float(getattr(self.field, "aa_pool", 0.0))
+        supp_bgp = float(getattr(self.field, "bgp_pool", 0.0))
+        supp_mk4 = float(getattr(self.field, "mk4_level", 0.0))
+        supp_dexa = float(getattr(self.field, "dexa_level", 0.0))
 
         if day == 0:
-            # use current PDE scalars at t0
+            # use current field scalars at t0
             self._rows.append(
                 {
                     "day": int(day),
@@ -162,14 +162,16 @@ class OsteoModel:
                     "dead_active_today": 0,
                     "dead_ob_today": 0,
                     "committed_today": 0,
-                    "free_ca": float(self.pde.free_ca),
-                    "free_pi": float(self.pde.free_pi),
-                    "collagen_total": float(self.pde.total_collagen),
-                    "alp_total": float(self.pde.total_alp),
+                    "collagen_total": float(self.field.total_collagen),
+                    "alp_total": float(self.field.total_alp),
                     "acp_total": 0.0,
                     "ha_total": 0.0,
                     "ca_used_total": 0.0,
                     "pi_used_total": 0.0,
+                    "cell_ca": float(self.field.cell_ca),
+                    "cell_pi": float(self.field.cell_pi),
+                    "ca_media": float(self.field.ca.mean()),
+                    "bgp_pool": float(self.field.bgp_pool),
                     "supp_aa": supp_aa,
                     "supp_bgp": supp_bgp,
                     "supp_mk4": supp_mk4,
@@ -178,7 +180,7 @@ class OsteoModel:
             )
             return
 
-        scalars = self.pde.snapshot_scalars()
+        scalars = self.field.snapshot_scalars()
         self._rows.append({
             "day": int(day),
             "n_active": int(n_active),
@@ -187,8 +189,10 @@ class OsteoModel:
             "dead_active_today": int(len(self.abm.dead_active_coords)),
             "dead_ob_today": int(len(self.abm.dead_ob_coords)),
             "committed_today": int(self.abm.committed_today),
-            "free_ca": float(scalars["free_ca"]),
-            "free_pi": float(scalars["free_pi"]),
+            "cell_ca": float(scalars["cell_ca"]),
+            "cell_pi": float(scalars["cell_pi"]),
+            "ca_media": float(scalars["ca_media"]),
+            "bgp_pool": float(scalars.get("bgp_pool", 0.0)),
             "collagen_total": float(scalars["collagen_total"]),
             "alp_total": float(scalars["alp_total"]),
             "acp_total": float(scalars.get("acp_total", 0.0)),

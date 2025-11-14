@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Run sanity checks that toggle each boolean behavior on/off while keeping the
-base ABM/PDE scenario fixed.
+base ABM/field scenario fixed.
 
 Each toggle produces its own `out/sanity_check/<toggle>_{on,off}` folder so
 you can inspect individual runs side-by-side. A markdown report summarizes
@@ -48,7 +48,7 @@ TOGGLES = [
     },
     {
         "name": "secretion",
-        "desc": "Osteoblasts deposit collagen/ALP that fuels the PDE.",
+        "desc": "Osteoblasts deposit collagen/ALP that fuels the field manager.",
         "on": ["--secretion"],
         "off": ["--no-secretion"],
     },
@@ -180,7 +180,7 @@ def write_report(results: Sequence[RunResult], path: Path) -> None:
             "## Interpretation notes",
             "",
             "- Each directory under `out/sanity_check1/` contains the model outputs for the toggle + state combination listed above.",
-            "- Compare `_on` vs `_off` directories in Excel/PDE outputs (`timeseries.xlsx`, `collagen_ha/`, `spatial_cells/`) to understand how the behavior impacts biology.",
+            "- Compare `_on` vs `_off` directories in Excel/field outputs (`timeseries.xlsx`, `collagen_ha/`, `spatial_cells/`) to understand how the behavior impacts biology.",
             "- The `commit_delay` toggle keeps all other booleans fixed while changing the day active cells are allowed to commit.",
         ]
     )
