@@ -102,6 +102,8 @@ BASE_ARGS = [
     "0.0005",
     "--commit-growth",
     "0.02",
+    "--commit-delay",
+    "3",
     "--spatial-every",
     "1",
     "--snapshots",

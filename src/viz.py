@@ -90,57 +90,173 @@ def plot_summary(df: pd.DataFrame, outdir: str | Path) -> None:
     fig.savefig(outdir / "02_events_cumulative.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
 
-    fig, ax = plt.subplots(figsize=(6, 3.5))
-    _set_white(ax)
-    ax.plot(
-        days,
-        df["ca_media"],
-        label="media Ca",
-        lw=2,
-        color="#1f77b4",
-        ls=":",
+    # --- Biochemistry ions: three stacked panels (one figure) ---
+    ca_used = df["ca_used_total"] if "ca_used_total" in df.columns else None
+    ca_supplied = df["ca_supplied_total"] if "ca_supplied_total" in df.columns else None
+    cell_ca = df["cell_ca"] if "cell_ca" in df.columns else None
+    ca_media = df["ca_media"] if "ca_media" in df.columns else None
+
+    pi_used = df["pi_used_total"] if "pi_used_total" in df.columns else None
+    pi_generated = (
+        df["pi_generated_total"] if "pi_generated_total" in df.columns else None
     )
-    ax.plot(days, df["bgp_pool"], label="β-GP pool", lw=2, color="#f15a24", ls="--")
-    ax.plot(days, df["cell_ca"], label="cell-processed Ca", lw=2, color="#009E73")
-    ax.plot(days, df["cell_pi"], label="cell-generated Pi", lw=2, color="#ff7f0e")
-    ax.set_xlabel("Day")
-    ax.set_ylabel("Free ions (a.u.)")
-    usage_ax = ax.twinx()
-    usage_handles = []
-    usage_labels = []
-    ca_usage_series = df["ca_used_total"] if "ca_used_total" in df.columns else None
-    pi_usage_series = df["pi_used_total"] if "pi_used_total" in df.columns else None
-    if ca_usage_series is not None and (ca_usage_series.abs() > 0).any():
-        line = usage_ax.plot(
-            days, ca_usage_series, label="Ca used", lw=2, ls="-", color="#2ca02c"
-        )[0]
-        usage_handles.append(line)
-        usage_labels.append("Ca used")
-    if pi_usage_series is not None and (pi_usage_series.abs() > 0).any():
-        line = usage_ax.plot(
-            days, pi_usage_series, label="Pi used", lw=2, ls="--", color="#9467bd"
-        )[0]
-        usage_handles.append(line)
-        usage_labels.append("Pi used")
-    if usage_handles:
-        usage_ax.set_ylabel("Cumulative ions consumed (a.u.)")
-    else:
-        fig.delaxes(usage_ax)
-        usage_ax = None
-    ax.set_title("Media ions & usage")
-    free_handles, free_labels = ax.get_legend_handles_labels()
-    if usage_ax:
-        ax.legend(
-            free_handles + usage_handles,
-            free_labels + usage_labels,
-            frameon=False,
-            ncol=2,
+    bgp_consumed = (
+        df["bgp_consumed_total"] if "bgp_consumed_total" in df.columns else None
+    )
+    bgp_pool = df["bgp_pool"] if "bgp_pool" in df.columns else None
+    cell_pi = df["cell_pi"] if "cell_pi" in df.columns else None
+
+    fig, axes = plt.subplots(3, 1, figsize=(6, 7.2), sharex=True)
+
+    # Panel 1: free media + cell pools
+    ax_free = axes[0]
+    _set_white(ax_free)
+    handles: list = []
+    labels: list = []
+    if ca_media is not None:
+        handles.append(
+            ax_free.plot(
+                days, ca_media, label="media Ca (free)", lw=2, color="#1f77b4"
+            )[0]
         )
-    else:
-        ax.legend(frameon=False, ncol=2)
-    ax.grid(alpha=0.25)
-    fig.tight_layout(pad=0.6)
-    fig.savefig(outdir / "03_matrix_biochem.png", dpi=300, bbox_inches="tight")
+        labels.append("media Ca (free)")
+    if cell_ca is not None:
+        handles.append(
+            ax_free.plot(
+                days,
+                cell_ca,
+                label="cell-processed Ca (per area)",
+                lw=2,
+                color="#0d9488",
+            )[0]
+        )
+        labels.append("cell-processed Ca (per area)")
+    if bgp_pool is not None:
+        handles.append(
+            ax_free.plot(
+                days,
+                bgp_pool,
+                label="β-GP pool (free)",
+                lw=2,
+                ls="--",
+                color="#f97316",
+            )[0]
+        )
+        labels.append("β-GP pool (free)")
+    if cell_pi is not None:
+        handles.append(
+            ax_free.plot(
+                days,
+                cell_pi,
+                label="cell-generated Pi (mean field)",
+                lw=2,
+                color="#ff7f0e",
+            )[0]
+        )
+        labels.append("cell-generated Pi (mean field)")
+    ax_free.set_ylabel("Free pools (a.u.)")
+    ax_free.set_title("Free media & cell pools")
+    if handles:
+        ax_free.legend(handles, labels, frameon=False, ncol=2)
+    ax_free.grid(alpha=0.25)
+
+    # Panel 2: cumulative calcium budget (separate scales)
+    ax_ca_left = axes[1]
+    _set_white(ax_ca_left)
+    left_handles = []
+    left_labels = []
+    if ca_used is not None:
+        left_handles.append(
+            ax_ca_left.plot(
+                days,
+                ca_used,
+                label="Ca used (cum)",
+                lw=2,
+                color="#7c3aed",
+            )[0]
+        )
+        left_labels.append("Ca used (cum)")
+    ax_ca_left.set_ylabel("Ca used (a.u.)")
+    ax_ca_left.set_title("Calcium budget (cumulative)")
+    ax_ca_right = ax_ca_left.twinx()
+    right_handles = []
+    right_labels = []
+    if ca_supplied is not None:
+        right_handles.append(
+            ax_ca_right.plot(
+                days,
+                ca_supplied,
+                label="media Ca supplied (cum)",
+                lw=2,
+                ls=":",
+                color="#268bd2",
+            )[0]
+        )
+        right_labels.append("media Ca supplied (cum)")
+    if right_handles:
+        ax_ca_right.set_ylabel("Ca supplied (a.u.)")
+    handles = left_handles + right_handles
+    labels = left_labels + right_labels
+    if handles:
+        ax_ca_left.legend(handles, labels, frameon=False)
+    ax_ca_left.grid(alpha=0.25)
+
+    # Panel 3: cumulative phosphate / β-GP budget (separate scales)
+    ax_pi_left = axes[2]
+    _set_white(ax_pi_left)
+    left_handles = []
+    left_labels = []
+    if pi_used is not None:
+        left_handles.append(
+            ax_pi_left.plot(
+                days,
+                pi_used,
+                label="Pi used (cum)",
+                lw=2,
+                color="#6a51a3",
+            )[0]
+        )
+        left_labels.append("Pi used (cum)")
+    ax_pi_left.set_ylabel("Pi used (a.u.)")
+    ax_pi_left.set_title("Phosphate / β-GP budget (cumulative)")
+    ax_pi_right = ax_pi_left.twinx()
+    right_handles = []
+    right_labels = []
+    if pi_generated is not None:
+        right_handles.append(
+            ax_pi_right.plot(
+                days,
+                pi_generated,
+                label="Pi generated (cum)",
+                lw=2,
+                ls="--",
+                color="#9467bd",
+            )[0]
+        )
+        right_labels.append("Pi generated (cum)")
+    if bgp_consumed is not None:
+        right_handles.append(
+            ax_pi_right.plot(
+                days,
+                bgp_consumed,
+                label="β-GP consumed (cum)",
+                lw=2,
+                ls="-.",
+                color="#d95f02",
+            )[0]
+        )
+        right_labels.append("β-GP consumed (cum)")
+    if right_handles:
+        ax_pi_right.set_ylabel("Generated / β-GP (a.u.)")
+    handles = left_handles + right_handles
+    labels = left_labels + right_labels
+    ax_pi_left.set_xlabel("Day")
+    if handles:
+        ax_pi_left.legend(handles, labels, frameon=False, ncol=2)
+    ax_pi_left.grid(alpha=0.25)
+
+    fig.tight_layout(pad=0.8)
+    fig.savefig(outdir / "03_biochem.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
 
     fig, ax = plt.subplots(figsize=(6, 3.5))

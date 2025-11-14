@@ -14,7 +14,7 @@ class ABMConfig:
     enable_apoptosis: bool = True
     enable_proliferation: bool = True
     enable_secretion: bool = True
-    base_commit_prob: float = 0.1
+    base_commit_prob: float = 0.02
     commit_prob_growth: float = 0.02
     commit_delay: int = 0
     apoptosis_prob: float = 0.01

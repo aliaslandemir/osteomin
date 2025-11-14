@@ -75,6 +75,10 @@ class FieldManager:
         self.media_interval = int(media_interval)
         self.days_since_media = 0
         self.enable_nucleation = bool(enable_nucleation)
+        self.ca_supplied_total = 0.0
+        self.pi_supplied_total = 0.0
+        self.pi_generated_total = 0.0
+        self.bgp_consumed_total = 0.0
 
         # Supplements (clamped to non-negative)
         s = _Supplements(**{k: float(v) for k, v in dict(supplements).items()})
@@ -117,6 +121,8 @@ class FieldManager:
         """Reset ionic fields to baseline; keep matrix/minerals."""
         self.ca.fill(self.CA0)
         self.pi.fill(self.PI0)
+        self.ca_supplied_total += float(self.ca.sum())
+        self.pi_supplied_total += float(self.pi.sum())
         # legacy scalars
         self.cell_ca = 0.0
         self.cell_pi = 0.0
@@ -137,6 +143,7 @@ class FieldManager:
             return
         usage = pi_added_total * self.BGP_USAGE_PER_PI
         self.bgp_pool = max(0.0, self.bgp_pool - usage)
+        self.bgp_consumed_total += usage
 
     def _produce_pi_from_alp(self) -> float:
         """Convert the ALP field to Pi without exceeding β-GP supply."""
@@ -154,6 +161,7 @@ class FieldManager:
         self.pi += pi_add
         produced = float(pi_add.sum())
         self._consume_bgp(produced)
+        self.pi_generated_total += produced
         return produced
 
     def request_collagen_secretion(self, ob_count: int) -> None:
@@ -293,6 +301,12 @@ class FieldManager:
             "cell_pi": float(self.cell_pi),
             "ca_media": float(self.ca.mean()),
             "bgp_pool": float(self.bgp_pool),
+            "ca_free_total": float(self.ca.sum()),
+            "pi_free_total": float(self.pi.sum()),
+            "ca_supplied_total": float(self.ca_supplied_total),
+            "pi_supplied_total": float(self.pi_supplied_total),
+            "pi_generated_total": float(self.pi_generated_total),
+            "bgp_consumed_total": float(self.bgp_consumed_total),
             "collagen_total": float(self.total_collagen),
             "alp_total": float(self.total_alp),
             # new mineral outputs
