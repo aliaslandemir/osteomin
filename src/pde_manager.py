@@ -58,12 +58,20 @@ class PDEManager:
     AA_USAGE_PER_COLLAGEN: float = 1e-5  # AA units consumed per collagen unit
     BGP_USAGE_PER_PI: float = 3e-4  # β-GP units consumed per Pi unit released
 
-    def __init__(self, width: int, height: int, media_interval: int, supplements: dict):
+    def __init__(
+        self,
+        width: int,
+        height: int,
+        media_interval: int,
+        supplements: dict,
+        enable_nucleation: bool = True,
+    ):
         self.width = int(width)
         self.height = int(height)
         self._day = 0
         self.media_interval = int(media_interval)
         self.days_since_media = 0
+        self.enable_nucleation = bool(enable_nucleation)
 
         # Supplements (clamped to non-negative)
         s = _Supplements(**{k: float(v) for k, v in dict(supplements).items()})
@@ -183,55 +191,56 @@ class PDEManager:
             self.pi += pi_delta
             self._consume_bgp(float(pi_delta.sum()))
 
-        # 2) ACP nucleation where collagen & supersaturation thresholds met
-        supersat = self.ca * self.pi
-        if self._ob_mask is not None:
-            # nucleation limited to osteoblast positions (no dilation)
-            region = self._ob_mask
-        else:
-            # fallback: full grid
-            region = np.ones_like(self.ca, dtype=bool)
+        if self.enable_nucleation:
+            # 2) ACP nucleation where collagen & supersaturation thresholds met
+            supersat = self.ca * self.pi
+            if self._ob_mask is not None:
+                # nucleation limited to osteoblast positions (no dilation)
+                region = self._ob_mask
+            else:
+                # fallback: full grid
+                region = np.ones_like(self.ca, dtype=bool)
 
-        eligible = region & (supersat >= self.S_THRESH)
-        if eligible.any():
-            eligible_idx = np.where(eligible)
-            ca_avail = self.ca[eligible_idx]
-            pi_avail = self.pi[eligible_idx]
-            max_ca = ca_avail / self.CA_PER_ACP
-            max_pi = pi_avail / self.PI_PER_ACP
-            max_by_resources = np.minimum(max_ca, max_pi)
-            formation = np.minimum(self.K_NUC, max_by_resources)
-            ca_needed = formation * self.CA_PER_ACP
-            pi_needed = formation * self.PI_PER_ACP
-            self.ca[eligible_idx] = np.clip(
-                self.ca[eligible_idx] - ca_needed, 0.0, None
-            )
-            self.pi[eligible_idx] = np.clip(
-                self.pi[eligible_idx] - pi_needed, 0.0, None
-            )
-            self.acp[eligible_idx] += formation
-            self.ca_consumed_total += float(ca_needed.sum())
-            self.pi_consumed_total += float(pi_needed.sum())
+            eligible = region & (supersat >= self.S_THRESH)
+            if eligible.any():
+                eligible_idx = np.where(eligible)
+                ca_avail = self.ca[eligible_idx]
+                pi_avail = self.pi[eligible_idx]
+                max_ca = ca_avail / self.CA_PER_ACP
+                max_pi = pi_avail / self.PI_PER_ACP
+                max_by_resources = np.minimum(max_ca, max_pi)
+                formation = np.minimum(self.K_NUC, max_by_resources)
+                ca_needed = formation * self.CA_PER_ACP
+                pi_needed = formation * self.PI_PER_ACP
+                self.ca[eligible_idx] = np.clip(
+                    self.ca[eligible_idx] - ca_needed, 0.0, None
+                )
+                self.pi[eligible_idx] = np.clip(
+                    self.pi[eligible_idx] - pi_needed, 0.0, None
+                )
+                self.acp[eligible_idx] += formation
+                self.ca_consumed_total += float(ca_needed.sum())
+                self.pi_consumed_total += float(pi_needed.sum())
 
-        # 4) ACP -> HA maturation once enough ACP is present and Ca is available
-        ha_candidates = self.acp >= self.ACP_TO_HA_THRESHOLD
-        if ha_candidates.any():
-            ha_idx = np.where(ha_candidates)
-            available_acp = self.acp[ha_idx]
-            acp_lumps = available_acp / self.ACP_PER_HA_REACTION
-            possible_conversion = np.minimum(acp_lumps, self.K_HA)
-            ca_avail = self.ca[ha_idx]
-            ca_capacity = ca_avail / self.CA_PER_REACTION
-            conversion = np.minimum(possible_conversion, ca_capacity)
-            if conversion.any():
-                acp_consumed = conversion * self.ACP_PER_HA_REACTION
-                ca_consumed = conversion * self.CA_PER_REACTION
-                ha_created = conversion * self.HA_PER_REACTION
-                self.ca[ha_idx] = np.clip(self.ca[ha_idx] - ca_consumed, 0.0, None)
-                self.acp[ha_idx] -= acp_consumed
-                self.ha[ha_idx] += ha_created
-                self.h_plus[ha_idx] += ha_created * self.H_PLUS_PER_HA
-                self.ca_consumed_total += float(ca_consumed.sum())
+            # 4) ACP -> HA maturation once enough ACP is present and Ca is available
+            ha_candidates = self.acp >= self.ACP_TO_HA_THRESHOLD
+            if ha_candidates.any():
+                ha_idx = np.where(ha_candidates)
+                available_acp = self.acp[ha_idx]
+                acp_lumps = available_acp / self.ACP_PER_HA_REACTION
+                possible_conversion = np.minimum(acp_lumps, self.K_HA)
+                ca_avail = self.ca[ha_idx]
+                ca_capacity = ca_avail / self.CA_PER_REACTION
+                conversion = np.minimum(possible_conversion, ca_capacity)
+                if conversion.any():
+                    acp_consumed = conversion * self.ACP_PER_HA_REACTION
+                    ca_consumed = conversion * self.CA_PER_REACTION
+                    ha_created = conversion * self.HA_PER_REACTION
+                    self.ca[ha_idx] = np.clip(self.ca[ha_idx] - ca_consumed, 0.0, None)
+                    self.acp[ha_idx] -= acp_consumed
+                    self.ha[ha_idx] += ha_created
+                    self.h_plus[ha_idx] += ha_created * self.H_PLUS_PER_HA
+                    self.ca_consumed_total += float(ca_consumed.sum())
 
         # 5) maintain simple OH/H+ equilibrium
         self.oh_minus = np.clip(self.KW / (self.h_plus + 1e-12), 0.0, None)

@@ -39,3 +39,4 @@ class PDEConfig:
     width: int = 100
     height: int = 100
     media_interval: int = 2
+    enable_nucleation: bool = True

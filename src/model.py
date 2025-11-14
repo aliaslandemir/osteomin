@@ -40,6 +40,7 @@ class OsteoModel:
             height=pde_cfg.height,
             media_interval=pde_cfg.media_interval,
             supplements=supplements,
+            enable_nucleation=pde_cfg.enable_nucleation,
         )
         self.abm.attach_pde(self.pde)
 

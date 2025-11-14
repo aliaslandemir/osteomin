@@ -209,6 +209,19 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--k-ha", type=float, default=0.05, help="ACP → HA maturation rate per day"
     )
+    p.add_argument(
+        "--nucleation",
+        dest="nucleation",
+        action="store_true",
+        help="enable Pi→ACP nucleation and maturation to HA",
+    )
+    p.add_argument(
+        "--no-nucleation",
+        dest="nucleation",
+        action="store_false",
+        help="disable Pi→ACP nucleation and maturation to HA",
+    )
+    p.set_defaults(nucleation=True)
 
     # --- export control ---
     p.add_argument(
@@ -268,7 +281,12 @@ def main() -> None:
         commit_prob_growth=args.commit_growth,
         commit_delay=args.commit_delay,
     )
-    pde_cfg = PDEConfig(width=args.w, height=args.h, media_interval=args.media_interval)
+    pde_cfg = PDEConfig(
+        width=args.w,
+        height=args.h,
+        media_interval=args.media_interval,
+        enable_nucleation=args.nucleation,
+    )
 
     # supplements
     supplements = dict(aa=args.aa, bgp=args.bgp, dexa=args.dexa, mk4=args.mk4)
