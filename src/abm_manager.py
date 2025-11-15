@@ -26,7 +26,7 @@ class ABMManager:
         self.occupancy = np.full((self.height, self.width), -1, dtype=np.int32)
         # random motility parameters
         # stay probability
-        self._stay_prob = 0.6  # change this freely (e.g., 0.6)
+        self._stay_prob = 0.5  # change this freely (e.g., 0.6)
 
         # 8-neighborhood offsets
         self._direction_offsets = [
