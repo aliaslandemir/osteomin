@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 from matplotlib.colors import to_rgb
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+from .agent import CellState
 
 __all__ = [
     "plot_summary",
@@ -441,6 +442,30 @@ def export_overlay_collagen_ha_from_npy(
     img_dir.mkdir(parents=True, exist_ok=True)
     col = np.load(grids_dir / f"collagen_day_{day:03d}.npy")
     ha = np.load(grids_dir / f"ha_day_{day:03d}.npy")
+    state_path = grids_dir / f"state_day_{day:03d}.npy"
+    deaths_path = grids_dir / f"deaths_day_{day:03d}.npy"
+    n_active = n_ob = dead_today = None
+    if state_path.exists():
+        state_grid = np.load(state_path)
+        n_active = int((state_grid == CellState.ACTIVE).sum())
+        n_ob = int((state_grid == CellState.OSTEOBLAST).sum())
+    if deaths_path.exists():
+        deaths_grid = np.load(deaths_path)
+        dead_today = int(np.asarray(deaths_grid).sum())
+    nodules_path = grids_dir / f"nodules_day_{day:03d}.npz"
+    nodule_positions = np.empty((0, 2), dtype=float)
+    nodule_cum = 0
+
+    def _load_positions(arr):
+        arr = np.asarray(arr, dtype=float)
+        if arr.size == 0:
+            return arr.reshape(0, 2)
+        return arr.reshape(-1, 2)
+
+    if nodules_path.exists():
+        nodules_data = np.load(nodules_path, allow_pickle=False)
+        nodule_positions = _load_positions(nodules_data["positions"])
+        nodule_cum = int(nodules_data["count"])
     if not col.any() and not ha.any():
         fig = plt.figure(figsize=(6, 6))
         ax = fig.add_axes([0.14, 0.12, 0.72, 0.74])
@@ -449,6 +474,24 @@ def export_overlay_collagen_ha_from_npy(
         ax.set_xticks([])
         ax.set_yticks([])
         ax.set_title(f"Day {day:02d} — No collagen/HA", fontsize=12, pad=10)
+        if nodule_cum:
+            stats_bits: list[str] = []
+            if n_active is not None and n_ob is not None:
+                stats_bits.append(f"Active: {n_active}")
+                stats_bits.append(f"OB: {n_ob}")
+            if dead_today is not None:
+                stats_bits.append(f"Dead: {dead_today}")
+            stats_bits.append(f"Nodules cum: {nodule_cum}")
+            ax.text(
+                0.5,
+                0.08,
+                " | ".join(stats_bits),
+                transform=ax.transAxes,
+                ha="center",
+                va="bottom",
+                fontsize=9,
+                color=COLORS["text"],
+            )
         fig.savefig(img_dir / f"collagen_ha_day_{day:03d}.png", dpi=300, bbox_inches="tight")
         plt.close(fig)
         return
@@ -505,12 +548,47 @@ def export_overlay_collagen_ha_from_npy(
     )
     ax.set_xticks([])
     ax.set_yticks([])
-    ax.set_title(
+    fig.suptitle(
         f"Day {day:02d} — Collagen (green), HA (blue), colocalized mineral (red)",
         fontsize=12,
-        pad=10,
+        y=0.97,
     )
     ax.set_aspect("equal")
+    nodule_handle = None
+    stats_bits: list[str] = []
+    if n_active is not None and n_ob is not None:
+        stats_bits.append(f"Active: {n_active}")
+        stats_bits.append(f"OB: {n_ob}")
+    if dead_today is not None:
+        stats_bits.append(f"Dead: {dead_today}")
+    stats_bits.append(f"Nodules: {nodule_cum}")
+    ax.text(
+        0.5,
+        1.05,
+        " | ".join(stats_bits),
+        transform=ax.transAxes,
+        ha="center",
+        va="bottom",
+        fontsize=10,
+        color=COLORS["text"],
+    )
+    hx: list[float] = []
+    hy: list[float] = []
+    if nodule_positions.size:
+        hx.extend(nodule_positions[:, 0].tolist())
+        hy.extend(nodule_positions[:, 1].tolist())
+    if hx:
+        nodule_handle = ax.scatter(
+            hx,
+            hy,
+            marker="*",
+            s=45,
+            c="#8b1d8b",
+            edgecolors="#ffffff",
+            linewidths=0.5,
+            alpha=0.85,
+            zorder=5,
+        )
 
     divider = make_axes_locatable(ax)
     cax_left = divider.append_axes("left", size="2.5%", pad=0.02)
@@ -527,6 +605,15 @@ def export_overlay_collagen_ha_from_npy(
     cbar_bottom = fig.colorbar(im_coloc, cax=cax_bottom, orientation="horizontal")
     cbar_bottom.set_label("Colocalized mineral (intensity)", fontsize=9)
     cbar_bottom.ax.tick_params(labelsize=8, colors="black")
+    legend_handle = None
+    if nodule_handle is not None:
+        legend_handle = matplotlib.lines.Line2D(
+            [], [], marker="*", linestyle="None", markersize=6, color="#8b1d8b", label="Nodule"
+        )
+    if legend_handle is not None:
+        legend = ax.legend(handles=[legend_handle], loc="lower left", frameon=True, fontsize=8)
+        legend.get_frame().set_edgecolor("#333333")
+        legend.get_frame().set_linewidth(0.6)
 
     fig.savefig(img_dir / f"collagen_ha_day_{day:03d}.png", dpi=300, bbox_inches="tight")
     plt.close(fig)

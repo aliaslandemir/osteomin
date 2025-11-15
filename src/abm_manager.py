@@ -22,13 +22,17 @@ class ABMManager:
         # state
         self.cells: List[Cell] = []
         self.occupancy = np.full((self.height, self.width), -1, dtype=np.int32)
-        self._stay_prob = 0.6
+        # random motility parameters
+        # stay probability
+        self._stay_prob = 0.5
         self._direction_offsets = [
             (-1, 0), (1, 0), (0, -1), (0, 1),     # axial neighbors
             (-1, -1), (1, -1), (-1, 1), (1, 1),   # diagonal neighbors
         ]
-        base_axial = 1 / 30
-        base_diag = 2 / 30
+        # per-move direction weights:
+        # each axial direction ≈ 0.0833, each diagonal ≈ 0.0417 (after including stay prob)
+        base_axial = 1.0
+        base_diag = 0.5
         direction_weights = [base_axial] * 4 + [base_diag] * 4
         total = sum(direction_weights)
         self._direction_probs = [w / total for w in direction_weights]

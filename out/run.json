@@ -1,6 +1,6 @@
 {
-  "days": 29,
-  "seed": 536064,
+  "days": 30,
+  "seed": 733238,
   "abm_cfg": {
     "width": 100,
     "height": 100,
@@ -23,15 +23,37 @@
     "max_moves_per_day": 1,
     "ob_division_prob": 0.0,
     "proliferation_chance": 1.0,
-    "S_THRESH": 0.15,
+    "S_THRESH": 0.006,
     "K_NUC": 0.05,
-    "K_HA": 0.08
+    "K_HA": 0.02
   },
   "field_cfg": {
     "width": 100,
     "height": 100,
     "media_interval": 2,
-    "enable_nucleation": true
+    "enable_nucleation": true,
+    "enable_nodules": true,
+    "s_thresh": 0.01,
+    "k_nuc": 0.08,
+    "k_ha": 0.05,
+    "nodule_window": 5,
+    "ca0": 1.0,
+    "pi0": 0.0,
+    "alp_to_pi_rate": 0.01,
+    "ca_per_acp": 3.0,
+    "pi_per_acp": 2.0,
+    "acp_to_ha_threshold": 0.2,
+    "acp_per_ha_reaction": 3.0,
+    "ca_per_reaction": 1.0,
+    "ha_per_reaction": 2.0,
+    "h_plus_per_ha": 1.0,
+    "kw": 1.0,
+    "h_base": 1.0,
+    "oh_base": 1.0,
+    "aa_usage_per_collagen": 0.05,
+    "bgp_usage_per_pi": 0.0003,
+    "base_collagen_rate": 0.001,
+    "k_aa": 0.2
   },
   "supplements": {
     "aa": 1.0,
@@ -41,7 +63,7 @@
   },
   "spatial_every": 1,
   "spatial_days": [
-    28
+    29
   ],
   "snapshots_enabled": true
 }

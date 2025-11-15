@@ -29,9 +29,9 @@ class ABMConfig:
     proliferation_chance: float = 1.0
 
     # Mineralization thresholds/kinetics (legacy; FieldManager now owns them)
-    S_THRESH: float = 0.15  # Ca*Pi supersaturation threshold
+    S_THRESH: float = 0.006  # Ca*Pi supersaturation threshold
     K_NUC: float = 0.05  # ACP nucleation rate per day
-    K_HA: float = 0.08  # ACP->HA conversion rate per day
+    K_HA: float = 0.02  # ACP->HA conversion rate per day
 
 
 @dataclass(slots=True)
@@ -40,3 +40,25 @@ class FieldConfig:
     height: int = 100
     media_interval: int = 2
     enable_nucleation: bool = True
+    enable_nodules: bool = True
+    s_thresh: float = 0.01
+    k_nuc: float = 0.08
+    k_ha: float = 0.04
+    nodule_window: int = 5
+    ca0: float = 1.0
+    pi0: float = 0.0
+    alp_to_pi_rate: float = 0.01
+    ca_per_acp: float = 3.0
+    pi_per_acp: float = 2.0
+    acp_to_ha_threshold: float = 0.20
+    acp_per_ha_reaction: float = 3.0
+    ca_per_reaction: float = 1.0
+    ha_per_reaction: float = 2.0
+    h_plus_per_ha: float = 1.0
+    kw: float = 1.0
+    h_base: float = 1.0
+    oh_base: float = 1.0
+    aa_usage_per_collagen: float = 0.05
+    bgp_usage_per_pi: float = 3e-4
+    base_collagen_rate: float = 0.001
+    k_aa: float = 0.2

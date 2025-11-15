@@ -1,6 +1,6 @@
 from __future__ import annotations
 from pathlib import Path
-from typing import Dict, List, Iterable, Optional
+from typing import Dict, List, Iterable, Optional, Tuple
 import json
 import numpy as np
 import pandas as pd
@@ -41,10 +41,33 @@ class OsteoModel:
             media_interval=field_cfg.media_interval,
             supplements=supplements,
             enable_nucleation=field_cfg.enable_nucleation,
+            enable_nodules=getattr(field_cfg, "enable_nodules", False),
+            s_thresh=getattr(field_cfg, "s_thresh", 0.006),
+            k_nuc=getattr(field_cfg, "k_nuc", 0.05),
+            k_ha=getattr(field_cfg, "k_ha", 0.60),
+            nodule_window=getattr(field_cfg, "nodule_window", 10),
+            ca0=getattr(field_cfg, "ca0", 1.0),
+            pi0=getattr(field_cfg, "pi0", 0.0),
+            alp_to_pi_rate=getattr(field_cfg, "alp_to_pi_rate", 0.01),
+            ca_per_acp=getattr(field_cfg, "ca_per_acp", 3.0),
+            pi_per_acp=getattr(field_cfg, "pi_per_acp", 2.0),
+            acp_to_ha_threshold=getattr(field_cfg, "acp_to_ha_threshold", 0.20),
+            acp_per_ha_reaction=getattr(field_cfg, "acp_per_ha_reaction", 3.0),
+            ca_per_reaction=getattr(field_cfg, "ca_per_reaction", 1.0),
+            ha_per_reaction=getattr(field_cfg, "ha_per_reaction", 2.0),
+            h_plus_per_ha=getattr(field_cfg, "h_plus_per_ha", 1.0),
+            kw=getattr(field_cfg, "kw", 1.0),
+            h_base=getattr(field_cfg, "h_base", 1.0),
+            oh_base=getattr(field_cfg, "oh_base", 1.0),
+            aa_usage_per_collagen=getattr(field_cfg, "aa_usage_per_collagen", 0.05),
+            bgp_usage_per_pi=getattr(field_cfg, "bgp_usage_per_pi", 3e-4),
+            base_collagen_rate=getattr(field_cfg, "base_collagen_rate", 0.001),
+            k_aa=getattr(field_cfg, "k_aa", 0.2),
         )
         self.abm.attach_field(self.field)
 
         self._rows: List[Dict] = []
+        self._nodule_history: dict[int, dict] = {}
 
         # Spatial export policy
         self.spatial_every = max(0, int(spatial_every))
@@ -100,7 +123,7 @@ class OsteoModel:
             np.save(self.grids_dir / f"collagen_day_000.npy", self.field.collagen.astype(np.float32))
             np.save(self.grids_dir / f"ha_day_000.npy",       self.field.ha.astype(np.float32))
 
-
+        self._handle_nodules(0, state)
         self._append_row(0)
         dead_total_cum = 0
         if self._should_export_spatial(0):
@@ -129,6 +152,7 @@ class OsteoModel:
                 np.save(self.grids_dir / f"ha_day_{day:03d}.npy",       self.field.ha.astype(np.float32))
 
 
+            self._handle_nodules(day, state)
             self._append_row(day)
 
             dead_total_cum += int(self._rows[-1]["dead_active_today"] + self._rows[-1]["dead_ob_today"])
@@ -153,41 +177,43 @@ class OsteoModel:
 
         if day == 0:
             # use current field scalars at t0
-            self._rows.append(
-                {
-                    "day": int(day),
-                    "n_active": int(n_active),
-                    "n_osteoblast": int(n_ob),
-                    "n_total": int(n_active + n_ob),
-                    "dead_active_today": 0,
-                    "dead_ob_today": 0,
-                    "committed_today": 0,
-                    "collagen_total": float(self.field.total_collagen),
-                    "alp_total": float(self.field.total_alp),
-                    "acp_total": 0.0,
-                    "ha_total": 0.0,
-                    "ca_used_total": 0.0,
-                    "pi_used_total": 0.0,
-                    "ca_supplied_total": float(self.field.ca_supplied_total),
-                    "pi_supplied_total": float(self.field.pi_supplied_total),
-                    "pi_generated_total": float(self.field.pi_generated_total),
-                    "bgp_consumed_total": float(self.field.bgp_consumed_total),
-                    "cell_ca": float(self.field.cell_ca),
-                    "cell_pi": float(self.field.cell_pi),
-                    "ca_media": float(self.field.ca.mean()),
-                    "bgp_pool": float(self.field.bgp_pool),
-                    "ca_free_total": float(self.field.ca.sum()),
-                    "pi_free_total": float(self.field.pi.sum()),
-                    "supp_aa": supp_aa,
-                    "supp_bgp": supp_bgp,
-                    "supp_mk4": supp_mk4,
-                    "supp_dexa": supp_dexa,
-                }
-            )
+            row = {
+                "day": int(day),
+                "n_active": int(n_active),
+                "n_osteoblast": int(n_ob),
+                "n_total": int(n_active + n_ob),
+                "dead_active_today": 0,
+                "dead_ob_today": 0,
+                "committed_today": 0,
+                "collagen_total": float(self.field.total_collagen),
+                "alp_total": float(self.field.total_alp),
+                "acp_total": 0.0,
+                "ha_total": 0.0,
+                "ca_used_total": 0.0,
+                "pi_used_total": 0.0,
+                "ca_supplied_total": float(self.field.ca_supplied_total),
+                "pi_supplied_total": float(self.field.pi_supplied_total),
+                "pi_generated_total": float(self.field.pi_generated_total),
+                "bgp_consumed_total": float(self.field.bgp_consumed_total),
+                "cell_ca": float(self.field.cell_ca),
+                "cell_pi": float(self.field.cell_pi),
+                "ca_media": float(self.field.ca.mean()),
+                "bgp_pool": float(self.field.bgp_pool),
+                "ca_free_total": float(self.field.ca.sum()),
+                "pi_free_total": float(self.field.pi.sum()),
+                "supp_aa": supp_aa,
+                "supp_bgp": supp_bgp,
+                "supp_mk4": supp_mk4,
+                "supp_dexa": supp_dexa,
+            }
+            row["nodule_count"] = int(
+                self.field.nodule_data_for_day(day)[0]
+            ) if hasattr(self.field, "nodule_data_for_day") else 0
+            self._rows.append(row)
             return
 
         scalars = self.field.snapshot_scalars()
-        self._rows.append({
+        row = {
             "day": int(day),
             "n_active": int(n_active),
             "n_osteoblast": int(n_ob),
@@ -215,8 +241,60 @@ class OsteoModel:
             "supp_bgp": supp_bgp,
             "supp_mk4": supp_mk4,
             "supp_dexa": supp_dexa,
-        })
+        }
+        row["nodule_count"] = int(
+            self.field.nodule_data_for_day(day)[0]
+        ) if hasattr(self.field, "nodule_data_for_day") else 0
+        self._rows.append(row)
 
+
+    def _handle_nodules(self, day: int, state_grid: np.ndarray) -> None:
+        if not getattr(self.field, "enable_nodules", False):
+            return
+        ob_mask = state_grid == CellState.OSTEOBLAST
+        count, positions = self.field.detect_nodules(day, ob_mask)
+        self._nodule_history[day] = {"count": count, "positions": positions}
+        self._save_nodules_snapshot(day, positions)
+
+    def _save_nodules_snapshot(
+        self, day: int, positions: List[Tuple[float, float]]
+    ) -> None:
+        if not getattr(self.field, "enable_nodules", False):
+            return
+        path = self.grids_dir / f"nodules_day_{day:03d}.npz"
+        prev_positions = np.empty((0, 2), dtype=np.float32)
+        prev_path = self.grids_dir / f"nodules_day_{day-1:03d}.npz"
+        if day > 0 and prev_path.exists():
+            prev = np.load(prev_path, allow_pickle=False)
+            prev_positions = np.asarray(prev["positions"], dtype=np.float32)
+        arr = np.asarray(positions, dtype=np.float32)
+        if arr.size == 0:
+            arr = arr.reshape(0, 2)
+        combined = arr
+        if prev_positions.size:
+            if combined.size:
+                combined = np.vstack([prev_positions, combined])
+            else:
+                combined = prev_positions
+        if combined.size:
+            tol = max(1.0, float(getattr(self.field, "nodule_window", 1)) * 0.5)
+            unique: List[Tuple[float, float]] = []
+            for x, y in combined:
+                keep = True
+                for ux, uy in unique:
+                    if abs(float(ux) - float(x)) <= tol and abs(float(uy) - float(y)) <= tol:
+                        keep = False
+                        break
+                if keep:
+                    unique.append((x, y))
+            combined = np.asarray(unique, dtype=np.float32)
+        else:
+            combined = combined.reshape(0, 2)
+        np.savez(
+            path,
+            count=np.int32(len(combined)),
+            positions=combined,
+        )
 
     def save_timeseries_excel(self, df: pd.DataFrame, basename: str = "timeseries") -> Path:
         out = self.outdir / f"{basename}.xlsx"

@@ -41,9 +41,9 @@ def parse_args() -> argparse.Namespace:
     )
 
     # --- core simulation ---
-    p.add_argument("--days", type=int, default=21, help="number of days to simulate")
+    p.add_argument("--days", type=int, default=30, help="number of days to simulate")
     p.add_argument(
-        "--cells", type=int, default=300, help="initial number of seeded cells"
+        "--cells", type=int, default=1000, help="initial number of seeded cells"
     )
     p.add_argument(
         "--media-interval", type=int, default=2, help="days between media changes"
@@ -58,7 +58,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--boundary-mode",
         choices=["clamp", "periodic"],
-        default="clamp",
+        default="periodic",
         help="treat edges as hard boundaries (clamp) or wrap around (periodic)",
     )
 
@@ -90,7 +90,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--move-prob",
         type=float,
-        default=0.8,
+        default=1.0,
         help="probability an ACTIVE cell attempts a move per day",
     )
     p.add_argument(
@@ -124,14 +124,14 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--commit-growth",
         type=float,
-        default=0.01,
+        default=0.02,
         help="per-day increase in osteogenic commitment probability",
     )
 
     p.add_argument(
         "--commit-delay",
         type=int,
-        default=0,
+        default=3,
         help="days before ACTIVE cells can start committing to osteoblasts",
     )
 
@@ -200,14 +200,33 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--s-thresh",
         type=float,
-        default=0.15,
+        default=0.01,
         help="supersaturation threshold for ACP nucleation",
     )
     p.add_argument(
-        "--k-nuc", type=float, default=0.02, help="ACP nucleation rate per day"
+        "--k-nuc", type=float, default=0.08, help="ACP nucleation rate per day"
     )
     p.add_argument(
-        "--k-ha", type=float, default=0.05, help="ACP → HA maturation rate per day"
+        "--k-ha", type=float, default=0.04, help="ACP → HA maturation rate per day"
+    )
+    p.add_argument(
+        "--enable-nodules",
+        dest="nodules",
+        action="store_true",
+        help="detect nodules via window scan",
+    )
+    p.add_argument(
+        "--no-nodules",
+        dest="nodules",
+        action="store_false",
+        help="disable nodule scanning/overlays",
+    )
+    p.set_defaults(nodules=True)
+    p.add_argument(
+        "--nodule-window",
+        type=int,
+        default=5,
+        help="window size (in lattice cells) for nodule detection",
     )
     p.add_argument(
         "--nucleation",
@@ -286,6 +305,11 @@ def main() -> None:
         height=args.h,
         media_interval=args.media_interval,
         enable_nucleation=args.nucleation,
+        enable_nodules=args.nodules,
+        s_thresh=args.s_thresh,
+        k_nuc=args.k_nuc,
+        k_ha=args.k_ha,
+        nodule_window=max(1, int(args.nodule_window)),
     )
 
     # supplements
@@ -308,11 +332,6 @@ def main() -> None:
     )
 
     # inject mineralization params into the field manager
-    field = model.field
-    field.S_THRESH = args.s_thresh
-    field.K_NUC = args.k_nuc
-    field.K_HA = args.k_ha
-
     # seed and run
     model.seed_random(args.cells, abm_cfg.width, abm_cfg.height)
     df = model.run()
