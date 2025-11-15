@@ -40,8 +40,8 @@ python main.py
 | Flag | Default |
 |------|---------|
 | `--days` | 30 |
-| `--cells` | 1000 |
-| `--w`, `--h` | 100 each |
+| `--cells` | 400 |
+| `--w`, `--h` | 33 each |
 | `--boundary-mode` | `periodic` |
 | `--media-interval` | 2 |
 | `--seed` | None (random) |
@@ -59,18 +59,18 @@ python main.py
 |----------|---------|
 | Random movement | enabled (`--random-move`), `--move-prob 1.0`, `--max-moves 1` |
 | Proliferation | enabled (`--proliferation`), `--proliferation-chance 1.0`, `--ob-div-prob 0.0` |
-| Apoptosis | enabled (`--apoptosis`), `--apoptosis-prob 0.01`, `--apoptosis-osteo 0.0005` |
-| Osteogenic commitment | enabled, `--commit-growth 0.02`, `--commit-delay 3` |
+| Apoptosis | enabled (`--apoptosis`), `--apoptosis-prob 0.01`, `--apoptosis-osteo 0.001` |
+| Osteogenic commitment | enabled, `--commit-growth 0.01`, `--commit-delay 3` |
 | Secretion | enabled (`--secretion`) |
 
 ### Field / chemistry
 | Parameter | Default |
 |-----------|---------|
 | `--s-thresh` | 0.01 (Ca×Pi supersaturation for ACP) |
-| `--k-nuc` | 0.08 (ACP nucleation rate) |
+| `--k-nuc` | 0.01 (ACP nucleation rate) |
 | `--k-ha` | 0.04 (ACP→HA conversion rate) |
 | `--nucleation` | enabled |
-| `--nodule-window` | 5 (lattice cells per side) |
+| `--nodule-window` | 4 (lattice cells per side) |
 | Nodule logic | every site in the window must be OB with HA ≥ `ACP_TO_HA_THRESHOLD` (0.20 a.u.) |
 
 ### Output
@@ -79,8 +79,8 @@ python main.py
 | `--out` | `out` |
 | `--spatial-every` | 1 (daily overlays) |
 | `--spatial-days` | `` (auto adds last day) |
-| `--snapshots` | on |
-| `--xlsx` | on (writes `out/timeseries.xlsx`) |
+| `--snapshots` | on (`--no-snapshots` disables raw grids) |
+| `--xlsx` | on (`--no-xlsx` skips Excel export) |
 | `--csv` | off |
 
 ---
@@ -89,18 +89,18 @@ python main.py
 ```bash
 python main.py \
   --days 30 \
-  --cells 1000 \
-  --w 100 --h 100 \
+  --cells 400 \
+  --w 33 --h 33 \
   --boundary-mode periodic \
   --seed $(shuf -i 1-999999 -n 1) \
   --media-interval 2 \
   --aa 1.0 --bgp 1.0 --mk4 1.0 --dexa 1.0 \
   --random-move --move-prob 1.0 --max-moves 1 \
   --proliferation --proliferation-chance 1.0 --ob-div-prob 0.0 \
-  --apoptosis --apoptosis-prob 0.01 --apoptosis-osteo 0.0005 \
-  --osteogenic-commitment --commit-growth 0.02 --commit-delay 3 \
+  --apoptosis --apoptosis-prob 0.01 --apoptosis-osteo 0.001 \
+  --osteogenic-commitment --commit-growth 0.01 --commit-delay 3 \
   --secretion --nucleation --enable-nodules \
-  --nodule-window 5 --k-nuc 0.08 --k-ha 0.04 --s-thresh 0.01 \
+  --nodule-window 4 --k-nuc 0.01 --k-ha 0.04 --s-thresh 0.01 \
   --spatial-every 1 --snapshots --xlsx --out out
 ```
 
@@ -124,4 +124,3 @@ This command mirrors the baked-in defaults; feel free to omit flags you are not 
 - Timeseries (`out/timeseries.xlsx`) always includes a `nodule_count` column (0 when nodule detection is disabled).
 
 Enjoy experimenting with the osteoblast ABM! Feel free to open issues or PRs if you need additional CLI knobs or output formats.
-

@@ -6,19 +6,19 @@ __all__ = ["ABMConfig", "FieldConfig"]
 
 @dataclass(slots=True)
 class ABMConfig:
-    width: int = 100
-    height: int = 100
+    width: int = 33
+    height: int = 33
     boundary_mode: str = "periodic"
     enable_random_move: bool = True
     enable_commitment: bool = True
     enable_apoptosis: bool = True
     enable_proliferation: bool = True
     enable_secretion: bool = True
-    base_commit_prob: float = 0.02
-    commit_prob_growth: float = 0.02
+    base_commit_prob: float = 0.0001
+    commit_prob_growth: float = 0.01
     commit_delay: int = 0
     apoptosis_prob: float = 0.01
-    ob_apoptosis_prob: float = 0.0005
+    ob_apoptosis_prob: float = 0.001
     min_div_days: int = 2
     max_div_days: int = 4
     collagen_per_ob: float = 1.5
@@ -29,28 +29,28 @@ class ABMConfig:
     proliferation_chance: float = 1.0
 
     # Mineralization thresholds/kinetics (legacy; FieldManager now owns them)
-    S_THRESH: float = 0.006  # Ca*Pi supersaturation threshold
-    K_NUC: float = 0.05  # ACP nucleation rate per day
-    K_HA: float = 0.02  # ACP->HA conversion rate per day
+    S_THRESH: float = 0.01  # Ca*Pi supersaturation threshold
+    K_NUC: float = 0.01  # ACP nucleation rate per day
+    K_HA: float = 0.04  # ACP->HA conversion rate per day
 
 
 @dataclass(slots=True)
 class FieldConfig:
-    width: int = 100
-    height: int = 100
+    width: int = 33
+    height: int = 33
     media_interval: int = 2
     enable_nucleation: bool = True
     enable_nodules: bool = True
     s_thresh: float = 0.01
-    k_nuc: float = 0.08
+    k_nuc: float = 0.01
     k_ha: float = 0.04
-    nodule_window: int = 5
+    nodule_window: int = 4
     ca0: float = 1.0
     pi0: float = 0.0
     alp_to_pi_rate: float = 0.01
     ca_per_acp: float = 3.0
     pi_per_acp: float = 2.0
-    acp_to_ha_threshold: float = 0.20
+    acp_to_ha_threshold: float = 0.05
     acp_per_ha_reaction: float = 3.0
     ca_per_reaction: float = 1.0
     ha_per_reaction: float = 2.0

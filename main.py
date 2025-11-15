@@ -2,7 +2,7 @@
 main.py — Entry point for OsteoMin ABM–field bone remodeling simulator.
 
 Run with:
-    python main.py --days 21 --cells 300 --w 100 --h 100 --xlsx --snapshots
+    python main.py --days 30 --cells 400 --w 33 --h 33 --xlsx --snapshots
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ def parse_args() -> argparse.Namespace:
     # --- core simulation ---
     p.add_argument("--days", type=int, default=30, help="number of days to simulate")
     p.add_argument(
-        "--cells", type=int, default=1000, help="initial number of seeded cells"
+        "--cells", type=int, default=400, help="initial number of seeded cells"
     )
     p.add_argument(
         "--media-interval", type=int, default=2, help="days between media changes"
@@ -53,8 +53,8 @@ def parse_args() -> argparse.Namespace:
     )
 
     # --- lattice size ---
-    p.add_argument("--w", type=int, default=100, help="grid width")
-    p.add_argument("--h", type=int, default=100, help="grid height")
+    p.add_argument("--w", type=int, default=33, help="grid width")
+    p.add_argument("--h", type=int, default=33, help="grid height")
     p.add_argument(
         "--boundary-mode",
         choices=["clamp", "periodic"],
@@ -124,7 +124,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--commit-growth",
         type=float,
-        default=0.02,
+        default=0.01,
         help="per-day increase in osteogenic commitment probability",
     )
 
@@ -204,7 +204,7 @@ def parse_args() -> argparse.Namespace:
         help="supersaturation threshold for ACP nucleation",
     )
     p.add_argument(
-        "--k-nuc", type=float, default=0.08, help="ACP nucleation rate per day"
+        "--k-nuc", type=float, default=0.01, help="ACP nucleation rate per day"
     )
     p.add_argument(
         "--k-ha", type=float, default=0.04, help="ACP → HA maturation rate per day"
@@ -225,7 +225,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--nodule-window",
         type=int,
-        default=5,
+        default=4,
         help="window size (in lattice cells) for nodule detection",
     )
     p.add_argument(
@@ -246,7 +246,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--spatial-every",
         type=int,
-        default=0,
+        default=1,
         help="export spatial PNG every N days (0 = off)",
     )
     p.add_argument(
@@ -256,11 +256,30 @@ def parse_args() -> argparse.Namespace:
         help="explicit export days, comma-separated e.g. '0,5,10,20'",
     )
     p.add_argument("--out", type=str, default="out", help="output directory")
-    p.add_argument("--xlsx", action="store_true", help="write Excel timeseries")
+    p.add_argument(
+        "--xlsx", dest="xlsx", action="store_true", help="write Excel timeseries"
+    )
+    p.add_argument(
+        "--no-xlsx",
+        dest="xlsx",
+        action="store_false",
+        help="skip Excel timeseries export",
+    )
+    p.set_defaults(xlsx=True)
     p.add_argument("--csv", action="store_true", help="write CSV timeseries")
     p.add_argument(
-        "--snapshots", action="store_true", help="also save raw .npy grids per day"
+        "--snapshots",
+        dest="snapshots",
+        action="store_true",
+        help="also save raw .npy grids per day",
     )
+    p.add_argument(
+        "--no-snapshots",
+        dest="snapshots",
+        action="store_false",
+        help="disable raw .npy grid dumps",
+    )
+    p.set_defaults(snapshots=True)
 
     return p.parse_args()
 

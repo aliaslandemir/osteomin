@@ -7,8 +7,10 @@ from .config import ABMConfig
 
 __all__ = ["ABMManager"]
 
+
 class ABMManager:
     """On-lattice ABM with event tracking lists per day."""
+
     def __init__(self, cfg: ABMConfig, rng: np.random.Generator):
         self.cfg = cfg
         self.rng = rng
@@ -24,31 +26,46 @@ class ABMManager:
         self.occupancy = np.full((self.height, self.width), -1, dtype=np.int32)
         # random motility parameters
         # stay probability
-        self._stay_prob = 0.5
+        self._stay_prob = 0.6  # change this freely (e.g., 0.6)
+
+        # 8-neighborhood offsets
         self._direction_offsets = [
-            (-1, 0), (1, 0), (0, -1), (0, 1),     # axial neighbors
-            (-1, -1), (1, -1), (-1, 1), (1, 1),   # diagonal neighbors
+            (-1, 0),
+            (1, 0),
+            (0, -1),
+            (0, 1),  # axial
+            (-1, -1),
+            (1, -1),
+            (-1, 1),
+            (1, 1),  # diagonal
         ]
-        # per-move direction weights:
-        # each axial direction ≈ 0.0833, each diagonal ≈ 0.0417 (after including stay prob)
+
+        # base movement weights
         base_axial = 1.0
         base_diag = 0.5
+
         direction_weights = [base_axial] * 4 + [base_diag] * 4
         total = sum(direction_weights)
+
+        # normalized movement probabilities (sum to 1.0)
         self._direction_probs = [w / total for w in direction_weights]
 
         # daily event logs
-        self.dead_cells: List[Tuple[int,int]] = []          # (row, col)
-        self.dead_active_coords: List[Tuple[int,int]] = []  # died while ACTIVE
-        self.dead_ob_coords: List[Tuple[int,int]] = []      # died while OB
+        self.dead_cells: List[Tuple[int, int]] = []  # (row, col)
+        self.dead_active_coords: List[Tuple[int, int]] = []  # died while ACTIVE
+        self.dead_ob_coords: List[Tuple[int, int]] = []  # died while OB
         self.committed_today: int = 0
 
         self.field = None
 
     # ----- seeding -----
-    def seed_from_coords(self, coords: List[Tuple[int,int]], day0: int = 0) -> None:
-        for (x, y) in coords:
-            if 0 <= x < self.width and 0 <= y < self.height and self.occupancy[y, x] == -1:
+    def seed_from_coords(self, coords: List[Tuple[int, int]], day0: int = 0) -> None:
+        for x, y in coords:
+            if (
+                0 <= x < self.width
+                and 0 <= y < self.height
+                and self.occupancy[y, x] == -1
+            ):
                 c = self._spawn_cell(x, y, day0)
                 self.cells.append(c)
                 self.occupancy[y, x] = len(self.cells) - 1
@@ -56,8 +73,9 @@ class ABMManager:
     def _spawn_cell(self, x: int, y: int, day: int) -> Cell:
         c = Cell(x=x, y=y, state=CellState.ACTIVE, last_div_day=day)
         if self.cfg.min_div_days <= self.cfg.max_div_days:
-            c.division_interval = int(self.rng.integers(self.cfg.min_div_days,
-                                                        self.cfg.max_div_days + 1))
+            c.division_interval = int(
+                self.rng.integers(self.cfg.min_div_days, self.cfg.max_div_days + 1)
+            )
         return c
 
     def attach_field(self, field) -> None:
@@ -83,7 +101,7 @@ class ABMManager:
         if self.cfg.enable_commitment and day >= self.cfg.commit_delay:
             commit_prob = min(
                 1.0,
-                float(self.cfg.base_commit_prob + day * self.cfg.commit_prob_growth)
+                float(self.cfg.base_commit_prob + day * self.cfg.commit_prob_growth),
             )
             for c in self.cells:
                 if (
@@ -107,7 +125,9 @@ class ABMManager:
             # build boolean mask of alive osteoblast positions (H×W)
             ob_mask = np.zeros((self.height, self.width), dtype=bool)
             for c in self.cells:
-                if c.state == CellState.OSTEOBLAST:  # only alive cells remain in self.cells
+                if (
+                    c.state == CellState.OSTEOBLAST
+                ):  # only alive cells remain in self.cells
                     ob_mask[c.y, c.x] = True
             # provide mask to field (enables localized secretion & nucleation)
             if hasattr(self.field, "set_ob_mask"):
@@ -119,16 +139,24 @@ class ABMManager:
         # returns 4-neighbors; periodic mode wraps, otherwise ignore out-of-bounds
         offsets = [(-1, 0), (1, 0), (0, -1), (0, 1)]
         if self.boundary_mode == "periodic":
-            return [((x + dx) % self.width, (y + dy) % self.height) for dx, dy in offsets]
+            return [
+                ((x + dx) % self.width, (y + dy) % self.height) for dx, dy in offsets
+            ]
 
         nbrs = []
-        if x > 0: nbrs.append((x - 1, y))
-        if x < self.width - 1: nbrs.append((x + 1, y))
-        if y > 0: nbrs.append((x, y - 1))
-        if y < self.height - 1: nbrs.append((x, y + 1))
+        if x > 0:
+            nbrs.append((x - 1, y))
+        if x < self.width - 1:
+            nbrs.append((x + 1, y))
+        if y > 0:
+            nbrs.append((x, y - 1))
+        if y < self.height - 1:
+            nbrs.append((x, y + 1))
         return nbrs
 
-    def _resolve_offset(self, x: int, y: int, dx: int, dy: int) -> Tuple[int, int] | None:
+    def _resolve_offset(
+        self, x: int, y: int, dx: int, dy: int
+    ) -> Tuple[int, int] | None:
         if self.boundary_mode == "periodic":
             return ((x + dx) % self.width, (y + dy) % self.height)
         nx = x + dx
@@ -138,8 +166,11 @@ class ABMManager:
         return None
 
     def _movement_target(self, x: int, y: int) -> Tuple[int, int] | None:
+        # decide stay vs move
         if self.rng.random() < self._stay_prob:
             return None
+
+        # decide direction, probs must sum to 1
         idx = self.rng.choice(len(self._direction_offsets), p=self._direction_probs)
         dx, dy = self._direction_offsets[idx]
         return self._resolve_offset(x, y, dx, dy)
@@ -197,7 +228,10 @@ class ABMManager:
         for idx, c in enumerate(self.cells):
             if c.state == CellState.APOPTOTIC:
                 continue
-            if c.state == CellState.OSTEOBLAST and self.rng.random() >= self.cfg.ob_division_prob:
+            if (
+                c.state == CellState.OSTEOBLAST
+                and self.rng.random() >= self.cfg.ob_division_prob
+            ):
                 continue
             if (day - c.last_div_day) < c.division_interval:
                 continue

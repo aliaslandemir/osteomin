@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
-Run sanity checks that toggle each boolean behavior on/off while keeping the
-base ABM/field scenario fixed.
+Run sanity checks consisting of a single positive control (all behaviors
+enabled) plus a negative control for each toggle while keeping the base
+ABM/field scenario fixed.
 
-Each toggle produces its own `out/sanity_check/<toggle>_{on,off}` folder so
-you can inspect individual runs side-by-side. A markdown report summarizes
-every run once the batch completes.
+Each run is written to `out/sanity_check1/<scenario>` so you can inspect
+individual runs side-by-side. A markdown report summarizes every run once the
+batch completes.
 """
 
 from __future__ import annotations
@@ -25,57 +26,50 @@ TOGGLES = [
     {
         "name": "random_move",
         "desc": "Active cells explore neighboring lattice sites before division.",
-        "on": ["--random-move"],
-        "off": ["--no-random-move"],
+        "negative": ["--no-random-move"],
     },
     {
         "name": "osteogenic_commitment",
         "desc": "ACTIVE cells differentiate into osteoblasts when enabled.",
-        "on": ["--osteogenic-commitment"],
-        "off": ["--no-osteogenic-commitment"],
+        "negative": ["--no-osteogenic-commitment"],
     },
     {
         "name": "apoptosis",
         "desc": "Per-cell death events are sampled each day.",
-        "on": ["--apoptosis"],
-        "off": ["--no-apoptosis"],
+        "negative": ["--no-apoptosis"],
     },
     {
         "name": "proliferation",
         "desc": "Cells attempt to divide once their interval elapses.",
-        "on": ["--proliferation"],
-        "off": ["--no-proliferation"],
+        "negative": ["--no-proliferation"],
     },
     {
         "name": "secretion",
         "desc": "Osteoblasts deposit collagen/ALP that fuels the field manager.",
-        "on": ["--secretion"],
-        "off": ["--no-secretion"],
+        "negative": ["--no-secretion"],
     },
     {
         "name": "nucleation",
         "desc": "Pi+Ca form ACP, which can mature into HA.",
-        "on": ["--nucleation"],
-        "off": ["--no-nucleation"],
+        "negative": ["--no-nucleation"],
     },
     {
         "name": "commit_delay",
         "desc": "Delay (days) before commit probability turns on.",
-        "on": ["--commit-delay", "3"],
-        "off": ["--commit-delay", "0"],
+        "negative": ["--commit-delay", "0"],
     },
 ]
 
 BASE_ARGS = [
     "main.py",
     "--days",
-    "29",
+    "30",
     "--cells",
-    "700",
+    "400",
     "--w",
-    "100",
+    "33",
     "--h",
-    "100",
+    "33",
     "--boundary-mode",
     "periodic",
     "--media-interval",
@@ -88,26 +82,41 @@ BASE_ARGS = [
     "1.0",
     "--dexa",
     "1.0",
+    "--random-move",
     "--move-prob",
     "1.0",
     "--max-moves",
     "1",
+    "--proliferation",
     "--proliferation-chance",
     "1.0",
     "--ob-div-prob",
     "0.0",
+    "--apoptosis",
     "--apoptosis-prob",
     "0.01",
     "--apoptosis-osteo",
-    "0.0005",
+    "0.001",
+    "--osteogenic-commitment",
     "--commit-growth",
-    "0.02",
+    "0.01",
     "--commit-delay",
     "3",
+    "--secretion",
+    "--nucleation",
+    "--enable-nodules",
     "--spatial-every",
     "1",
     "--snapshots",
     "--xlsx",
+    "--nodule-window",
+    "4",
+    "--k-ha",
+    "0.04",
+    "--k-nuc",
+    "0.01",
+    "--s-thresh",
+    "0.01",
 ]
 
 
@@ -146,10 +155,16 @@ def build_command(toggle_args: Sequence[str], out_dir: Path) -> tuple[list[str],
 def write_report(results: Sequence[RunResult], path: Path) -> None:
     """Write a markdown report summarizing all toggle runs."""
     now = datetime.now().isoformat(timespec="seconds")
+    base_cmd = shlex.join([sys.executable, *BASE_ARGS])
     lines: list[str] = [
         "# Sanity Check 1 Report",
         "",
         f"Generated: {now}",
+        "",
+        "## Positive control",
+        "",
+        f"- Command template: `{base_cmd} --seed <random> --out <dir>`",
+        "- All toggles are enabled in the positive control run.",
         "",
         "## Toggle definitions",
         "",
@@ -181,9 +196,9 @@ def write_report(results: Sequence[RunResult], path: Path) -> None:
             "",
             "## Interpretation notes",
             "",
-            "- Each directory under `out/sanity_check1/` contains the model outputs for the toggle + state combination listed above.",
-            "- Compare `_on` vs `_off` directories in Excel/field outputs (`timeseries.xlsx`, `collagen_ha/`, `spatial_cells/`) to understand how the behavior impacts biology.",
-            "- The `commit_delay` toggle keeps all other booleans fixed while changing the day active cells are allowed to commit.",
+            "- Each directory under `out/sanity_check1/` contains the model outputs for the positive control or a toggle-specific negative run.",
+            "- Compare the `positive_control` directory against each `<toggle>_negative` directory (Excel, collagen/HA fields, cell snapshots) to quantify the contribution of that behavior.",
+            "- The `commit_delay` toggle keeps all other booleans fixed while changing the day ACTIVE cells are allowed to commit.",
         ]
     )
     lines.extend(
@@ -203,25 +218,43 @@ def write_report(results: Sequence[RunResult], path: Path) -> None:
 def main() -> None:
     BASE_OUT.mkdir(parents=True, exist_ok=True)
     results: list[RunResult] = []
+    positive_dir = BASE_OUT / "positive_control"
+    print(f"\nRunning positive control -> {positive_dir}")
+    cmd, seed = build_command([], positive_dir)
+    success, error = run_command(cmd)
+    results.append(
+        RunResult(
+            toggle="positive_control",
+            state="positive",
+            out_dir=positive_dir,
+            cmd=cmd,
+            seed=seed,
+            success=success,
+            error=error,
+        )
+    )
+    if not success:
+        print(f"Run failed for positive control: {error}")
+
     for toggle in TOGGLES:
-        for state in ("on", "off"):
-            out_dir = BASE_OUT / f"{toggle['name']}_{state}"
-            print(f"\nRunning {toggle['name']}={state} -> {out_dir}")
-            cmd, seed = build_command(toggle[state], out_dir)
-            success, error = run_command(cmd)
-            results.append(
-                RunResult(
-                    toggle=toggle["name"],
-                    state=state,
-                    out_dir=out_dir,
-                    cmd=cmd,
-                    seed=seed,
-                    success=success,
-                    error=error,
-                )
+        state = "negative"
+        out_dir = BASE_OUT / f"{toggle['name']}_{state}"
+        print(f"\nRunning {toggle['name']}={state} -> {out_dir}")
+        cmd, seed = build_command(toggle["negative"], out_dir)
+        success, error = run_command(cmd)
+        results.append(
+            RunResult(
+                toggle=toggle["name"],
+                state=state,
+                out_dir=out_dir,
+                cmd=cmd,
+                seed=seed,
+                success=success,
+                error=error,
             )
-            if not success:
-                print(f"Run failed for {toggle['name']}={state}: {error}")
+        )
+        if not success:
+            print(f"Run failed for {toggle['name']}={state}: {error}")
     report_path = BASE_OUT / "report.md"
     write_report(results, report_path)
 
