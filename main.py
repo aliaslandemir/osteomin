@@ -91,13 +91,13 @@ def parse_args() -> argparse.Namespace:
         "--move-prob",
         type=float,
         default=1.0,
-        help="probability an ACTIVE cell attempts a move per day",
+        help="probability a preOB cell attempts a move per day",
     )
     p.add_argument(
         "--max-moves",
         type=int,
         default=1,
-        help="max random-walk steps per ACTIVE cell per day",
+        help="max random-walk steps per preOB cell per day",
     )
 
     p.add_argument(
@@ -111,13 +111,13 @@ def parse_args() -> argparse.Namespace:
         "--osteogenic-commitment",
         dest="commitment",
         action="store_true",
-        help="enable ACTIVE → OB differentiation",
+        help="enable preOB → OB differentiation",
     )
     p.add_argument(
         "--no-osteogenic-commitment",
         dest="commitment",
         action="store_false",
-        help="disable ACTIVE → OB differentiation",
+        help="disable preOB → OB differentiation",
     )
     p.set_defaults(commitment=True)
 
@@ -132,7 +132,7 @@ def parse_args() -> argparse.Namespace:
         "--commit-delay",
         type=int,
         default=3,
-        help="days before ACTIVE cells can start committing to osteoblasts",
+        help="days before preOB cells can start committing to osteoblasts",
     )
 
     p.add_argument(
@@ -356,8 +356,8 @@ def main() -> None:
     df = model.run()
 
     # enrich DF with cumulative series for plots
-    df["dead_total_today"] = df["dead_active_today"] + df["dead_ob_today"]
-    df["dead_active_cum"] = df["dead_active_today"].cumsum()
+    df["dead_total_today"] = df["dead_preob_today"] + df["dead_ob_today"]
+    df["dead_preob_cum"] = df["dead_preob_today"].cumsum()
     df["dead_ob_cum"] = df["dead_ob_today"].cumsum()
     df["dead_total_cum"] = df["dead_total_today"].cumsum()
 

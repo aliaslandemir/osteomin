@@ -7,7 +7,7 @@ __all__ = ["CellState", "Cell"]
 
 class CellState(IntEnum):
     EMPTY = 0
-    ACTIVE = 1
+    PRE_OB = 1
     APOPTOTIC = 2
     OSTEOBLAST = 3
 
@@ -15,7 +15,7 @@ class CellState(IntEnum):
 class Cell:
     x: int
     y: int
-    state: CellState = CellState.ACTIVE
+    state: CellState = CellState.PRE_OB
     last_div_day: int = 0
     division_interval: int = 2
     move_count: int = 0

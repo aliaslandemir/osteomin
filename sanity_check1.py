@@ -25,12 +25,12 @@ BASE_OUT = Path("out") / "sanity_check1"
 TOGGLES = [
     {
         "name": "random_move",
-        "desc": "Active cells explore neighboring lattice sites before division.",
+        "desc": "preOB cells explore neighboring lattice sites before division.",
         "negative": ["--no-random-move"],
     },
     {
         "name": "osteogenic_commitment",
-        "desc": "ACTIVE cells differentiate into osteoblasts when enabled.",
+        "desc": "preOB cells differentiate into osteoblasts when enabled.",
         "negative": ["--no-osteogenic-commitment"],
     },
     {
@@ -198,7 +198,7 @@ def write_report(results: Sequence[RunResult], path: Path) -> None:
             "",
             "- Each directory under `out/sanity_check1/` contains the model outputs for the positive control or a toggle-specific negative run.",
             "- Compare the `positive_control` directory against each `<toggle>_negative` directory (Excel, collagen/HA fields, cell snapshots) to quantify the contribution of that behavior.",
-            "- The `commit_delay` toggle keeps all other booleans fixed while changing the day ACTIVE cells are allowed to commit.",
+            "- The `commit_delay` toggle keeps all other booleans fixed while changing the day preOB cells are allowed to commit.",
         ]
     )
     lines.extend(

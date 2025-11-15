@@ -77,19 +77,19 @@ class: grid-cols-[2fr_1fr] items-start
 ---
 
 
-# Active Cell Behaviour
-- Every agent begins in `CellState.ACTIVE` (`src/agent.py`) and can `random_move`, divide, commit, secrete, and die in that order each day.
+# preOB Cell Behaviour
+- Every agent begins in `CellState.PRE_OB` (`src/agent.py`) and can `random_move`, divide, commit, secrete, and die in that order each day.
 - `random_move` uses `_random_move_step` if enabled; division clocks (`last_div_day`, `division_interval`) so proliferation waits 1 days.
 - Commitment uses `base_commit_prob + day * commit_prob_growth`, but only starts once `day >= commit_delay`, so you can hold off osteoblast differentiation for the first few days (3).
-- Active cells contribute to apoptosis statistics and can transition to osteoblasts.
+- preOB cells contribute to apoptosis statistics and can transition to osteoblasts.
 ::right::
 
 <div class="border border-emerald-200 bg-emerald-50/80 rounded-lg p-3 text-xs font-mono leading-relaxed">
-  <div>ACTIVE</div>
+  <div>preOB</div>
   <div class="text-center">↓ random_move?</div>
   <div>division attempt (interval + chance)</div>
   <div class="text-center">↓</div>
-  <div>commitment test → OB or stay ACTIVE</div>
+  <div>commitment test → OB or stay preOB</div>
   <div class="text-center">↓</div>
   <div>apoptosis cleanup releases lattice</div>
 </div>
@@ -106,11 +106,11 @@ class: grid-cols-[2fr_1fr] items-start
 - Osteoblasts secrete collagen and ALP in `_secretion_step`, scaled per-cell (`collagen_per_ob`, `alp_per_ob`) before apoptosis runs.
 - A boolean OB mask is emitted to the field manager each day so matrix and mineral chemistry stays localized to living osteoblast pixels.
 - OBs remain subject to apoptosis, with deaths logged separately (`dead_ob_coords`) for overlays and statistics. 
- - OB-specific death probability (`ob_apoptosis_prob`, default 0.001) keeps committed cells alive longer than ACTIVE cells (20x less apoptotic).
+- OB-specific death probability (`ob_apoptosis_prob`, default 0.001) keeps committed cells alive longer than preOB cells (20x less apoptotic).
 ::right::
 
 <div class="border border-orange-200 bg-orange-50/80 rounded-lg p-3 text-xs font-mono leading-relaxed">
-  <div>ACTIVE + commit ✔ → mark OB</div>
+  <div>preOB + commit ✔ → mark OB</div>
   <div class="text-center">↓</div>
   <div>emit OB mask → field manager uses pixels</div>
   <div class="text-center">↓</div>
@@ -127,7 +127,7 @@ class: grid-cols-[2fr_1fr] items-start
 
 
 # Random Movement
-- When `enable_random_move` (the `random_move` toggle) is true, ACTIVE cells can attempt up to `max_moves_per_day` hops.
+- When `enable_random_move` (the `random_move` toggle) is true, preOB cells can attempt up to `max_moves_per_day` hops.
 - `_movement_target` biases a stay-put probability (0.6) and samples 8-neighbor offsets with axial vs diagonal weights.
 - `boundary_mode` controls wrapping: `periodic` wraps coordinates; `clamp` aborts moves that leave the lattice.
 - Moves swap occupancy only if the destination is empty.
@@ -164,7 +164,7 @@ class: grid-cols-[2fr_1fr] items-start
   <div class="text-center">↓ yes</div>
   <div>search neighbor → empty slot?</div>
   <div class="text-center">↓</div>
-  <div>spawn ACTIVE daughter / reset parent clock</div>
+  <div>spawn preOB daughter / reset parent clock</div>
 </div>
 
 ---

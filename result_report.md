@@ -6,7 +6,7 @@
 
 ## Timeseries summary
 
-| Toggle | State | Active | OBs | Total | Collagen | ACP | HA | Ca_used | Pi_used | Deaths | Committed |
+| Toggle | State | preOB | OBs | Total | Collagen | ACP | HA | Ca_used | Pi_used | Deaths | Committed |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `apoptosis` | off | 12 | 5360 | 5372 | 25176.56 | 554.23 | 114.90 | 2237.19 | 1453.16 | 0 | 13 |
 | `apoptosis` | on | 12 | 4855 | 4867 | 23174.76 | 539.89 | 97.50 | 2107.17 | 1372.28 | 6 | 6 |
@@ -25,10 +25,9 @@
 
 ## Key observations
 - **Mineralization depends on both secretion and nucleation:** `secretion_off` leaves collagen/ALP/ACP/HA at zero, while `secretion_on` produces ~25k collagen, ~548 ACP, ~115 HA, and large Ca/Pi usage. Separately `nucleation_off` keeps ions at their baseline (zero Ca/Pi usage) but still records collagen/ALP, confirming nucleation is the chemistry gate.
-- **Commitment and proliferation reshape population balance:** Turning `osteogenic_commitment` off freezes the system at 9,908 ACTIVE cells, zero OBs, and no matrix/mineral output, while the `on` counterpart matches other wins (≈4.7k OBs, ~23k collagen). Similarly, `proliferation_off` leaves just 658 OBs (no new ACTIVES) versus over 5k OBs when on.
+- **Commitment and proliferation reshape population balance:** Turning `osteogenic_commitment` off freezes the system at 9,908 preOB cells, zero OBs, and no matrix/mineral output, while the `on` counterpart matches other wins (≈4.7k OBs, ~23k collagen). Similarly, `proliferation_off` leaves just 658 OBs (no new preOBs) versus over 5k OBs when on.
 - **Apoptosis toggling changes death counts and matrix totals:** The `apoptosis_on` run shows 6 deaths today versus zero when off, with slightly lower OB counts and ~2k fewer Ca/Pi used, suggesting survival fosters a larger OB pool when apoptosis is disabled.
 - **Random movement helps OB buildup:** With movement on there are ~4.8k OBs at day 28 vs. ~4.2k when off, and a small bump in collagen/HA despite identical CA/PI usage.
-- **Commit delay influences mineral production:** Allowing a 3-day delay increases OBs (~5.6k vs. ~4.7k) and collagen (~26.9k vs. ~22.8k) while raising Ca/Pi usage (≈2.4k/1.56k vs. ≈2.1k/1.36k), implying a delayed differentiation wave lets more ACTIVE cells proliferate before committing.
+- **Commit delay influences mineral production:** Allowing a 3-day delay increases OBs (~5.6k vs. ~4.7k) and collagen (~26.9k vs. ~22.8k) while raising Ca/Pi usage (≈2.4k/1.56k vs. ≈2.1k/1.36k), implying a delayed differentiation wave lets more preOB cells proliferate before committing.
 - **The reported death/commit numbers (last two columns) confirm toggles behave as expected (e.g., `proliferation_on` logs 14 commits vs. zero when off).**
-
 

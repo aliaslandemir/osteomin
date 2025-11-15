@@ -108,7 +108,7 @@ class OsteoModel:
     def run(self) -> pd.DataFrame:
         # ---------- DAY 0 ----------
         deaths_mask = np.zeros((self.abm.height, self.abm.width), dtype=np.uint8)
-        deaths_active_mask = deaths_mask.copy()
+        deaths_preob_mask = deaths_mask.copy()
         deaths_ob_mask = deaths_mask.copy()
 
         # ---------- DAY 0 ----------
@@ -117,7 +117,7 @@ class OsteoModel:
             np.save(self.grids_dir / f"density_day_000.npy", dens.astype(np.uint16))
             np.save(self.grids_dir / f"state_day_000.npy",   state.astype(np.uint8))
             np.save(self.grids_dir / f"deaths_day_000.npy",  deaths_mask)
-            np.save(self.grids_dir / f"deaths_active_day_000.npy", deaths_active_mask)
+            np.save(self.grids_dir / f"deaths_preob_day_000.npy", deaths_preob_mask)
             np.save(self.grids_dir / f"deaths_ob_day_000.npy",     deaths_ob_mask)
             # NEW: chemistry snapshots
             np.save(self.grids_dir / f"collagen_day_000.npy", self.field.collagen.astype(np.float32))
@@ -128,8 +128,12 @@ class OsteoModel:
         dead_total_cum = 0
         if self._should_export_spatial(0):
             export_spatial_for_day(
-                self.outdir, 0, state, deaths_active_mask, deaths_ob_mask,
-                dead_total_cum=dead_total_cum
+                self.outdir,
+                0,
+                state,
+                deaths_preob_mask,
+                deaths_ob_mask,
+                dead_total_cum=dead_total_cum,
             )
 
         # ---------- DAYS 1..N-1 ----------
@@ -137,7 +141,9 @@ class OsteoModel:
             self.abm.step_day(day)
 
             deaths_mask = coords_to_mask(self.abm.height, self.abm.width, self.abm.dead_cells)
-            deaths_active_mask = coords_to_mask(self.abm.height, self.abm.width, self.abm.dead_active_coords)
+            deaths_preob_mask = coords_to_mask(
+                self.abm.height, self.abm.width, self.abm.dead_preob_coords
+            )
             deaths_ob_mask = coords_to_mask(self.abm.height, self.abm.width, self.abm.dead_ob_coords)
 
             dens, state = cell_grids(self.abm.height, self.abm.width, self.abm.cells)
@@ -145,7 +151,10 @@ class OsteoModel:
                 np.save(self.grids_dir / f"density_day_{day:03d}.npy", dens.astype(np.uint16))
                 np.save(self.grids_dir / f"state_day_{day:03d}.npy",   state.astype(np.uint8))
                 np.save(self.grids_dir / f"deaths_day_{day:03d}.npy",  deaths_mask)
-                np.save(self.grids_dir / f"deaths_active_day_{day:03d}.npy", deaths_active_mask.astype(np.uint8))
+                np.save(
+                    self.grids_dir / f"deaths_preob_day_{day:03d}.npy",
+                    deaths_preob_mask.astype(np.uint8),
+                )
                 np.save(self.grids_dir / f"deaths_ob_day_{day:03d}.npy",     deaths_ob_mask.astype(np.uint8))
                 # NEW: chemistry snapshots
                 np.save(self.grids_dir / f"collagen_day_{day:03d}.npy", self.field.collagen.astype(np.float32))
@@ -155,20 +164,26 @@ class OsteoModel:
             self._handle_nodules(day, state)
             self._append_row(day)
 
-            dead_total_cum += int(self._rows[-1]["dead_active_today"] + self._rows[-1]["dead_ob_today"])
+            dead_total_cum += int(
+                self._rows[-1]["dead_preob_today"] + self._rows[-1]["dead_ob_today"]
+            )
 
             if self._should_export_spatial(day):
                 export_spatial_for_day(
-                    self.outdir, day, state, deaths_active_mask, deaths_ob_mask,
-                    dead_total_cum=dead_total_cum
+                    self.outdir,
+                    day,
+                    state,
+                    deaths_preob_mask,
+                    deaths_ob_mask,
+                    dead_total_cum=dead_total_cum,
                 )
 
         return pd.DataFrame(self._rows)
     
 
     def _append_row(self, day: int) -> None:
-        n_active = sum(1 for c in self.abm.cells if c.state == CellState.ACTIVE)
-        n_ob     = sum(1 for c in self.abm.cells if c.state == CellState.OSTEOBLAST)
+        n_preob = sum(1 for c in self.abm.cells if c.state == CellState.PRE_OB)
+        n_ob = sum(1 for c in self.abm.cells if c.state == CellState.OSTEOBLAST)
 
         supp_aa = float(getattr(self.field, "aa_pool", 0.0))
         supp_bgp = float(getattr(self.field, "bgp_pool", 0.0))
@@ -179,10 +194,10 @@ class OsteoModel:
             # use current field scalars at t0
             row = {
                 "day": int(day),
-                "n_active": int(n_active),
+                "n_preob": int(n_preob),
                 "n_osteoblast": int(n_ob),
-                "n_total": int(n_active + n_ob),
-                "dead_active_today": 0,
+                "n_total": int(n_preob + n_ob),
+                "dead_preob_today": 0,
                 "dead_ob_today": 0,
                 "committed_today": 0,
                 "collagen_total": float(self.field.total_collagen),
@@ -215,10 +230,10 @@ class OsteoModel:
         scalars = self.field.snapshot_scalars()
         row = {
             "day": int(day),
-            "n_active": int(n_active),
+            "n_preob": int(n_preob),
             "n_osteoblast": int(n_ob),
-            "n_total": int(n_active + n_ob),
-            "dead_active_today": int(len(self.abm.dead_active_coords)),
+            "n_total": int(n_preob + n_ob),
+            "dead_preob_today": int(len(self.abm.dead_preob_coords)),
             "dead_ob_today": int(len(self.abm.dead_ob_coords)),
             "committed_today": int(self.abm.committed_today),
             "cell_ca": float(scalars["cell_ca"]),

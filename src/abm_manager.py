@@ -52,7 +52,7 @@ class ABMManager:
 
         # daily event logs
         self.dead_cells: List[Tuple[int, int]] = []  # (row, col)
-        self.dead_active_coords: List[Tuple[int, int]] = []  # died while ACTIVE
+        self.dead_preob_coords: List[Tuple[int, int]] = []  # died while preOB
         self.dead_ob_coords: List[Tuple[int, int]] = []  # died while OB
         self.committed_today: int = 0
 
@@ -71,7 +71,7 @@ class ABMManager:
                 self.occupancy[y, x] = len(self.cells) - 1
 
     def _spawn_cell(self, x: int, y: int, day: int) -> Cell:
-        c = Cell(x=x, y=y, state=CellState.ACTIVE, last_div_day=day)
+        c = Cell(x=x, y=y, state=CellState.PRE_OB, last_div_day=day)
         if self.cfg.min_div_days <= self.cfg.max_div_days:
             c.division_interval = int(
                 self.rng.integers(self.cfg.min_div_days, self.cfg.max_div_days + 1)
@@ -85,7 +85,7 @@ class ABMManager:
     def step_day(self, day: int) -> None:
         # reset daily trackers
         self.dead_cells = []
-        self.dead_active_coords = []
+        self.dead_preob_coords = []
         self.dead_ob_coords = []
         self.committed_today = 0
 
@@ -97,7 +97,7 @@ class ABMManager:
         if self.cfg.enable_proliferation:
             self._proliferation_step(day)
 
-        # 3) commitment – differentiate some ACTIVE to OB
+        # 3) commitment – differentiate some preOB to OB
         if self.cfg.enable_commitment and day >= self.cfg.commit_delay:
             commit_prob = min(
                 1.0,
@@ -105,7 +105,7 @@ class ABMManager:
             )
             for c in self.cells:
                 if (
-                    c.state == CellState.ACTIVE
+                    c.state == CellState.PRE_OB
                     and (day - c.last_div_day) >= 1
                     and self.rng.random() < commit_prob
                 ):
@@ -177,7 +177,7 @@ class ABMManager:
 
     def _random_move_step(self) -> None:
         for idx, c in enumerate(self.cells):
-            if c.state != CellState.ACTIVE:
+            if c.state != CellState.PRE_OB:
                 continue
             if self.rng.random() >= self.cfg.move_prob:
                 continue
@@ -205,8 +205,8 @@ class ABMManager:
             )
             if self.rng.random() < prob:
                 # classify by state at time of death
-                if c.state == CellState.ACTIVE:
-                    self.dead_active_coords.append((c.y, c.x))
+                if c.state == CellState.PRE_OB:
+                    self.dead_preob_coords.append((c.y, c.x))
                 elif c.state == CellState.OSTEOBLAST:
                     self.dead_ob_coords.append((c.y, c.x))
                 self.dead_cells.append((c.y, c.x))

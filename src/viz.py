@@ -19,9 +19,9 @@ __all__ = [
 ]
 
 COLORS = {
-    "active": "#0072B2",  # colorblind-safe blue
+    "preob": "#0072B2",  # colorblind-safe blue
     "ob": "#D55E00",  # colorblind-safe vermillion
-    "dead_active": "#E69F00",
+    "dead_preob": "#E69F00",
     "dead_ob": "#CC79A7",
     "text": "#111111",
     "bg": "#ffffff",
@@ -43,7 +43,7 @@ def plot_summary(df: pd.DataFrame, outdir: str | Path) -> None:
 
     fig, ax = plt.subplots(figsize=(6, 3.5))
     _set_white(ax)
-    ax.plot(days, df["n_active"], label="Active", color=COLORS["active"], lw=2)
+    ax.plot(days, df["n_preob"], label="preOB", color=COLORS["preob"], lw=2)
     ax.plot(days, df["n_osteoblast"], label="Osteoblast", color=COLORS["ob"], lw=2)
     ax.plot(days, df["n_total"], label="Total", color="#333", lw=1.3, ls="--")
     ax.set_xlabel("Day")
@@ -57,8 +57,8 @@ def plot_summary(df: pd.DataFrame, outdir: str | Path) -> None:
 
     tmp = df.copy()
     if "dead_total_today" not in tmp.columns:
-        tmp["dead_total_today"] = tmp["dead_active_today"] + tmp["dead_ob_today"]
-    tmp["dead_active_cum"] = tmp["dead_active_today"].cumsum()
+        tmp["dead_total_today"] = tmp["dead_preob_today"] + tmp["dead_ob_today"]
+    tmp["dead_preob_cum"] = tmp["dead_preob_today"].cumsum()
     tmp["dead_ob_cum"] = tmp["dead_ob_today"].cumsum()
     tmp["dead_total_cum"] = tmp["dead_total_today"].cumsum()
 
@@ -66,9 +66,9 @@ def plot_summary(df: pd.DataFrame, outdir: str | Path) -> None:
     _set_white(ax)
     ax.plot(
         days,
-        tmp["dead_active_cum"],
-        label="Active→Dead (cum)",
-        color=COLORS["dead_active"],
+        tmp["dead_preob_cum"],
+        label="preOB→Dead (cum)",
+        color=COLORS["dead_preob"],
         lw=2,
     )
     ax.plot(
@@ -271,16 +271,16 @@ def plot_summary(df: pd.DataFrame, outdir: str | Path) -> None:
     )
     ax.bar(
         days,
-        df["dead_active_today"],
+        df["dead_preob_today"],
         bottom=df["committed_today"],
-        label="Died (active)",
-        color=COLORS["dead_active"],
+        label="Died (preOB)",
+        color=COLORS["dead_preob"],
         alpha=0.9,
     )
     ax.bar(
         days,
         df["dead_ob_today"],
-        bottom=df["committed_today"] + df["dead_active_today"],
+        bottom=df["committed_today"] + df["dead_preob_today"],
         label="Died (osteoblast)",
         color=COLORS["dead_ob"],
         alpha=0.9,
@@ -358,7 +358,7 @@ def export_spatial_for_day(
     outdir: str | Path,
     day: int,
     state_grid: np.ndarray,
-    deaths_active_mask: np.ndarray,
+    deaths_preob_mask: np.ndarray,
     deaths_ob_mask: np.ndarray,
     dead_total_cum: int,
 ) -> None:
@@ -366,15 +366,15 @@ def export_spatial_for_day(
     canvas = np.zeros((h, w, 3), dtype=float) + 1.0  # white BG
 
     # live cells
-    active_mask = state_grid == 1
-    ob_mask = state_grid == 3
-    active_color = to_rgb(COLORS["active"])
+    preob_mask = state_grid == CellState.PRE_OB
+    ob_mask = state_grid == CellState.OSTEOBLAST
+    preob_color = to_rgb(COLORS["preob"])
     ob_color = to_rgb(COLORS["ob"])
-    canvas[active_mask] = active_color
+    canvas[preob_mask] = preob_color
     canvas[ob_mask] = ob_color
 
     # deaths today
-    canvas[deaths_active_mask.astype(bool)] = to_rgb(COLORS["dead_active"])
+    canvas[deaths_preob_mask.astype(bool)] = to_rgb(COLORS["dead_preob"])
     canvas[deaths_ob_mask.astype(bool)] = to_rgb(COLORS["dead_ob"])
 
     import matplotlib.pyplot as plt
@@ -383,21 +383,21 @@ def export_spatial_for_day(
     ax.imshow(canvas, origin="lower", interpolation="nearest")
     ax.set_xticks([])
     ax.set_yticks([])
-    n_act = int((state_grid == 1).sum())
-    n_ob = int((state_grid == 3).sum())
-    n_da = int(deaths_active_mask.sum())
+    n_preob = int((state_grid == CellState.PRE_OB).sum())
+    n_ob = int((state_grid == CellState.OSTEOBLAST).sum())
+    n_da = int(deaths_preob_mask.sum())
     n_do = int(deaths_ob_mask.sum())
     ax.set_title(
-        f"Day {day:02d}  |  Total {n_act + n_ob} live  |  "
-        f"act: {n_act}, osteo: {n_ob}, dead today: {n_da + n_do}, dead cum: {dead_total_cum}",
+        f"Day {day:02d}  |  Total {n_preob + n_ob} live  |  "
+        f"preOB: {n_preob}, osteo: {n_ob}, dead today: {n_da + n_do}, dead cum: {dead_total_cum}",
         loc="center",
         fontsize=12,
         fontweight="bold",
     )
     legend_elems = [
-        Patch(facecolor=COLORS["active"], label=f"Active ({n_act})"),
+        Patch(facecolor=COLORS["preob"], label=f"preOB ({n_preob})"),
         Patch(facecolor=COLORS["ob"], label=f"Osteoblast ({n_ob})"),
-        Patch(facecolor=COLORS["dead_active"], label=f"Died while active ({n_da})"),
+        Patch(facecolor=COLORS["dead_preob"], label=f"Died while preOB ({n_da})"),
         Patch(facecolor=COLORS["dead_ob"], label=f"Died while osteoblast ({n_do})"),
     ]
     legend = ax.legend(
@@ -444,10 +444,10 @@ def export_overlay_collagen_ha_from_npy(
     ha = np.load(grids_dir / f"ha_day_{day:03d}.npy")
     state_path = grids_dir / f"state_day_{day:03d}.npy"
     deaths_path = grids_dir / f"deaths_day_{day:03d}.npy"
-    n_active = n_ob = dead_today = None
+    n_preob = n_ob = dead_today = None
     if state_path.exists():
         state_grid = np.load(state_path)
-        n_active = int((state_grid == CellState.ACTIVE).sum())
+        n_preob = int((state_grid == CellState.PRE_OB).sum())
         n_ob = int((state_grid == CellState.OSTEOBLAST).sum())
     if deaths_path.exists():
         deaths_grid = np.load(deaths_path)
@@ -476,8 +476,8 @@ def export_overlay_collagen_ha_from_npy(
         ax.set_title(f"Day {day:02d} — No collagen/HA", fontsize=12, pad=10)
         if nodule_cum:
             stats_bits: list[str] = []
-            if n_active is not None and n_ob is not None:
-                stats_bits.append(f"Active: {n_active}")
+            if n_preob is not None and n_ob is not None:
+                stats_bits.append(f"preOB: {n_preob}")
                 stats_bits.append(f"OB: {n_ob}")
             if dead_today is not None:
                 stats_bits.append(f"Dead: {dead_today}")
@@ -556,8 +556,8 @@ def export_overlay_collagen_ha_from_npy(
     ax.set_aspect("equal")
     nodule_handle = None
     stats_bits: list[str] = []
-    if n_active is not None and n_ob is not None:
-        stats_bits.append(f"Active: {n_active}")
+    if n_preob is not None and n_ob is not None:
+        stats_bits.append(f"preOB: {n_preob}")
         stats_bits.append(f"OB: {n_ob}")
     if dead_today is not None:
         stats_bits.append(f"Dead: {dead_today}")
