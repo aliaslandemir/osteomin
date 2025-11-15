@@ -313,6 +313,45 @@ def plot_summary(df: pd.DataFrame, outdir: str | Path) -> None:
         fig.savefig(outdir / "05_supplements.png", dpi=300, bbox_inches="tight")
         plt.close(fig)
 
+    acp_total = df["acp_total"] if "acp_total" in df.columns else None
+    ha_total = df["ha_total"] if "ha_total" in df.columns else None
+    if acp_total is not None or ha_total is not None:
+        fig, ax = plt.subplots(figsize=(6, 3.5))
+        _set_white(ax)
+        handles = []
+        labels = []
+        if acp_total is not None:
+            handles.append(
+                ax.plot(
+                    days,
+                    acp_total,
+                    label="ACP (cum)",
+                    lw=2,
+                    color="#fb923c",
+                )[0]
+            )
+            labels.append("ACP (cum)")
+        if ha_total is not None:
+            handles.append(
+                ax.plot(
+                    days,
+                    ha_total,
+                    label="HA (cum)",
+                    lw=2,
+                    color="#0ea5e9",
+                )[0]
+            )
+            labels.append("HA (cum)")
+        ax.set_xlabel("Day")
+        ax.set_ylabel("Cumulative mass (a.u.)")
+        ax.set_title("ACP and HA accumulation")
+        if handles:
+            ax.legend(handles, labels, frameon=False)
+        ax.grid(alpha=0.25)
+        fig.tight_layout(pad=0.6)
+        fig.savefig(outdir / "06_minerals_cumulative.png", dpi=300, bbox_inches="tight")
+        plt.close(fig)
+
 
 def export_spatial_for_day(
     outdir: str | Path,

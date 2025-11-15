@@ -150,13 +150,14 @@ python main.py \
 
 ### Figures & Visualization
 - Exports (300 DPI, tight margins for papers):
-  - `01_states_counts.png` – Active/OB/Total counts vs. day
-  - `02_events_cumulative.png` – Cumulative deaths by class
-  - `03_matrix_biochem.png` – Free Ca/Pi (left axis) plus cumulative Ca/Pi usage (right axis)
-  - `04_events_daily.png` – Daily commitments and deaths
-  - `05_supplements.png` – Reported supplement scaling factors (AA, β-GP, MK-4, Dexa)
-  - `spatial_cells/spatial_day_XXX.png` – Cell-state map at day `XXX`
-  - `collagen_ha/collagen_ha_day_XXX.png` – Collagen–HA overlay at day `XXX`
+- `01_states_counts.png` – Active/OB/Total counts vs. day
+- `02_events_cumulative.png` – Cumulative deaths by class
+- `03_matrix_biochem.png` – Free Ca/Pi (left axis) plus cumulative Ca/Pi usage (right axis)
+- `04_events_daily.png` – Daily commitments and deaths
+- `05_supplements.png` – Reported supplement scaling factors (AA, β-GP, MK-4, Dexa)
+- `06_minerals_cumulative.png` – Cumulative ACP and HA masses vs. day
+- `spatial_cells/spatial_day_XXX.png` – Cell-state map at day `XXX`
+- `collagen_ha/collagen_ha_day_XXX.png` – Collagen–HA overlay at day `XXX`
   - Color scheme (colorblind‑friendly):
   - Active `#0072B2` (blue), Osteoblast `#D55E00` (vermillion)
   - Died while active `#E69F00`, died while osteoblast `#CC79A7`

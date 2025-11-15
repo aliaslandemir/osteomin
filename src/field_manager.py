@@ -37,13 +37,13 @@ class FieldManager:
     ALP_TO_PI_RATE: float = 0.01  # Pi increase per ALP (scaled by bgp)
     # --- nucleation / maturation ---|
     S_THRESH: float = 0.01  # Ca*Pi supersaturation threshold
-    K_NUC: float = 0.05  # ACP nucleation rate per day (a.u.)
-    K_HA: float = 0.05  # ACP -> HA conversion per day
+    K_NUC: float = 0.001  # ACP nucleation rate per day (a.u.)
+    K_HA: float = 0.06  # ACP -> HA conversion per day
 
     # --- stoichiometry ---
     CA_PER_ACP: float = 3.0  # stoichiometric Ca per ACP unit
     PI_PER_ACP: float = 2.0  # stoichiometric Pi per ACP unit
-    ACP_TO_HA_THRESHOLD: float = 0.25  # required local ACP before HA maturation
+    ACP_TO_HA_THRESHOLD: float = 0.20  # required local ACP before HA maturation
     # stoichiometry for the ACP → HA reaction:
     #   3 ACP + 1 Ca²⁺ → 2 HA + 2 H⁺
     ACP_PER_HA_REACTION: float = 3.0
