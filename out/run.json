@@ -1,6 +1,6 @@
 {
   "days": 30,
-  "seed": 924610,
+  "seed": 957588,
   "abm_cfg": {
     "width": 33,
     "height": 33,
@@ -36,8 +36,8 @@
     "enable_nucleation": true,
     "enable_nodules": true,
     "s_thresh": 0.01,
-    "k_nuc": 0.01,
-    "k_ha": 0.04,
+    "k_nuc": 0.025,
+    "k_ha": 0.06,
     "nodule_window": 4,
     "ca0": 1.0,
     "pi0": 0.0,

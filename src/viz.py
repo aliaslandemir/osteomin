@@ -7,7 +7,7 @@ import matplotlib
 matplotlib.use("Agg")  # safe non-GUI backend
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
-from matplotlib.colors import to_rgb
+from matplotlib.colors import to_rgb, PowerNorm
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from .agent import CellState
 
@@ -91,7 +91,7 @@ def plot_summary(df: pd.DataFrame, outdir: str | Path) -> None:
     fig.savefig(outdir / "02_events_cumulative.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
 
-    # --- Biochemistry ions: three stacked panels (one figure) ---
+    # --- Biochemistry ions: stacked panels (without free pools) ---
     ca_used = df["ca_used_total"] if "ca_used_total" in df.columns else None
     ca_supplied = df["ca_supplied_total"] if "ca_supplied_total" in df.columns else None
     cell_ca = df["cell_ca"] if "cell_ca" in df.columns else None
@@ -107,62 +107,10 @@ def plot_summary(df: pd.DataFrame, outdir: str | Path) -> None:
     bgp_pool = df["bgp_pool"] if "bgp_pool" in df.columns else None
     cell_pi = df["cell_pi"] if "cell_pi" in df.columns else None
 
-    fig, axes = plt.subplots(3, 1, figsize=(6, 7.2), sharex=True)
+    fig, axes = plt.subplots(2, 1, figsize=(6, 5.2), sharex=True)
 
-    # Panel 1: free media + cell pools
-    ax_free = axes[0]
-    _set_white(ax_free)
-    handles: list = []
-    labels: list = []
-    if ca_media is not None:
-        handles.append(
-            ax_free.plot(
-                days, ca_media, label="media Ca (free)", lw=2, color="#1f77b4"
-            )[0]
-        )
-        labels.append("media Ca (free)")
-    if cell_ca is not None:
-        handles.append(
-            ax_free.plot(
-                days,
-                cell_ca,
-                label="cell-processed Ca (per area)",
-                lw=2,
-                color="#0d9488",
-            )[0]
-        )
-        labels.append("cell-processed Ca (per area)")
-    if bgp_pool is not None:
-        handles.append(
-            ax_free.plot(
-                days,
-                bgp_pool,
-                label="β-GP pool (free)",
-                lw=2,
-                ls="--",
-                color="#f97316",
-            )[0]
-        )
-        labels.append("β-GP pool (free)")
-    if cell_pi is not None:
-        handles.append(
-            ax_free.plot(
-                days,
-                cell_pi,
-                label="cell-generated Pi (mean field)",
-                lw=2,
-                color="#ff7f0e",
-            )[0]
-        )
-        labels.append("cell-generated Pi (mean field)")
-    ax_free.set_ylabel("Free pools (a.u.)")
-    ax_free.set_title("Free media & cell pools")
-    if handles:
-        ax_free.legend(handles, labels, frameon=False, ncol=2)
-    ax_free.grid(alpha=0.25)
-
-    # Panel 2: cumulative calcium budget (separate scales)
-    ax_ca_left = axes[1]
+    # Panel 1: cumulative calcium budget (separate scales)
+    ax_ca_left = axes[0]
     _set_white(ax_ca_left)
     left_handles = []
     left_labels = []
@@ -202,8 +150,8 @@ def plot_summary(df: pd.DataFrame, outdir: str | Path) -> None:
         ax_ca_left.legend(handles, labels, frameon=False)
     ax_ca_left.grid(alpha=0.25)
 
-    # Panel 3: cumulative phosphate / β-GP budget (separate scales)
-    ax_pi_left = axes[2]
+    # Panel 2: cumulative phosphate / β-GP budget (separate scales)
+    ax_pi_left = axes[1]
     _set_white(ax_pi_left)
     left_handles = []
     left_labels = []
@@ -258,6 +206,74 @@ def plot_summary(df: pd.DataFrame, outdir: str | Path) -> None:
 
     fig.tight_layout(pad=0.8)
     fig.savefig(outdir / "03_biochem.png", dpi=300, bbox_inches="tight")
+    plt.close(fig)
+
+    # --- Free media & cell pools: standalone fancier plot ---
+    fig, ax_free = plt.subplots(figsize=(6.5, 3.8))
+    _set_white(ax_free)
+    handles: list = []
+    labels: list = []
+    if ca_media is not None:
+        handles.append(
+            ax_free.plot(
+                days,
+                ca_media,
+                label="media Ca (free)",
+                lw=2.5,
+                color="#1f77b4",
+            )[0]
+        )
+        labels.append("media Ca (free)")
+    if cell_ca is not None:
+        handles.append(
+            ax_free.plot(
+                days,
+                cell_ca,
+                label="cell-processed Ca (per area)",
+                lw=2.5,
+                color="#0d9488",
+            )[0]
+        )
+        labels.append("cell-processed Ca (per area)")
+    if bgp_pool is not None:
+        handles.append(
+            ax_free.plot(
+                days,
+                bgp_pool,
+                label="β-GP pool (free)",
+                lw=2.5,
+                ls="--",
+                color="#f97316",
+            )[0]
+        )
+        labels.append("β-GP pool (free)")
+    if cell_pi is not None:
+        handles.append(
+            ax_free.plot(
+                days,
+                cell_pi,
+                label="cell-generated Pi (mean field)",
+                lw=2.5,
+                ls="-.",
+                color="#ff7f0e",
+            )[0]
+        )
+        labels.append("cell-generated Pi (mean field)")
+    ax_free.set_xlabel("Day")
+    ax_free.set_ylabel("Free pools (a.u.)")
+    ax_free.set_title("Free media & cell pools")
+    if handles:
+        leg = ax_free.legend(
+            handles,
+            labels,
+            frameon=True,
+            ncol=2,
+            loc="upper left",
+            bbox_to_anchor=(0.0, 0.85),
+        )
+    ax_free.grid(alpha=0.3, linestyle="--", linewidth=0.7)
+    fig.tight_layout(pad=0.8)
+    fig.savefig(outdir / "03_biochem_free_pools.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
 
     fig, ax = plt.subplots(figsize=(6, 3.5))
@@ -469,7 +485,9 @@ def export_overlay_collagen_ha_from_npy(
         fig = plt.figure(figsize=(6, 6))
         ax = fig.add_axes([0.14, 0.12, 0.72, 0.74])
         _set_white(ax)
-        ax.text(0.5, 0.5, "No collagen or HA yet", ha="center", va="center", fontsize=14)
+        ax.text(
+            0.5, 0.5, "No collagen or HA yet", ha="center", va="center", fontsize=14
+        )
         ax.set_xticks([])
         ax.set_yticks([])
         ax.set_title(f"Day {day:02d} — No collagen/HA", fontsize=12, pad=10)
@@ -491,7 +509,9 @@ def export_overlay_collagen_ha_from_npy(
                 fontsize=9,
                 color=COLORS["text"],
             )
-        fig.savefig(img_dir / f"collagen_ha_day_{day:03d}.png", dpi=300, bbox_inches="tight")
+        fig.savefig(
+            img_dir / f"collagen_ha_day_{day:03d}.png", dpi=300, bbox_inches="tight"
+        )
         plt.close(fig)
         return
 
@@ -507,32 +527,34 @@ def export_overlay_collagen_ha_from_npy(
         vmax_ha = max(global_vmax_ha, 1e-9)
     else:
         vmax_ha = max(_p99(ha), 1e-9)
-    norm_col = np.clip(col / vmax_col, 0, 1)
-    norm_ha = np.clip(ha / vmax_ha, 0, 1)
-    a_col = norm_col * 0.85
-    a_ha = norm_ha * 0.85
+
+    # Use perceptual power-law normalization so low–mid signal stands out
+    col_norm = PowerNorm(gamma=0.7, vmin=0.0, vmax=vmax_col)
+    ha_norm = PowerNorm(gamma=0.7, vmin=0.0, vmax=vmax_ha)
 
     fig = plt.figure(figsize=(6, 6))
     ax = fig.add_axes([0.14, 0.12, 0.72, 0.74])
     _set_white(ax)
-    ax.imshow(np.ones((*col.shape, 3)), origin="lower", interpolation="nearest")
+    ax.imshow(
+        np.ones((*col.shape, 3)) * 0.97,
+        origin="lower",
+        interpolation="nearest",
+    )
     im_col = ax.imshow(
         col,
         cmap="YlGn",  # bright yellow-green for collagen
-        vmin=0,
-        vmax=vmax_col,
+        norm=col_norm,
         origin="lower",
         interpolation="nearest",
-        alpha=a_col,
+        alpha=0.9,
     )
     im_ha = ax.imshow(
         ha,
         cmap="PuRd",  # magenta-forward palette for stronger separation
-        vmin=0,
-        vmax=vmax_ha,
+        norm=ha_norm,
         origin="lower",
         interpolation="nearest",
-        alpha=a_ha,
+        alpha=0.65,
     )
     ax.set_xticks([])
     ax.set_yticks([])
@@ -592,12 +614,22 @@ def export_overlay_collagen_ha_from_npy(
     legend_handle = None
     if nodule_handle is not None:
         legend_handle = matplotlib.lines.Line2D(
-            [], [], marker="*", linestyle="None", markersize=6, color="#8b1d8b", label="Nodule"
+            [],
+            [],
+            marker="*",
+            linestyle="None",
+            markersize=6,
+            color="#8b1d8b",
+            label="Nodule",
         )
     if legend_handle is not None:
-        legend = ax.legend(handles=[legend_handle], loc="lower left", frameon=True, fontsize=8)
+        legend = ax.legend(
+            handles=[legend_handle], loc="lower left", frameon=True, fontsize=8
+        )
         legend.get_frame().set_edgecolor("#333333")
         legend.get_frame().set_linewidth(0.6)
 
-    fig.savefig(img_dir / f"collagen_ha_day_{day:03d}.png", dpi=300, bbox_inches="tight")
+    fig.savefig(
+        img_dir / f"collagen_ha_day_{day:03d}.png", dpi=300, bbox_inches="tight"
+    )
     plt.close(fig)
