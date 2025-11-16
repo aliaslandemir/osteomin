@@ -51,6 +51,7 @@ class FieldConfig:
     ca_per_acp: float = 3.0
     pi_per_acp: float = 2.0
     acp_to_ha_threshold: float = 0.05
+    collagen_nucleation_threshold: float = 1e-6
     acp_per_ha_reaction: float = 3.0
     ca_per_reaction: float = 1.0
     ha_per_reaction: float = 2.0

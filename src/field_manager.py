@@ -50,6 +50,7 @@ class FieldManager:
         ca_per_acp: float = 3.0,
         pi_per_acp: float = 2.0,
         acp_to_ha_threshold: float = 0.20,
+        collagen_nucleation_threshold: float = 1e-6,
         acp_per_ha_reaction: float = 3.0,
         ca_per_reaction: float = 1.0,
         ha_per_reaction: float = 2.0,
@@ -90,6 +91,7 @@ class FieldManager:
         self.CA_PER_ACP = float(ca_per_acp)
         self.PI_PER_ACP = float(pi_per_acp)
         self.ACP_TO_HA_THRESHOLD = float(acp_to_ha_threshold)
+        self.COLLAGEN_NUCLEATION_THRESHOLD = float(collagen_nucleation_threshold)
         self.ACP_PER_HA_REACTION = float(acp_per_ha_reaction)
         self.CA_PER_REACTION = float(ca_per_reaction)
         self.HA_PER_REACTION = float(ha_per_reaction)
@@ -375,6 +377,8 @@ class FieldManager:
 
             # 4) ACP -> HA maturation once enough ACP is present and Ca is available
             ha_candidates = self.acp >= self.ACP_TO_HA_THRESHOLD
+            if self.COLLAGEN_NUCLEATION_THRESHOLD > 0.0:
+                ha_candidates &= self.collagen >= self.COLLAGEN_NUCLEATION_THRESHOLD
             if ha_candidates.any():
                 ha_idx = np.where(ha_candidates)
                 available_acp = self.acp[ha_idx]

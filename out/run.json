@@ -1,6 +1,6 @@
 {
   "days": 30,
-  "seed": 129863,
+  "seed": 790807,
   "abm_cfg": {
     "width": 33,
     "height": 33,
@@ -43,6 +43,7 @@
     "ca_per_acp": 3.0,
     "pi_per_acp": 2.0,
     "acp_to_ha_threshold": 0.05,
+    "collagen_nucleation_threshold": 1e-06,
     "acp_per_ha_reaction": 3.0,
     "ca_per_reaction": 1.0,
     "ha_per_reaction": 2.0,

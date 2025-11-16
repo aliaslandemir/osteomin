@@ -63,6 +63,7 @@ class OsteoModel:
             bgp_usage_per_pi=getattr(field_cfg, "bgp_usage_per_pi", 3e-4),
             base_collagen_rate=getattr(field_cfg, "base_collagen_rate", 0.001),
             k_aa=getattr(field_cfg, "k_aa", 0.2),
+            collagen_nucleation_threshold=getattr(field_cfg, "collagen_nucleation_threshold", 1e-6),
         )
         self.abm.attach_field(self.field)
 
