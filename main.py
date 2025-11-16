@@ -67,8 +67,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--bgp", type=float, default=1.0, help="beta-glycerophosphate scaling"
     )
-    p.add_argument("--mk4", type=float, default=1.0, help="menaquinone-4 scaling")
-    p.add_argument("--dexa", type=float, default=1.0, help="dexamethasone scaling")
+    p.add_argument("--mk4", type=float, default=0.0, help="MK-4 dose (0–1); boosts collagen/ECM build-up")
     p.add_argument(
         "--dex",
         type=float,
@@ -349,7 +348,7 @@ def main() -> None:
     )
 
     # supplements
-    supplements = dict(aa=args.aa, bgp=args.bgp, dexa=args.dexa, mk4=args.mk4)
+    supplements = dict(aa=args.aa, bgp=args.bgp, mk4=max(0.0, min(1.0, args.mk4)))
 
     # explicit spatial export days
     spatial_days = [int(x) for x in args.spatial_days.split(",") if x.strip()]

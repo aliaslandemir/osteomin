@@ -189,8 +189,6 @@ class OsteoModel:
         supp_aa = float(getattr(self.field, "aa_pool", 0.0))
         supp_bgp = float(getattr(self.field, "bgp_pool", 0.0))
         supp_mk4 = float(getattr(self.field, "mk4_level", 0.0))
-        supp_dexa = float(getattr(self.field, "dexa_level", 0.0))
-
         if day == 0:
             # use current field scalars at t0
             row = {
@@ -220,7 +218,6 @@ class OsteoModel:
                 "supp_aa": supp_aa,
                 "supp_bgp": supp_bgp,
                 "supp_mk4": supp_mk4,
-                "supp_dexa": supp_dexa,
             }
             row["nodule_count"] = int(
                 self.field.nodule_data_for_day(day)[0]
@@ -256,7 +253,6 @@ class OsteoModel:
             "supp_aa": supp_aa,
             "supp_bgp": supp_bgp,
             "supp_mk4": supp_mk4,
-            "supp_dexa": supp_dexa,
         }
         row["nodule_count"] = int(
             self.field.nodule_data_for_day(day)[0]

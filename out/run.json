@@ -1,6 +1,6 @@
 {
   "days": 30,
-  "seed": 958396,
+  "seed": 924610,
   "abm_cfg": {
     "width": 33,
     "height": 33,
@@ -24,7 +24,7 @@
     "move_prob": 1.0,
     "max_moves_per_day": 1,
     "ob_division_prob": 0.0,
-    "proliferation_chance": 0.33,
+    "proliferation_chance": 1.0,
     "S_THRESH": 0.01,
     "K_NUC": 0.01,
     "K_HA": 0.04
@@ -61,8 +61,7 @@
   "supplements": {
     "aa": 1.0,
     "bgp": 1.0,
-    "dexa": 1.0,
-    "mk4": 1.0
+    "mk4": 0.0
   },
   "spatial_every": 1,
   "spatial_days": [

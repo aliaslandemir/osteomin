@@ -51,8 +51,7 @@ python main.py
 |------|---------|
 | `--aa` | 1.0 |
 | `--bgp` | 1.0 |
-| `--mk4` | 1.0 |
-| `--dexa` | 1.0 |
+| `--mk4` | 0.0 (none) |
 
 ### Cell behaviors
 | Behavior | Default |
@@ -62,6 +61,7 @@ python main.py
 | Apoptosis | enabled (`--apoptosis`), `--apoptosis-prob 0.01`, `--apoptosis-osteo 0.001` |
 | Osteogenic commitment | enabled, `--commit-growth 0.01`, `--commit-delay 3` |
 | Secretion | enabled (`--secretion`) |
+| Dex effects | off by default (omit `--dex`; strength via `--dex-k`, default 1.0) |
 
 ### Field / chemistry
 | Parameter | Default |
@@ -85,33 +85,33 @@ python main.py
 
 ---
 
-## Recommended Run (matches defaults)
+## Recommended Run (example)
 ```bash
 python main.py \
   --days 30 \
-  --cells 400 \
+  --cells 72 \
   --w 33 --h 33 \
   --boundary-mode periodic \
   --seed $(shuf -i 1-999999 -n 1) \
   --media-interval 2 \
-  --aa 1.0 --bgp 1.0 --mk4 1.0 --dexa 1.0 \
+  --aa 1.0 --bgp 1.0 \
   --random-move --move-prob 1.0 --max-moves 1 \
-  --proliferation --proliferation-chance 1.0 --ob-div-prob 0.0 \
+  --proliferation --ob-div-prob 0.0 \
   --apoptosis --apoptosis-prob 0.01 --apoptosis-osteo 0.001 \
   --osteogenic-commitment --commit-growth 0.01 --commit-delay 3 \
   --secretion --nucleation --enable-nodules \
-  --nodule-window 4 --k-nuc 0.01 --k-ha 0.04 --s-thresh 0.01 \
-  --spatial-every 1 --snapshots --xlsx --out out
+  --spatial-every 1 --out out --snapshots --xlsx \
+  --nodule-window 4 --k-ha 0.04 --k-nuc 0.01
 ```
 
-This command mirrors the baked-in defaults; feel free to omit flags you are not changing.
+This command matches the configuration used in the paper; feel free to omit flags you are not changing.
 
 ---
 
 ## Key CLI Controls
 
 - **Geometry & time:** `--days`, `--cells`, `--w`, `--h`, `--boundary-mode`, `--media-interval`, `--seed`.
-- **Supplements:** `--aa`, `--bgp`, `--mk4`, `--dexa` seed the media pools; they deplete via collagen/ALP rules in `field_manager.py`.
+- **Supplements:** `--aa`, `--bgp`, optional `--mk4` (0–1) seed the media pools; MK-4 scales collagen rate and boosts `K_NUC`/`K_HA`. Dex is separate (`--dex`, `--dex-k`) and affects commitment/apoptosis only.
 - **Cell events:** toggles for movement, proliferation, apoptosis, secretion, and commitment determine whether the ABM executes the corresponding steps each day. Per-process probabilities are adjustable via the associated flags.
 - **Nucleation & nodules:** `--s-thresh`, `--k-nuc`, `--k-ha`, `--nodule-window`, and `--enable-nodules` control ACP/HA kinetics and how nodules are detected. A nodule is counted if every site in the window is an osteoblast with HA ≥ `ACP_TO_HA_THRESHOLD`.
 - **Exports:** `--spatial-every`, `--spatial-days`, `--snapshots`, `--xlsx`, `--csv`, and `--out` cover visualization, raw grid dumps, and timeseries formats.
@@ -120,7 +120,7 @@ This command mirrors the baked-in defaults; feel free to omit flags you are not 
 
 ## Notes
 - The entire chemistry configuration is centralized in `FieldConfig` (`src/config.py`), so any parameter you expose via CLI will propagate through `main.py` → `FieldConfig` → `FieldManager` without local edits.
-- Overlay images (`out/collagen_ha/collagen_ha_day_XXX.png`) show collagen (green), HA (blue), and min(Collagen,HA) (red). Purple stars mark cumulative nodule centers derived from `out/grids/nodules_day_XXX.npz`.
+- Overlay images (`out/collagen_ha/collagen_ha_day_XXX.png`) show collagen (yellow-green) and HA (magenta/blue). Purple stars mark cumulative nodule centers derived from `out/grids/nodules_day_XXX.npz`.
 - Timeseries (`out/timeseries.xlsx`) always includes a `nodule_count` column (0 when nodule detection is disabled).
 
 Enjoy experimenting with the osteoblast ABM! Feel free to open issues or PRs if you need additional CLI knobs or output formats.

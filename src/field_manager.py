@@ -11,8 +11,7 @@ __all__ = ["FieldManager"]
 class _Supplements:
     aa: float = 1.0
     bgp: float = 1.0
-    dexa: float = 1.0
-    mk4: float = 1.0
+    mk4: float = 0.0
 
 
 class FieldManager:
@@ -76,12 +75,12 @@ class FieldManager:
         self.bgp_consumed_total = 0.0
 
         # Supplements (clamped to non-negative)
-        s = _Supplements(**{k: float(v) for k, v in dict(supplements).items()})
+        supp_kwargs = {k: float(v) for k, v in dict(supplements).items() if k in ("aa", "bgp", "mk4")}
+        s = _Supplements(**supp_kwargs)
         self.supp = s
         self.aa_pool = max(0.0, s.aa)
         self.bgp_pool = max(0.0, s.bgp)
         self.mk4_level = max(0.0, s.mk4)
-        self.dexa_level = max(0.0, s.dexa)
         self.CA0 = float(ca0)
         self.PI0 = float(pi0)
         self.ALP_TO_PI_RATE = float(alp_to_pi_rate)
@@ -203,7 +202,14 @@ class FieldManager:
         f_aa = self.aa_pool / denom
         if f_aa <= 0.0:
             return
-        amount = count * self.BASE_COLLAGEN_RATE * f_aa
+        # MK-4 scales baseline collagen output (piecewise dose response)
+        if self.mk4_level <= 0.0:
+            f_mk4 = 1.0
+        elif self.mk4_level < 1.0:
+            f_mk4 = 1.3
+        else:
+            f_mk4 = 1.6
+        amount = count * self.BASE_COLLAGEN_RATE * f_mk4 * f_aa
         if amount <= 0.0:
             return
         if self._ob_mask is not None and self._ob_mask.any():
@@ -345,6 +351,16 @@ class FieldManager:
         self._apply_collagen_secretion()
 
         if self.enable_nucleation:
+            # MK-4 boosts nucleation/maturation rates in a piecewise manner
+            if self.mk4_level <= 0.0:
+                f_mk4 = 1.0
+            elif self.mk4_level < 1.0:
+                f_mk4 = 1.3
+            else:
+                f_mk4 = 1.6
+            k_nuc_eff = self.K_NUC * f_mk4
+            k_ha_eff = self.K_HA * f_mk4
+
             # 4) ACP nucleation where collagen & supersaturation thresholds met
             supersat = self.ca * self.pi
             if self._ob_mask is not None:
@@ -362,7 +378,7 @@ class FieldManager:
                 max_ca = ca_avail / self.CA_PER_ACP
                 max_pi = pi_avail / self.PI_PER_ACP
                 max_by_resources = np.minimum(max_ca, max_pi)
-                formation = np.minimum(self.K_NUC, max_by_resources)
+                formation = np.minimum(k_nuc_eff, max_by_resources)
                 ca_needed = formation * self.CA_PER_ACP
                 pi_needed = formation * self.PI_PER_ACP
                 self.ca[eligible_idx] = np.clip(
@@ -383,7 +399,7 @@ class FieldManager:
                 ha_idx = np.where(ha_candidates)
                 available_acp = self.acp[ha_idx]
                 acp_lumps = available_acp / self.ACP_PER_HA_REACTION
-                possible_conversion = np.minimum(acp_lumps, self.K_HA)
+                possible_conversion = np.minimum(acp_lumps, k_ha_eff)
                 ca_avail = self.ca[ha_idx]
                 ca_capacity = ca_avail / self.CA_PER_REACTION
                 conversion = np.minimum(possible_conversion, ca_capacity)
@@ -414,6 +430,7 @@ class FieldManager:
         return {
             "cell_ca": float(self.cell_ca),
             "cell_pi": float(self.cell_pi),
+            "mk4_level": float(getattr(self, "mk4_level", 0.0)),
             "ca_media": float(self.ca.mean()),
             "bgp_pool": float(self.bgp_pool),
             "ca_free_total": float(self.ca.sum()),
