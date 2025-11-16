@@ -69,6 +69,18 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--mk4", type=float, default=1.0, help="menaquinone-4 scaling")
     p.add_argument("--dexa", type=float, default=1.0, help="dexamethasone scaling")
+    p.add_argument(
+        "--dex",
+        type=float,
+        default=None,
+        help="dexamethasone dose for commitment boost (0–1); absent = no Dex effect",
+    )
+    p.add_argument(
+        "--dex-k",
+        type=float,
+        default=1.0,
+        help="strength of dexamethasone effect on commitment (F_dex = 1 + k * D)",
+    )
 
     # --- cell-level switches ---
     p.add_argument(
@@ -299,6 +311,9 @@ def main() -> None:
     args.apoptosis_prob = max(0.0, min(1.0, args.apoptosis_prob))
     args.ob_apoptosis_prob = max(0.0, min(1.0, args.ob_apoptosis_prob))
     args.commit_delay = max(0, args.commit_delay)
+    dex_dose = args.dex if args.dex is not None else 0.0
+    dex_dose = max(0.0, min(1.0, dex_dose))
+    dex_k = max(0.0, args.dex_k)
 
     # configs
     abm_cfg = ABMConfig(
@@ -318,6 +333,8 @@ def main() -> None:
         proliferation_chance=args.proliferation_chance,
         commit_prob_growth=args.commit_growth,
         commit_delay=args.commit_delay,
+        dex_dose=dex_dose,
+        dex_k=dex_k,
     )
     field_cfg = FieldConfig(
         width=args.w,

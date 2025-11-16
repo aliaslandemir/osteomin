@@ -99,10 +99,12 @@ class ABMManager:
 
         # 3) commitment – differentiate some preOB to OB
         if self.cfg.enable_commitment and day >= self.cfg.commit_delay:
-            commit_prob = min(
+            base_prob = min(
                 1.0,
                 float(self.cfg.base_commit_prob + day * self.cfg.commit_prob_growth),
             )
+            dex_factor = 1.0 + float(self.cfg.dex_k) * float(self.cfg.dex_dose)
+            commit_prob = min(1.0, base_prob * dex_factor)
             for c in self.cells:
                 if (
                     c.state == CellState.PRE_OB
@@ -196,13 +198,20 @@ class ABMManager:
                     break
 
     def _apoptosis_step(self, day: int) -> None:
+        # Dex-dependent apoptosis scaling (piecewise on dose 0–1)
+        dex = float(self.cfg.dex_dose)
+        if dex <= 0.0:
+            f_pre, f_ob = 1.0, 1.0
+        elif dex < 1.0:
+            f_pre, f_ob = 1.2, 1.5
+        else:
+            f_pre, f_ob = 1.5, 3.0
+        prob_pre = min(1.0, float(self.cfg.apoptosis_prob) * f_pre)
+        prob_ob = min(1.0, float(self.cfg.ob_apoptosis_prob) * f_ob)
+
         died_indices = []
         for idx, c in enumerate(self.cells):
-            prob = (
-                self.cfg.ob_apoptosis_prob
-                if c.state == CellState.OSTEOBLAST
-                else self.cfg.apoptosis_prob
-            )
+            prob = prob_ob if c.state == CellState.OSTEOBLAST else prob_pre
             if self.rng.random() < prob:
                 # classify by state at time of death
                 if c.state == CellState.PRE_OB:

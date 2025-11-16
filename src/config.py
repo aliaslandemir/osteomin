@@ -21,6 +21,8 @@ class ABMConfig:
     ob_apoptosis_prob: float = 0.001
     min_div_days: int = 2
     max_div_days: int = 4
+    dex_dose: float = 0.0  # CLI-provided dexamethasone dose (0–1); multiplier applied in commitment
+    dex_k: float = 1.0  # slope for dex effect (F_dex = 1 + k * D)
     collagen_per_ob: float = 1.5
     alp_per_ob: float = 1.2
     move_prob: float = 1.0

@@ -1,6 +1,6 @@
 {
   "days": 30,
-  "seed": 929954,
+  "seed": 958396,
   "abm_cfg": {
     "width": 33,
     "height": 33,
@@ -17,6 +17,8 @@
     "ob_apoptosis_prob": 0.001,
     "min_div_days": 2,
     "max_div_days": 4,
+    "dex_dose": 0.0,
+    "dex_k": 1.0,
     "collagen_per_ob": 1.5,
     "alp_per_ob": 1.2,
     "move_prob": 1.0,
