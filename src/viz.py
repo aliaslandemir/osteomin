@@ -512,8 +512,6 @@ def export_overlay_collagen_ha_from_npy(
     norm_ha = np.clip(ha / vmax_ha, 0, 1)
     a_col = norm_col * 0.85
     a_ha = norm_ha * 0.85
-    coloc = np.minimum(norm_col, norm_ha)
-    a_coloc = np.clip(coloc * 0.9, 0, 1)
 
     fig = plt.figure(figsize=(6, 6))
     ax = fig.add_axes([0.14, 0.12, 0.72, 0.74])
@@ -521,7 +519,7 @@ def export_overlay_collagen_ha_from_npy(
     ax.imshow(np.ones((*col.shape, 3)), origin="lower", interpolation="nearest")
     im_col = ax.imshow(
         col,
-        cmap="Greens",
+        cmap="YlGn",  # bright yellow-green for collagen
         vmin=0,
         vmax=vmax_col,
         origin="lower",
@@ -530,26 +528,17 @@ def export_overlay_collagen_ha_from_npy(
     )
     im_ha = ax.imshow(
         ha,
-        cmap="Blues",
+        cmap="PuRd",  # magenta-forward palette for stronger separation
         vmin=0,
         vmax=vmax_ha,
         origin="lower",
         interpolation="nearest",
         alpha=a_ha,
     )
-    im_coloc = ax.imshow(
-        coloc,
-        cmap="Reds",
-        vmin=0,
-        vmax=1.0,
-        origin="lower",
-        interpolation="nearest",
-        alpha=a_coloc,
-    )
     ax.set_xticks([])
     ax.set_yticks([])
     fig.suptitle(
-        f"Day {day:02d} — Collagen (green), HA (blue), colocalized mineral (red)",
+        f"Day {day:02d} — Collagen (yellow-green), HA (magenta/purple)",
         fontsize=12,
         y=0.97,
     )
@@ -593,7 +582,6 @@ def export_overlay_collagen_ha_from_npy(
     divider = make_axes_locatable(ax)
     cax_left = divider.append_axes("left", size="2.5%", pad=0.02)
     cax_right = divider.append_axes("right", size="2.5%", pad=0.02)
-    cax_bottom = divider.append_axes("bottom", size="2.5%", pad=0.45)
     cbar_left = fig.colorbar(im_col, cax=cax_left, orientation="vertical")
     cbar_left.ax.yaxis.set_label_position("left")
     cbar_left.ax.yaxis.set_ticks_position("left")
@@ -602,9 +590,6 @@ def export_overlay_collagen_ha_from_npy(
     cbar_right = fig.colorbar(im_ha, cax=cax_right, orientation="vertical")
     cbar_right.set_label("Hydroxyapatite (a.u.)", fontsize=9)
     cbar_right.ax.tick_params(labelsize=8, colors="black")
-    cbar_bottom = fig.colorbar(im_coloc, cax=cax_bottom, orientation="horizontal")
-    cbar_bottom.set_label("Colocalized mineral (intensity)", fontsize=9)
-    cbar_bottom.ax.tick_params(labelsize=8, colors="black")
     legend_handle = None
     if nodule_handle is not None:
         legend_handle = matplotlib.lines.Line2D(
