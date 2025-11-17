@@ -40,7 +40,7 @@ python main.py
 | Flag | Default |
 |------|---------|
 | `--days` | 30 |
-| `--cells` | 400 |
+| `--cells` | 72 |
 | `--w`, `--h` | 33 each |
 | `--boundary-mode` | `periodic` |
 | `--media-interval` | 2 |
@@ -67,8 +67,8 @@ python main.py
 | Parameter | Default |
 |-----------|---------|
 | `--s-thresh` | 0.01 (Ca×Pi supersaturation for ACP) |
-| `--k-nuc` | 0.01 (ACP nucleation rate) |
-| `--k-ha` | 0.04 (ACP→HA conversion rate) |
+| `--k-nuc` | 0.025 (ACP nucleation rate) |
+| `--k-ha` | 0.06 (ACP→HA conversion rate) |
 | `--nucleation` | enabled |
 | `--nodule-window` | 4 (lattice cells per side) |
 | Nodule logic | every site in the window must be OB with HA ≥ `ACP_TO_HA_THRESHOLD` (0.20 a.u.) |
@@ -101,7 +101,7 @@ python main.py \
   --osteogenic-commitment --commit-growth 0.01 --commit-delay 3 \
   --secretion --nucleation --enable-nodules \
   --spatial-every 1 --out out --snapshots --xlsx \
-  --nodule-window 4 --k-ha 0.04 --k-nuc 0.01
+  --nodule-window 4 --k-ha 0.06 --k-nuc 0.025
 ```
 
 This command matches the configuration used in the paper; feel free to omit flags you are not changing.

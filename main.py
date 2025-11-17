@@ -43,7 +43,7 @@ def parse_args() -> argparse.Namespace:
     # --- core simulation ---
     p.add_argument("--days", type=int, default=30, help="number of days to simulate")
     p.add_argument(
-        "--cells", type=int, default=400, help="initial number of seeded cells"
+        "--cells", type=int, default=72, help="initial number of seeded cells"
     )
     p.add_argument(
         "--media-interval", type=int, default=2, help="days between media changes"
@@ -215,10 +215,10 @@ def parse_args() -> argparse.Namespace:
         help="supersaturation threshold for ACP nucleation",
     )
     p.add_argument(
-        "--k-nuc", type=float, default=0.01, help="ACP nucleation rate per day"
+        "--k-nuc", type=float, default=0.025, help="ACP nucleation rate per day"
     )
     p.add_argument(
-        "--k-ha", type=float, default=0.04, help="ACP → HA maturation rate per day"
+        "--k-ha", type=float, default=0.06, help="ACP → HA maturation rate per day"
     )
     p.add_argument(
         "--enable-nodules",

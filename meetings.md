@@ -10,3 +10,7 @@
 
 - Keep track of what you have done. Summarize them; so it would be possible to understand.
 
+
+
+
+## Week-Update for 18.11.2025

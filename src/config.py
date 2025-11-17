@@ -16,7 +16,7 @@ class ABMConfig:
     enable_secretion: bool = True
     base_commit_prob: float = 0.0001
     commit_prob_growth: float = 0.01
-    commit_delay: int = 0
+    commit_delay: int = 3
     apoptosis_prob: float = 0.01
     ob_apoptosis_prob: float = 0.001
     min_div_days: int = 2
@@ -32,8 +32,8 @@ class ABMConfig:
 
     # Mineralization thresholds/kinetics (legacy; FieldManager now owns them)
     S_THRESH: float = 0.01  # Ca*Pi supersaturation threshold
-    K_NUC: float = 0.01  # ACP nucleation rate per day
-    K_HA: float = 0.04  # ACP->HA conversion rate per day
+    K_NUC: float = 0.025  # ACP nucleation rate per day
+    K_HA: float = 0.06  # ACP->HA conversion rate per day
 
 
 @dataclass(slots=True)
@@ -44,8 +44,8 @@ class FieldConfig:
     enable_nucleation: bool = True
     enable_nodules: bool = True
     s_thresh: float = 0.01
-    k_nuc: float = 0.01
-    k_ha: float = 0.04
+    k_nuc: float = 0.025
+    k_ha: float = 0.06
     nodule_window: int = 4
     ca0: float = 1.0
     pi0: float = 0.0

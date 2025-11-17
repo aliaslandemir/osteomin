@@ -1,6 +1,6 @@
 {
   "days": 30,
-  "seed": 957588,
+  "seed": 368423,
   "abm_cfg": {
     "width": 33,
     "height": 33,
@@ -26,8 +26,8 @@
     "ob_division_prob": 0.0,
     "proliferation_chance": 1.0,
     "S_THRESH": 0.01,
-    "K_NUC": 0.01,
-    "K_HA": 0.04
+    "K_NUC": 0.025,
+    "K_HA": 0.06
   },
   "field_cfg": {
     "width": 33,
