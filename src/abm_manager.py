@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import List, Tuple
+from typing import Any, Dict, List, Tuple
 import numpy as np
 
 from .agent import Cell, CellState
@@ -11,7 +11,7 @@ __all__ = ["ABMManager"]
 class ABMManager:
     """On-lattice ABM with event tracking lists per day."""
 
-    def __init__(self, cfg: ABMConfig, rng: np.random.Generator):
+    def __init__(self, cfg: ABMConfig, rng: np.random.Generator, track_cells: bool = False):
         self.cfg = cfg
         self.rng = rng
         self.width, self.height = int(cfg.width), int(cfg.height)
@@ -24,6 +24,9 @@ class ABMManager:
         # state
         self.cells: List[Cell] = []
         self.occupancy = np.full((self.height, self.width), -1, dtype=np.int32)
+        self.track_cells = bool(track_cells)
+        self._next_cell_id = 0
+        self._death_rows: List[Dict[str, Any]] = []
         # random motility parameters
         # stay probability
         self._stay_prob = 0.5  # change this freely (e.g., 0.6)
@@ -71,7 +74,16 @@ class ABMManager:
                 self.occupancy[y, x] = len(self.cells) - 1
 
     def _spawn_cell(self, x: int, y: int, day: int) -> Cell:
-        c = Cell(x=x, y=y, state=CellState.PRE_OB, last_div_day=day)
+        uid = self._next_cell_id
+        self._next_cell_id += 1
+        c = Cell(
+            x=x,
+            y=y,
+            unique_id=uid,
+            state=CellState.PRE_OB,
+            last_div_day=day,
+            birth_day=day,
+        )
         if self.cfg.min_div_days <= self.cfg.max_div_days:
             c.division_interval = int(
                 self.rng.integers(self.cfg.min_div_days, self.cfg.max_div_days + 1)
@@ -213,13 +225,16 @@ class ABMManager:
         for idx, c in enumerate(self.cells):
             prob = prob_ob if c.state == CellState.OSTEOBLAST else prob_pre
             if self.rng.random() < prob:
+                state_before = c.state
                 # classify by state at time of death
-                if c.state == CellState.PRE_OB:
+                if state_before == CellState.PRE_OB:
                     self.dead_preob_coords.append((c.y, c.x))
-                elif c.state == CellState.OSTEOBLAST:
+                elif state_before == CellState.OSTEOBLAST:
                     self.dead_ob_coords.append((c.y, c.x))
                 self.dead_cells.append((c.y, c.x))
                 c.mark_apoptotic(day)
+                if self.track_cells:
+                    self._record_death_row(c, day, state_before)
                 died_indices.append(idx)
 
         if not died_indices:
@@ -269,6 +284,38 @@ class ABMManager:
         self.occupancy[:] = -1
         for i, c in enumerate(self.cells):
             self.occupancy[c.y, c.x] = i
+
+    def _record_death_row(self, cell: Cell, day: int, state_before: CellState) -> None:
+        if not self.track_cells:
+            return
+        self._death_rows.append(
+            {
+                "cell_id": int(cell.unique_id),
+                "day": int(day),
+                "row": int(cell.y),
+                "col": int(cell.x),
+                "state": int(state_before),
+                "state_name": state_before.name,
+                "alive": False,
+                "ever_ob": bool(cell.ever_ob),
+                "birth_day": int(cell.birth_day),
+                "day_committed": int(cell.day_committed)
+                if cell.day_committed is not None
+                else None,
+                "day_died": int(cell.day_died)
+                if cell.day_died is not None
+                else None,
+                "last_div_day": int(cell.last_div_day),
+                "move_count": int(cell.move_count),
+            }
+        )
+
+    def drain_death_rows(self) -> List[Dict[str, Any]]:
+        if not self.track_cells:
+            return []
+        rows = self._death_rows
+        self._death_rows = []
+        return rows
 
     def _secretion_step(self) -> None:
         if self.field is None:

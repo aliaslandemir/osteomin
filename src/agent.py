@@ -15,11 +15,13 @@ class CellState(IntEnum):
 class Cell:
     x: int
     y: int
+    unique_id: int = -1
     state: CellState = CellState.PRE_OB
     last_div_day: int = 0
     division_interval: int = 2
+    birth_day: int = 0
     move_count: int = 0
-    trajectory: List[Tuple[int,int]] = field(default_factory=list)
+    trajectory: List[Tuple[int, int]] = field(default_factory=list)
     ever_ob: bool = False
     day_committed: Optional[int] = None
     day_died: Optional[int] = None

@@ -1,6 +1,6 @@
 from __future__ import annotations
 from pathlib import Path
-from typing import Dict, List, Iterable, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 import json
 import numpy as np
 import pandas as pd
@@ -9,32 +9,43 @@ from .abm_manager import ABMManager
 from .config import ABMConfig, FieldConfig
 from .field_manager import FieldManager
 from .agent import CellState
-from .io_utils import cell_grids, save_timeseries_excel, save_timeseries_csv, coords_to_mask
+from .io_utils import (
+    cell_grids,
+    coords_to_mask,
+    save_cell_history_excel,
+    save_timeseries_csv,
+    save_timeseries_excel,
+)
 from .viz import export_spatial_for_day
 
 
 __all__ = ["OsteoModel"]
 
 class OsteoModel:
-    def __init__(self,
-                 outdir: str | Path,
-                 days: int,
-                 abm_cfg: ABMConfig,
-                 field_cfg: FieldConfig,
-                 supplements: dict,
-                 seed: Optional[int] = None,
-                 spatial_every: int = 0,
-                 spatial_days: Optional[Iterable[int]] = None,
-                 snapshots_enabled: bool = False):
-        self.outdir = Path(outdir); self.outdir.mkdir(parents=True, exist_ok=True)
+    def __init__(
+        self,
+        outdir: str | Path,
+        days: int,
+        abm_cfg: ABMConfig,
+        field_cfg: FieldConfig,
+        supplements: dict,
+        seed: Optional[int] = None,
+        spatial_every: int = 0,
+        spatial_days: Optional[Iterable[int]] = None,
+        snapshots_enabled: bool = False,
+        unique_id_tracking: bool = False,
+    ):
+        self.outdir = Path(outdir)
+        self.outdir.mkdir(parents=True, exist_ok=True)
         self.days = int(days)
         self.grids_dir = self.outdir / "grids"
         self.grids_dir.mkdir(parents=True, exist_ok=True)
 
         self.snapshots_enabled = bool(snapshots_enabled)
+        self.enable_unique_ids = bool(unique_id_tracking)
 
         self.rng = np.random.default_rng(seed)
-        self.abm = ABMManager(abm_cfg, self.rng)
+        self.abm = ABMManager(abm_cfg, self.rng, track_cells=self.enable_unique_ids)
         self.field = FieldManager(
             width=field_cfg.width,
             height=field_cfg.height,
@@ -69,6 +80,7 @@ class OsteoModel:
 
         self._rows: List[Dict] = []
         self._nodule_history: dict[int, dict] = {}
+        self._cell_history: List[Dict[str, Any]] = []
 
         # Spatial export policy
         self.spatial_every = max(0, int(spatial_every))
@@ -114,6 +126,7 @@ class OsteoModel:
 
         # ---------- DAY 0 ----------
         dens, state = cell_grids(self.abm.height, self.abm.width, self.abm.cells)
+        self._record_cell_snapshot(0)
         if self.snapshots_enabled:
             np.save(self.grids_dir / f"density_day_000.npy", dens.astype(np.uint16))
             np.save(self.grids_dir / f"state_day_000.npy",   state.astype(np.uint8))
@@ -140,14 +153,15 @@ class OsteoModel:
         # ---------- DAYS 1..N-1 ----------
         for day in range(1, self.days):
             self.abm.step_day(day)
+            self._record_dead_cell_rows(day)
 
             deaths_mask = coords_to_mask(self.abm.height, self.abm.width, self.abm.dead_cells)
             deaths_preob_mask = coords_to_mask(
                 self.abm.height, self.abm.width, self.abm.dead_preob_coords
             )
             deaths_ob_mask = coords_to_mask(self.abm.height, self.abm.width, self.abm.dead_ob_coords)
-
             dens, state = cell_grids(self.abm.height, self.abm.width, self.abm.cells)
+            self._record_cell_snapshot(day)
             if self.snapshots_enabled:
                 np.save(self.grids_dir / f"density_day_{day:03d}.npy", dens.astype(np.uint16))
                 np.save(self.grids_dir / f"state_day_{day:03d}.npy",   state.astype(np.uint8))
@@ -181,6 +195,37 @@ class OsteoModel:
 
         return pd.DataFrame(self._rows)
     
+
+    def _record_cell_snapshot(self, day: int) -> None:
+        if not self.enable_unique_ids:
+            return
+        for c in self.abm.cells:
+            row = {
+                "day": int(day),
+                "cell_id": int(c.unique_id),
+                "row": int(c.y),
+                "col": int(c.x),
+                "state": int(c.state),
+                "state_name": c.state.name,
+                "alive": True,
+                "ever_ob": bool(c.ever_ob),
+                "birth_day": int(c.birth_day),
+                "last_div_day": int(c.last_div_day),
+                "day_committed": int(c.day_committed)
+                if c.day_committed is not None
+                else None,
+                "day_died": int(c.day_died) if c.day_died is not None else None,
+                "move_count": int(c.move_count),
+            }
+            self._cell_history.append(row)
+
+    def _record_dead_cell_rows(self, day: int) -> None:
+        if not self.enable_unique_ids:
+            return
+        rows = self.abm.drain_death_rows()
+        if not rows:
+            return
+        self._cell_history.extend(rows)
 
     def _append_row(self, day: int) -> None:
         n_preob = sum(1 for c in self.abm.cells if c.state == CellState.PRE_OB)
@@ -316,4 +361,10 @@ class OsteoModel:
     def save_timeseries_csv(self, df: pd.DataFrame, basename: str = "timeseries") -> Path:
         out = self.outdir / f"{basename}.csv"
         save_timeseries_csv(df, out)
+        return out
+
+    def save_cell_history_excel(self, basename: str = "cell_history") -> Path:
+        out = self.outdir / f"{basename}.xlsx"
+        df = pd.DataFrame(self._cell_history)
+        save_cell_history_excel(df, out)
         return out

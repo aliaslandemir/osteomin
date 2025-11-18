@@ -13,4 +13,3 @@
 
 
 
-## Week-Update for 18.11.2025

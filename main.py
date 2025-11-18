@@ -277,6 +277,20 @@ def parse_args() -> argparse.Namespace:
         help="skip Excel timeseries export",
     )
     p.set_defaults(xlsx=True)
+    p.add_argument(
+        "--uniqueID",
+        "--unique-id",
+        dest="unique_id",
+        action="store_true",
+        help="track per-cell history via stable IDs and export it",
+    )
+    p.add_argument(
+        "--no-unique-id",
+        dest="unique_id",
+        action="store_false",
+        help="skip unique cell history export",
+    )
+    p.set_defaults(unique_id=False)
     p.add_argument("--csv", action="store_true", help="write CSV timeseries")
     p.add_argument(
         "--snapshots",
@@ -364,6 +378,7 @@ def main() -> None:
         spatial_every=args.spatial_every,
         spatial_days=spatial_days,
         snapshots_enabled=args.snapshots,
+        unique_id_tracking=args.unique_id,
     )
 
     # inject mineralization params into the field manager
@@ -382,6 +397,8 @@ def main() -> None:
         model.save_timeseries_excel(df, "timeseries")
     if args.csv:
         model.save_timeseries_csv(df, "timeseries")
+    if args.unique_id:
+        model.save_cell_history_excel("cell_history")
 
     # plots
     plot_summary(df, outdir)
