@@ -82,6 +82,7 @@ python main.py
 | `--snapshots` | on (`--no-snapshots` disables raw grids) |
 | `--xlsx` | on (`--no-xlsx` skips Excel export) |
 | `--csv` | off |
+| `--uniqueID` | on (`--no-unique-id` skips per-cell history export) |
 
 ---
 
@@ -104,7 +105,7 @@ python main.py \
   --nodule-window 4 --k-ha 0.06 --k-nuc 0.025
 ```
 
-This command matches the configuration used in the paper; feel free to omit flags you are not changing.
+This command matches the configuration used in the paper; feel free to omit flags you are not changing. Unique cell history export, snapshots, and Excel timeseries now run by default, so you only need to add the `--no-*` variants if you want to turn them off.
 
 ---
 

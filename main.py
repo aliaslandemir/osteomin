@@ -290,7 +290,7 @@ def parse_args() -> argparse.Namespace:
         action="store_false",
         help="skip unique cell history export",
     )
-    p.set_defaults(unique_id=False)
+    p.set_defaults(unique_id=True)
     p.add_argument("--csv", action="store_true", help="write CSV timeseries")
     p.add_argument(
         "--snapshots",
