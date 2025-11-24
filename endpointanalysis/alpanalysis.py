@@ -61,7 +61,7 @@ LINE_COLOR = "#111827"  # almost black (CIP fit)
 # -------------------- CONFIG --------------------
 BLANK_MODE = "pnpp"  # "pnpp" → D1–D3 ; "lysate" → D4–D6
 SHOW_UNIT = "mU/mL"  # "U/mL", "mU/mL", "U/µL", or "U/well"
-MEAN_LABEL_FMT = "{:.2f}" if "mu" in SHOW_UNIT.lower() else "{:.4f}"
+MEAN_LABEL_FMT = "{:.3f}" if "mu" in SHOW_UNIT.lower() else "{:.4f}"
 
 # -------------------- CONDITIONS & LABELS --------------------
 COND_CODE = {
@@ -412,7 +412,7 @@ def render_raw_axis(ax, title_suffix, ylim):
         ax.text(
             i + 0.10,
             mu,
-            f"{mu:.2f}",
+            f"{mu:.3f}",
             ha="left",
             va="center",
             fontsize=8.5,

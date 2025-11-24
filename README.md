@@ -6,6 +6,7 @@
 ├── main.py
 ├── README.md
 ├── requirements.txt
+├── endpointanalysis/   # scripts used to process simulation outputs and reproduce analyses
 ├── out/                # default output directory
 └── src/
     ├── __init__.py
@@ -70,6 +71,7 @@ python main.py
 | `--k-nuc` | 0.025 (ACP nucleation rate) |
 | `--k-ha` | 0.06 (ACP→HA conversion rate) |
 | `--nucleation` | enabled |
+| `--enable-nodules` | enabled (runs the sliding-window nodule scanner) |
 | `--nodule-window` | 4 (lattice cells per side) |
 | Nodule logic | every site in the window must be OB with HA ≥ `ACP_TO_HA_THRESHOLD` (0.20 a.u.) |
 
@@ -101,11 +103,11 @@ python main.py \
   --apoptosis --apoptosis-prob 0.01 --apoptosis-osteo 0.001 \
   --osteogenic-commitment --commit-growth 0.01 --commit-delay 3 \
   --secretion --nucleation --enable-nodules \
-  --spatial-every 1 --out out --snapshots --xlsx \
+  --spatial-every 1 --out out \
   --nodule-window 4 --k-ha 0.06 --k-nuc 0.025
 ```
 
-This command matches the configuration used in the paper; feel free to omit flags you are not changing. Unique cell history export, snapshots, and Excel timeseries now run by default, so you only need to add the `--no-*` variants if you want to turn them off.
+This command matches the configuration used in the paper; feel free to omit flags you are not changing. Snapshots, Excel, and unique-cell history exports still run by default, so add the `--no-*` variants only when you want to turn them off.
 
 ---
 
@@ -125,3 +127,7 @@ This command matches the configuration used in the paper; feel free to omit flag
 - Timeseries (`out/timeseries.xlsx`) always includes a `nodule_count` column (0 when nodule detection is disabled).
 
 Enjoy experimenting with the osteoblast ABM! Feel free to open issues or PRs if you need additional CLI knobs or output formats.
+
+## Endpoint analysis
+
+The `endpointanalysis/` folder contains the scripts necessary to run the endpoint analyses referenced in the report; run them from this repository to process simulation outputs and reproduce the figures and metrics.
