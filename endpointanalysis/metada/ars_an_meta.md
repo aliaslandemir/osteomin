@@ -35,7 +35,7 @@ The two-line labels inject the ALP-specific notation (first line `A+β-GP`, seco
 ## Usage recap
 
 ```sh
-python ars_analysis.py -i arsdata -o ars_out
+python ars_analysis.py -i arsdata -o ars_out --lcap 65
 ```
 
 Key options:
