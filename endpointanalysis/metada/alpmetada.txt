@@ -1,0 +1,68 @@
+# CONDITION LEGEND
+# C1 = Basal
+# C2 = A+β-GP
+# C3 = A+β-GP DLKL
+# C4 = A+β-GP DLKH
+# C5 = A+β-GP DHKL
+# C6 = A+β-GP DHHH
+# C7 = A+β-GP DHK0
+# C8 = A+β-GP D0KH
+
+# -----------------------------------
+# ROW B
+# -----------------------------------
+b1 = C1
+b2 = C1
+b3 = C1
+
+b4 = C2
+b5 = C2
+b6 = C2
+
+b7  = C3
+b8  = C3
+b9  = C3
+
+b10 = C4
+b11 = C4
+b12 = C4
+
+# -----------------------------------
+# ROW C  (this is where your correction applies)
+# -----------------------------------
+c1 = C1
+c2 = C1
+c3 = C1
+
+c4 = C2
+c5 = C2
+c6 = C2
+
+c7 = C3
+c8 = C3
+c9 = C3
+
+c10 = C4
+c11 = C4
+c12 = C4
+
+# -----------------------------------
+# ROW D (biochemical controls)
+# -----------------------------------
+d1 = PNPP_plus_lysate
+d2 = PNPP_plus_lysate
+d3 = PNPP_plus_lysate
+
+d4 = lysate
+d5 = lysate
+d6 = lysate
+
+
+
+
+# -----------------------------------
+# ROW D (biochemical controls)
+# -----------------------------------
+
+
+G3-G4-G5 (CIP)
