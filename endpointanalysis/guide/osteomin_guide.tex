@@ -1,0 +1,150 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage{booktabs}
+\usepackage[utf8]{inputenc}
+\sloppy
+
+\usepackage[T1]{fontenc}
+
+% allow line breaks in long URLs
+\PassOptionsToPackage{hyphens}{url}
+\usepackage{geometry}
+\geometry{margin=2.5cm}
+\usepackage{hyperref}
+\hypersetup{
+    breaklinks=true,
+    colorlinks=true,
+    urlcolor=blue
+}
+
+
+\begin{document}
+
+\section{How to Run Codes}
+
+% -------------------------------------------------------
+
+\subsection{Actin Analysis}
+
+Use actin channel of confocal via \texttt{actin\_analysis.py}  
+(see also \texttt{actin\_an\_meta.md}).  
+Input folder: \texttt{osteomin/data/confocal}.
+
+\subsection*{Command}
+
+\begin{center}
+\begin{minipage}{0.9\linewidth}
+\begin{verbatim}
+python actin_analysis.py \
+    --input ../data/input_images \
+    --out actin_results
+\end{verbatim}
+\end{minipage}
+\end{center}
+
+% -------------------------------------------------------
+
+\subsection{Collagen Analysis}
+
+Use collagen IF data with \texttt{collagen\_analysis.py}  
+(see also \texttt{collagen\_an\_meta.md}).  
+Point \texttt{--input} at your confocal folder and choose any \texttt{--out} root.
+
+\subsection*{Command}
+
+\begin{center}
+\begin{minipage}{0.9\linewidth}
+\begin{verbatim}
+python collagen_analysis.py \
+    --input ../data/input_images \
+    --out collagen_out
+\end{verbatim}
+\end{minipage}
+\end{center}
+
+% -------------------------------------------------------
+
+\subsection{DAPI Analysis}
+
+Use DAPI channel images via \texttt{dapi\_analysis.py}  
+(see also \texttt{dapi\_an\_meta.md}).  
+Provide the same \texttt{--input} folder and direct results with \texttt{--out}.
+
+\subsection*{Command}
+
+\begin{center}
+\begin{minipage}{0.9\linewidth}
+\begin{verbatim}
+python dapi_analysis.py \
+    --input ../data/input_images \
+    --out dapi_out
+\end{verbatim}
+\end{minipage}
+\end{center}
+
+% -------------------------------------------------------
+
+\subsection{Overlay Generation}
+
+Use \texttt{overlay\_analysis.py} to create merged overlays  
+(see also \texttt{overlay\_an\_meta.md}).  
+Point \texttt{--input} at your confocal folder and select any \texttt{--out}.
+
+\subsection*{Command}
+
+\begin{center}
+\begin{minipage}{0.9\linewidth}
+\begin{verbatim}
+python overlay_analysis.py \
+    --input ../data/input_images \
+    --out overlay_output \
+    --pix 0.21 \
+    --scalebar_um 100
+\end{verbatim}
+\end{minipage}
+\end{center}
+
+% -------------------------------------------------------
+
+\subsection{ARS Analysis}
+
+Use \texttt{data/ars} and \texttt{ars\_analysis.py}  
+(see also \texttt{ars\_an\_meta.md}).  
+Pass \texttt{--input} and \texttt{--out} (or \texttt{--output}) just like the confocal pipelines.
+
+\subsection*{Command}
+
+\begin{center}
+\begin{minipage}{0.9\linewidth}
+\begin{verbatim}
+python ars_analysis.py \
+    --input ../data/ars \
+    --out ars_out \
+    --lcap 65
+\end{verbatim}
+\end{minipage}
+\end{center}
+
+
+% -------------------------------------------------------
+
+\subsection{ALP Analysis}
+
+Use \texttt{data/alp} and \texttt{alp\_analysis.py}  
+(see also \texttt{alp\_an\_meta.md}).  
+Point \texttt{--input} to the Excel sheet and \texttt{--out} to the results root.
+
+\subsection*{Command}
+
+\begin{center}
+\begin{minipage}{0.9\linewidth}
+\begin{verbatim}
+python alp_analysis.py \
+    --input data/alp/alp_raw_data.xlsx \
+    --out alp_results
+\end{verbatim}
+\end{minipage}
+\end{center}
+
+
+\end{document}

@@ -3,13 +3,9 @@
 ALP assay — raw A405 (left) + CIP calibration (right),
 and a separate panel of CIP-normalised ALP activities.
 
-The script reads alp_raw_data.xlsx (row-format, e.g.)
-    B | 0.136 | 0.123 | ... | ...
-    C | ...
-    D | ...
-maps wells to conditions, performs blank correction, fits
-a CIP calibration curve, and converts absorbance → activity
-(U/well → mU/mL).
+The script reads an ALP Excel sheet (default `alp_raw_data.xlsx`) containing
+rows B–D, maps wells to conditions, performs blank correction, fits a CIP
+calibration curve, and converts absorbance → activity (U/well → mU/mL).
 
 Outputs:
   • Raw A405 (including D1–D6 blanks) + CIP standard curve
@@ -26,6 +22,7 @@ Activity is reported per mL of original lysate, so U_per_well
 is divided by 0.025 mL (lysate volume per well).
 """
 
+import argparse
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -105,6 +102,25 @@ def well(r, c) -> str:
     return f"{r}{c}"
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="ALP assay plots and CIP calibration.")
+    parser.add_argument(
+        "-i",
+        "--input",
+        type=Path,
+        default=Path("alp_raw_data.xlsx"),
+        help="Path to alp_raw_data.xlsx (or equivalent) file.",
+    )
+    parser.add_argument(
+        "-o",
+        "--out",
+        type=Path,
+        default=Path("alp_results"),
+        help="Output directory root for generated figures.",
+    )
+    return parser.parse_args()
+
+
 # plate layout for conditions
 id_map = {}
 for cid, row, start in [
@@ -133,26 +149,13 @@ def assign_group(w):
     return None
 
 
-# -------------------- READ EXCEL --------------------
-HERE = Path(__file__).resolve().parent
-DATA_FILE = HERE / "alp_raw_data.xlsx"
-
-raw = pd.read_excel(DATA_FILE, header=None)
-raw[0] = raw[0].astype(str).str.strip().str.upper()  # B/C/D labels in col 0
-
-
-def get_row(letter, ncols=12):
-    row_vals = raw.loc[raw[0] == letter].iloc[0, 1 : 1 + ncols].to_numpy(dtype=float)
+def get_row(raw_df, letter, ncols=12):
+    row_vals = (
+        raw_df.loc[raw_df[0] == letter].iloc[0, 1 : 1 + ncols].to_numpy(dtype=float)
+    )
     if row_vals.size < ncols:
         row_vals = np.concatenate([row_vals, np.full(ncols - row_vals.size, np.nan)])
     return row_vals
-
-
-row_B = get_row("B")  # B1–B12
-row_C = get_row("C")  # C1–C12
-row_D = get_row("D")  # D1–D6 (blanks)
-
-assert len(row_B) == len(row_C) == len(row_D) == 12
 
 
 def row_to_long(vals, row_label):
@@ -166,42 +169,9 @@ def row_to_long(vals, row_label):
     )
 
 
-df_all = pd.concat(
-    [row_to_long(row_B, "B"), row_to_long(row_C, "C"), row_to_long(row_D, "D")],
-    ignore_index=True,
-)
-df_all["Group"] = df_all["Well"].map(assign_group)
-
-# -------------------- Blank & standards --------------------
-A_pnpp = np.nanmean(row_D[0:3])  # D1–D3
-A_lys = np.nanmean(row_D[3:6])  # D4–D6
-A_blank = A_pnpp if BLANK_MODE.lower() == "pnpp" else A_lys
-blank_label = "pNPP+lysate" if BLANK_MODE.lower() == "pnpp" else "Lysate"
-
-# CIP standards (U per well, theoretical A405)
-standards = np.array(
-    [
-        [0.00005, 0.20],
-        [0.00010, 0.40],
-        [0.00020, 0.80],
-    ],
-    dtype=float,
-)
-U = standards[:, 0]
-A = standards[:, 1]
-A_net = A - A_blank
-
-# origin-constrained fit: A_net = m * U
-m = (U @ A_net) / (U @ U)
-yhat = m * U
-ss_res = np.sum((A_net - yhat) ** 2)
-ss_tot = np.sum((A_net - np.mean(A_net)) ** 2)
-r2 = 1 - ss_res / ss_tot if ss_tot > 0 else np.nan
-
-
-def a405_to_activity(a405, unit=SHOW_UNIT):
-    A_net_s = a405 - A_blank
-    U_per_well = np.maximum(A_net_s / m, 0.0)
+def a405_to_activity(a405, blank, slope, unit=SHOW_UNIT):
+    A_net_s = a405 - blank
+    U_per_well = np.maximum(A_net_s / slope, 0.0)
     if unit == "U/well":
         return U_per_well
     if unit in ("U/µL", "U/uL"):
@@ -211,59 +181,175 @@ def a405_to_activity(a405, unit=SHOW_UNIT):
     return U_per_well / 0.025  # default U/mL
 
 
-# Quantify only C1–C8 for activity
-df = df_all[df_all["Group"].isin(ORDER_C)].copy()
-df["Activity"] = df["Value"].map(lambda a: a405_to_activity(a, unit=SHOW_UNIT))
+def main():
+    global df_all, df, plot_data_act, plot_data_raw, ORDER_RAW, A_blank, blank_label, m
 
-# -------------------- Stats (optional) --------------------
-stats = (
-    df.groupby("Group")["Activity"]
-    .agg(
-        n=lambda x: np.isfinite(x).sum(),
-        mean=lambda x: np.nanmean(x),
-        sd=lambda x: np.nanstd(x, ddof=1),
-        median=lambda x: np.nanmedian(x),
+    args = parse_args()
+    data_file = Path(args.input)
+    if data_file.is_dir():
+        data_file = data_file / "alp_raw_data.xlsx"
+    raw = pd.read_excel(data_file, header=None)
+    raw[0] = raw[0].astype(str).str.strip().str.upper()  # B/C/D labels in col 0
+
+    row_B = get_row(raw, "B")  # B1–B12
+    row_C = get_row(raw, "C")  # C1–C12
+    row_D = get_row(raw, "D")  # D1–D6 (blanks)
+
+    assert len(row_B) == len(row_C) == len(row_D) == 12
+
+    df_all = pd.concat(
+        [row_to_long(row_B, "B"), row_to_long(row_C, "C"), row_to_long(row_D, "D")],
+        ignore_index=True,
     )
-    .reset_index()
-)
-stats["sem"] = stats["sd"] / np.sqrt(stats["n"])
-stats["ci95"] = 1.96 * stats["sem"]
-stats["Group"] = pd.Categorical(stats["Group"], ORDER_C)
-stats = stats.sort_values("Group")
+    df_all["Group"] = df_all["Well"].map(assign_group)
 
-# -------------------- Figures --------------------
-outdir = HERE / "results" / "figures"
-outdir.mkdir(parents=True, exist_ok=True)
+    # -------------------- Blank & standards --------------------
+    A_pnpp = np.nanmean(row_D[0:3])  # D1–D3
+    A_lys = np.nanmean(row_D[3:6])  # D4–D6
+    A_blank = A_pnpp if BLANK_MODE.lower() == "pnpp" else A_lys
+    blank_label = "pNPP+lysate" if BLANK_MODE.lower() == "pnpp" else "Lysate"
 
-png_cip_raw = outdir / "ALP_CIP_plus_raw_pub.png"
-png_activity = outdir / "ALP_activity_pub.png"
+    standards = np.array(
+        [
+            [0.00005, 0.20],
+            [0.00010, 0.40],
+            [0.00020, 0.80],
+        ],
+        dtype=float,
+    )
+    U = standards[:, 0]
+    A = standards[:, 1]
+    A_net = A - A_blank
 
-# plotting order for raw panel: blanks + conditions
-ORDER_RAW = ["pNPP+lysate", "Lysate"] + ORDER_C
+    # origin-constrained fit: A_net = m * U
+    m = (U @ A_net) / (U @ U)
+    yhat = m * U
+    ss_res = np.sum((A_net - yhat) ** 2)
+    ss_tot = np.sum((A_net - np.mean(A_net)) ** 2)
+    r2 = 1 - ss_res / ss_tot if ss_tot > 0 else np.nan
 
-plot_data_act = [df.loc[df["Group"] == g, "Activity"].dropna().values for g in ORDER_C]
-valid_act = (
-    np.concatenate([v for v in plot_data_act if v.size])
-    if any(v.size for v in plot_data_act)
-    else np.array([0.0])
-)
-ymin_a, ymax_a = float(valid_act.min()), float(valid_act.max())
-span_a = ymax_a - ymin_a
-pad_a = 0.15 * span_a if span_a > 0 else 0.15 * max(ymax_a, 1.0)
-y_limits_act = (max(ymin_a - pad_a, 0.0), ymax_a + pad_a)
+    # Quantify only C1–C8 for activity
+    df = df_all[df_all["Group"].isin(ORDER_C)].copy()
+    df["Activity"] = df["Value"].map(
+        lambda a: a405_to_activity(a, blank=A_blank, slope=m, unit=SHOW_UNIT)
+    )
 
-plot_data_raw = [
-    df_all.loc[df_all["Group"] == g, "Value"].dropna().values for g in ORDER_RAW
-]
-valid_raw = (
-    np.concatenate([v for v in plot_data_raw if v.size])
-    if any(v.size for v in plot_data_raw)
-    else np.array([0.0])
-)
-ymin_r, ymax_r = float(valid_raw.min()), float(valid_raw.max())
-span_r = ymax_r - ymin_r
-pad_r = 0.15 * span_r if span_r > 0 else 0.15 * max(ymax_r, 0.2)
-y_limits_raw = (max(ymin_r - pad_r, 0.0), ymax_r + pad_r)
+    stats = (
+        df.groupby("Group")["Activity"]
+        .agg(
+            n=lambda x: np.isfinite(x).sum(),
+            mean=lambda x: np.nanmean(x),
+            sd=lambda x: np.nanstd(x, ddof=1),
+            median=lambda x: np.nanmedian(x),
+        )
+        .reset_index()
+    )
+    stats["sem"] = stats["sd"] / np.sqrt(stats["n"])
+    stats["ci95"] = 1.96 * stats["sem"]
+    stats["Group"] = pd.Categorical(stats["Group"], ORDER_C)
+    stats = stats.sort_values("Group")
+
+    output_root = Path(args.out)
+    figdir = output_root / "figures"
+    figdir.mkdir(parents=True, exist_ok=True)
+    print(f"[INFO] Using input file: {data_file}")
+    print(f"[INFO] Output directory: {figdir}")
+
+    pdf_cip_raw = figdir / "ALP_CIP_plus_raw_pub.pdf"
+    pdf_activity = figdir / "ALP_activity_pub.pdf"
+
+    ORDER_RAW = ["pNPP+lysate", "Lysate"] + ORDER_C
+
+    plot_data_act = [
+        df.loc[df["Group"] == g, "Activity"].dropna().values for g in ORDER_C
+    ]
+    valid_act = (
+        np.concatenate([v for v in plot_data_act if v.size])
+        if any(v.size for v in plot_data_act)
+        else np.array([0.0])
+    )
+    ymin_a, ymax_a = float(valid_act.min()), float(valid_act.max())
+    span_a = ymax_a - ymin_a
+    pad_a = 0.15 * span_a if span_a > 0 else 0.15 * max(ymax_a, 1.0)
+    y_limits_act = (max(ymin_a - pad_a, 0.0), ymax_a + pad_a)
+
+    plot_data_raw = [
+        df_all.loc[df_all["Group"] == g, "Value"].dropna().values for g in ORDER_RAW
+    ]
+    valid_raw = (
+        np.concatenate([v for v in plot_data_raw if v.size])
+        if any(v.size for v in plot_data_raw)
+        else np.array([0.0])
+    )
+    ymin_r, ymax_r = float(valid_raw.min()), float(valid_raw.max())
+    span_r = ymax_r - ymin_r
+    pad_r = 0.15 * span_r if span_r > 0 else 0.15 * max(ymax_r, 0.2)
+    y_limits_raw = (max(ymin_r - pad_r, 0.0), ymax_r + pad_r)
+
+    fig_cip_raw, (ax_raw, ax1) = plt.subplots(
+        1, 2, figsize=(12.0, 4.8), width_ratios=[1.8, 1.0]
+    )
+    fig_cip_raw.subplots_adjust(wspace=0.35)
+
+    render_raw_axis(ax_raw, "Raw $A_{405}$ per condition", y_limits_raw)
+    add_violin_legend(ax_raw, loc="upper left")
+
+    ax1.yaxis.grid(True, linestyle="--", alpha=0.4, linewidth=0.6)
+    ax1.scatter(
+        U,
+        A_net,
+        s=40,
+        facecolor=DOT_COLOR,
+        edgecolor="black",
+        linewidth=0.8,
+        zorder=3,
+    )
+
+    U_fit = np.linspace(0, U.max() * 1.05, 200)
+    ax1.plot(U_fit, m * U_fit, color=LINE_COLOR, lw=2.0, zorder=2)
+
+    y_top = max(A_net.max(), (m * U_fit).max())
+
+    ax1.text(
+        0.03 * U.max(),
+        0.95 * y_top,
+        rf"$\mathrm{{Net}}\,A_{{405}} = {m:.2e}\cdot\mathrm{{U}}$"
+        + "\n"
+        + rf"$R^2 = {r2:.4f}$",
+        ha="left",
+        va="top",
+        fontsize=9,
+        bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="#666666", alpha=0.9),
+    )
+
+    ax1.text(
+        0.03 * U.max(),
+        0.15 * y_top,
+        rf"Blank: {blank_label}" + "\n" + rf"$A_{{405}} = {A_blank:.3f}$",
+        ha="left",
+        va="bottom",
+        fontsize=8.5,
+        bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="#999999", alpha=0.9),
+    )
+
+    ax1.set_xlabel("CIP activity (U/well)")
+    ax1.set_ylabel(r"Net absorbance ($A_{405}$ − blank)")
+    ax1.set_title("CIP standard curve")
+
+    fig_cip_raw.savefig(pdf_cip_raw, dpi=300, bbox_inches="tight")
+
+    fig_activity, ax_activity = plt.subplots(figsize=(7.0, 4.5))
+    render_activity_axis(ax_activity, "ALP activity (CIP-normalised)", y_limits_act)
+    add_violin_legend(ax_activity, loc="upper left")
+    add_blank_note(ax_activity, bbox=(1.0, 0.96))
+
+    fig_activity.savefig(pdf_activity, dpi=300, bbox_inches="tight")
+
+    print(f"[OK] Saved CIP+raw figure → {pdf_cip_raw}")
+    print(f"[OK] Saved activity figure → {pdf_activity}")
+    print(f"[INFO] Slope m = {m:.2e} (net A per U/well); unit displayed: {SHOW_UNIT}")
+
+
 
 
 # ---------- helpers ----------
@@ -510,5 +596,9 @@ add_blank_note(ax_activity, bbox=(1.0, 0.96))
 fig_activity.savefig(png_activity, dpi=300, bbox_inches="tight")
 
 print(f"[OK] Saved CIP+raw figure → {png_cip_raw}")
-print(f"[OK] Saved activity figure → {png_activity}")
-print(f"[INFO] Slope m = {m:.2e} (net A per U/well); unit displayed: {SHOW_UNIT}")
+    print(f"[OK] Saved activity figure → {png_activity}")
+    print(f"[INFO] Slope m = {m:.2e} (net A per U/well); unit displayed: {SHOW_UNIT}")
+
+
+if __name__ == "__main__":
+    main()

@@ -61,8 +61,20 @@ COND_LABEL_LINES = {
 
 def parse_args():
     ap = argparse.ArgumentParser()
-    ap.add_argument("-i", "--input", type=Path, required=True, help="Input folder")
-    ap.add_argument("-o", "--out", type=Path, required=True, help="Output directory")
+    ap.add_argument(
+        "-i",
+        "--input",
+        type=Path,
+        default=Path("input_images"),
+        help="Input folder containing multichannel images",
+    )
+    ap.add_argument(
+        "-o",
+        "--out",
+        type=Path,
+        default=Path("overlay_output"),
+        help="Output directory root",
+    )
     ap.add_argument("--dapi", type=int, default=0)
     ap.add_argument("--actin", type=int, default=1)
     ap.add_argument("--collagen", type=int, default=2)

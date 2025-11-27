@@ -282,7 +282,7 @@ def violin_plot(df, feature, outpath):
     ax.set_ylabel(feature.replace("_", " "))
     ax.set_title("")
     fig.tight_layout()
-    fig.savefig(outpath, bbox_inches="tight")
+    fig.savefig(outpath, bbox_inches="tight", dpi=300)
     plt.close(fig)
 
 # ---------------------- Main ----------------------
@@ -321,10 +321,14 @@ def main():
         df = df[df["error"].isna()].drop(columns=["error"], errors="ignore")
     df.to_csv(csv_path, index=False)
 
-    violin_plot(df, "mean_coherency", d_figs / "violin_mean_coherency.png")
-    violin_plot(df, "length_density_um_per_mm2", d_figs / "violin_length_density.png")
-    violin_plot(df, "mean_coherency_normDAPI", d_figs / "violin_mean_coherency_normDAPI.png")
-    violin_plot(df, "length_density_um_per_mm2_normDAPI", d_figs / "violin_length_density_normDAPI.png")
+    violin_plot(df, "mean_coherency", d_figs / "violin_mean_coherency.pdf")
+    violin_plot(df, "length_density_um_per_mm2", d_figs / "violin_length_density.pdf")
+    violin_plot(df, "mean_coherency_normDAPI", d_figs / "violin_mean_coherency_normDAPI.pdf")
+    violin_plot(
+        df,
+        "length_density_um_per_mm2_normDAPI",
+        d_figs / "violin_length_density_normDAPI.pdf",
+    )
 
     print(f"[OK] Overlays  → {d_over}")
     print(f"[OK] Figures   → {d_figs}")

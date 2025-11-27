@@ -2,7 +2,7 @@
 
 ## Overview
 
-`ars_analysis.py` quantifies Alizarin Red S–stained area for images grouped into eight experimental conditions (C1–C8). Each image is assigned a code by matching `C1..C8` in the filename or in parent folders (`c1..c8`). The processing pipeline computes a threshold for the red channel over green (`R-G`) and applies an L* cap to focus on darker (stained) pixels. Results include per-image statistics, global or per-image thresholds, and two figures: a violin plot (`figs/violin_percent_area.png`) and a bar plot with mean±SD (`figs/bar_mean_sd_percent_area.png`).
+`ars_analysis.py` quantifies Alizarin Red S–stained area for images grouped into eight experimental conditions (C1–C8). Each image is assigned a code by matching `C1..C8` in the filename or in parent folders (`c1..c8`). The processing pipeline computes a threshold for the red channel over green (`R-G`) and applies an L* cap to focus on darker (stained) pixels. Results include per-image statistics, global or per-image thresholds, and two figures: a violin plot (`figs/violin_percent_area.pdf`) and a bar plot with mean±SD (`figs/bar_mean_sd_percent_area.pdf`). Provide `--input`/`--out` (or `--output`) to match your dataset root.
 
 ## Condition codes
 
@@ -35,7 +35,10 @@ The two-line labels inject the ALP-specific notation (first line `A+β-GP`, seco
 ## Usage recap
 
 ```sh
-python ars_analysis.py -i arsdata -o ars_out --lcap 65
+python ars_analysis.py \
+    --input data/ars \
+    --out ars_out \
+    --lcap 65
 ```
 
 Key options:

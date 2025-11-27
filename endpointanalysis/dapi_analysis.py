@@ -12,6 +12,7 @@ DAPI nuclei segmentation + shape analysis + publication-grade violin plots.
 import warnings
 warnings.filterwarnings('ignore', category=UserWarning)
 
+import argparse
 import matplotlib
 matplotlib.use("Agg")  # safe for headless
 import matplotlib.pyplot as plt
@@ -107,8 +108,9 @@ MAX_CIRCULARITY = 1.2
 
 # ========================== HELPERS ==========================
 
-def setup_output_directories():
-    global OUTPUT_PNG_DIR, OUTPUT_PNG_ANALYZED_DIR, OUTPUT_LABEL_DIR, OUTPUT_CSV_PATH, OUTPUT_FIG_DIR
+def setup_output_directories(output_root: Path):
+    global OUTPUT_ROOT, OUTPUT_PNG_DIR, OUTPUT_PNG_ANALYZED_DIR, OUTPUT_LABEL_DIR, OUTPUT_CSV_PATH, OUTPUT_FIG_DIR
+    OUTPUT_ROOT = output_root
     OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
     OUTPUT_PNG_DIR = OUTPUT_ROOT / "overlays"                # red all-nuclei
     OUTPUT_PNG_DIR.mkdir(exist_ok=True)
@@ -259,43 +261,54 @@ def violin_all_conditions(df: pd.DataFrame, feature: str, outdir: Path):
     ax.set_title("")  # minimalist
     fig.tight_layout()
 
-    fig.savefig(outdir / f"violin_{feature}_all_conditions.png", bbox_inches="tight")
+    fig.savefig(
+        outdir / f"violin_{feature}_all_conditions.pdf",
+        bbox_inches="tight",
+        dpi=300,
+    )
     plt.close(fig)
 
-# ========================== MAIN ==========================
+def parse_args():
+    parser = argparse.ArgumentParser(description="DAPI segmentation and violin plots.")
+    parser.add_argument(
+        "-i",
+        "--input",
+        type=Path,
+        default=INPUT_DIR,
+        help="Folder with confocal input images (.*tif/.*tiff)",
+    )
+    parser.add_argument(
+        "-o",
+        "--out",
+        type=Path,
+        default=OUTPUT_ROOT,
+        help="Root directory for overlays, label maps, and CSV output",
+    )
+    return parser.parse_args()
 
-if __name__ == "__main__":
-    # IO
-    OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
-    OUTPUT_FIG_DIR = OUTPUT_ROOT / "figs_violin"
-    OUTPUT_FIG_DIR.mkdir(exist_ok=True)
-    # rest of folders
-    from pathlib import Path as _P
-    OUTPUT_PNG_DIR = OUTPUT_ROOT / "overlays"
-    OUTPUT_PNG_DIR.mkdir(exist_ok=True)
-    OUTPUT_PNG_ANALYZED_DIR = OUTPUT_ROOT / "overlays_analyzed"
-    OUTPUT_PNG_ANALYZED_DIR.mkdir(exist_ok=True)
-    OUTPUT_LABEL_DIR = OUTPUT_ROOT / "labelmaps"
-    OUTPUT_LABEL_DIR.mkdir(exist_ok=True)
-    OUTPUT_CSV_PATH = OUTPUT_ROOT / "nuclei_measurements_summary.csv"
 
-    paths = sorted(list(INPUT_DIR.glob("*.tif")) + list(INPUT_DIR.glob("*.tiff")))
+def main():
+    args = parse_args()
+    input_dir = args.input
+    setup_output_directories(args.out)
+
+    paths = sorted(list(input_dir.glob("*.tif")) + list(input_dir.glob("*.tiff")))
     if not paths:
-        print(f"No images found in {INPUT_DIR}")
+        print(f"No images found in {input_dir}")
         raise SystemExit(0)
 
     all_data = []
     try:
         from tqdm import tqdm
-        for p in tqdm(paths, desc="Processing Images"):
-            df = process_single_image(p)
-            if df is not None:
-                all_data.append(df)
+
+        iterator = tqdm(paths, desc="Processing Images")
     except ImportError:
-        for p in paths:
-            df = process_single_image(p)
-            if df is not None:
-                all_data.append(df)
+        iterator = paths
+
+    for p in iterator:
+        df = process_single_image(p)
+        if df is not None:
+            all_data.append(df)
 
     if not all_data:
         print("No nuclei processed.")
@@ -310,14 +323,16 @@ if __name__ == "__main__":
 
     before_n = len(final_df)
     keep_mask = (
-        final_df["area_um2"].between(MIN_AREA_UM2, MAX_AREA_UM2, inclusive="both") &
-        final_df["circularity"].between(MIN_CIRCULARITY, MAX_CIRCULARITY, inclusive="both")
+        final_df["area_um2"].between(MIN_AREA_UM2, MAX_AREA_UM2, inclusive="both")
+        & final_df["circularity"].between(MIN_CIRCULARITY, MAX_CIRCULARITY, inclusive="both")
     )
     filtered_df = final_df.loc[keep_mask].copy()
     after_n = len(filtered_df)
     kept_pct = (after_n / before_n * 100.0) if before_n else 0.0
-    print(f"Filtered nuclei: kept {after_n}/{before_n} ({kept_pct:.1f}%) "
-          f"[area {MIN_AREA_UM2}-{MAX_AREA_UM2} µm², circularity {MIN_CIRCULARITY}-{MAX_CIRCULARITY}]")
+    print(
+        f"Filtered nuclei: kept {after_n}/{before_n} ({kept_pct:.1f}%) "
+        f"[area {MIN_AREA_UM2}-{MAX_AREA_UM2} µm², circularity {MIN_CIRCULARITY}-{MAX_CIRCULARITY}]"
+    )
 
     filtered_df.to_csv(OUTPUT_CSV_PATH, index=False)
     print(f"[saved] {OUTPUT_CSV_PATH}")
@@ -345,10 +360,19 @@ if __name__ == "__main__":
         disp = exposure.rescale_intensity(dapi_original, out_range=(0, 1))
         fig, ax = plt.subplots(figsize=(10, 10))
         ax.imshow(disp, cmap="gray")
-        ax.contour(kept_mask_img, levels=[0.5], colors="deepskyblue", linewidths=1.0)
+        ax.contour(
+            kept_mask_img,
+            levels=[0.5],
+            colors="deepskyblue",
+            linewidths=1.0,
+        )
         ax.set_axis_off()
-        fig.savefig(OUTPUT_PNG_ANALYZED_DIR / f"{Path(img_name).stem}_overlay_analyzed.png",
-                    dpi=150, bbox_inches="tight", pad_inches=0)
+        fig.savefig(
+            OUTPUT_PNG_ANALYZED_DIR / f"{Path(img_name).stem}_overlay_analyzed.png",
+            dpi=150,
+            bbox_inches="tight",
+            pad_inches=0,
+        )
         plt.close(fig)
 
     # Violin plots on KEPT (filtered) data
@@ -362,3 +386,7 @@ if __name__ == "__main__":
     print(" - Label maps:", OUTPUT_LABEL_DIR)
     print(" - Figures:", OUTPUT_FIG_DIR)
     print(" - Table:", OUTPUT_CSV_PATH)
+
+
+if __name__ == "__main__":
+    main()

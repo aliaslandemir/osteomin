@@ -26,7 +26,8 @@ Outputs:
     figs/bar_mean_sd_percent_area.png
 
 Usage:
-  python ars_rg_global.py -i arsdata -o ars_out
+  python ars_analysis.py --input arsdata --out ars_out
+  python ars_analysis.py --input arsdata --output ars_out
 """
 
 from __future__ import annotations
@@ -286,7 +287,7 @@ def bar_mean_sd_with_text(df: pd.DataFrame, outpath: Path):
     ax.set_title("Alizarin Red S — Mean ± SD (with mean value)")
     ax.grid(True, axis="y", alpha=0.3)
     fig.tight_layout()
-    fig.savefig(outpath, dpi=200)
+    fig.savefig(outpath, dpi=300)
     plt.close(fig)
 
 
@@ -294,7 +295,14 @@ def bar_mean_sd_with_text(df: pd.DataFrame, outpath: Path):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("-i", "--input", required=True, help="Root folder with images.")
-    ap.add_argument("-o", "--output", default="ars_out", help="Output root.")
+    ap.add_argument(
+        "-o",
+        "--out",
+        "--output",
+        dest="out",
+        default="ars_out",
+        help="Base output folder for masks, overlays, tables, and figures.",
+    )
     ap.add_argument("--glob", default="**/*.tif", help="Recursive glob for images.")
     ap.add_argument(
         "--lcap",
@@ -320,7 +328,7 @@ def main():
     args = ap.parse_args()
 
     in_root = Path(args.input)
-    out_root = Path(args.output)
+    out_root = Path(args.out)
     d_masks = out_root / "masks"
     d_ovl = out_root / "overlays"
     d_tabs = out_root / "tables"
@@ -436,8 +444,8 @@ def main():
         ).to_csv(d_tabs / "threshold_summary.csv", index=False)
 
     # 5) Figures
-    violin_with_median(df_res, d_figs / "violin_percent_area.png")
-    bar_mean_sd_with_text(df_res, d_figs / "bar_mean_sd_percent_area.png")
+    violin_with_median(df_res, d_figs / "violin_percent_area.pdf")
+    bar_mean_sd_with_text(df_res, d_figs / "bar_mean_sd_percent_area.pdf")
 
     print("✅ Done:", out_root)
     print("  Masks:", d_masks)

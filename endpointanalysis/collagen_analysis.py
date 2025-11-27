@@ -9,6 +9,7 @@ Collagen vs DAPI — robust normalization + scientific violin plots + QC scatter
 import warnings
 warnings.filterwarnings('ignore', category=UserWarning)
 
+import argparse
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -92,9 +93,9 @@ def two_line_label(pretty: str) -> str:
     return m.get(pretty, pretty)
 
 # ========================== I/O HELPERS ==========================
-def setup_dirs():
-    OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
-    (OUTPUT_ROOT / "figs").mkdir(exist_ok=True)
+def setup_dirs(output_root: Path):
+    output_root.mkdir(parents=True, exist_ok=True)
+    (output_root / "figs").mkdir(exist_ok=True)
 
 def get_condition_from_stem(stem: str):
     m = re.match(r'^(C[1-8])[_-]', stem, flags=re.IGNORECASE)
@@ -215,8 +216,8 @@ def violin_all_conditions(df: pd.DataFrame, feature: str, outdir: Path):
     ax.set_ylabel(feature.replace("_", " "))
     ax.set_title("")
     fig.tight_layout()
-    out = outdir / f"violin_{feature}.png"
-    fig.savefig(out, bbox_inches="tight")
+    out = outdir / f"violin_{feature}.pdf"
+    fig.savefig(out, bbox_inches="tight", dpi=300)
     plt.close(fig)
     print(f"[saved] {out}")
 
@@ -230,20 +231,41 @@ def qc_scatter(df: pd.DataFrame, feature: str, outdir: Path):
     ax.set_title("")
     ax.legend(fontsize=7, frameon=False, ncol=2)
     fig.tight_layout()
-    out = outdir / f"qc_scatter_{feature}_vs_nuclei.png"
-    fig.savefig(out, bbox_inches="tight")
+    out = outdir / f"qc_scatter_{feature}_vs_nuclei.pdf"
+    fig.savefig(out, bbox_inches="tight", dpi=300)
     plt.close(fig)
     print(f"[saved] {out}")
 
-# ========================== MAIN ==========================
-if __name__ == "__main__":
-    setup_dirs()
-    figdir = OUTPUT_ROOT / "figs"
-    csv_out = OUTPUT_ROOT / "image_metrics.csv"
+def parse_args():
+    parser = argparse.ArgumentParser(description="Collagen vs DAPI normalization analysis.")
+    parser.add_argument(
+        "-i",
+        "--input",
+        type=Path,
+        default=INPUT_DIR,
+        help="Folder containing input images (*.tif/ *.tiff)",
+    )
+    parser.add_argument(
+        "-o",
+        "--out",
+        type=Path,
+        default=OUTPUT_ROOT,
+        help="Root output directory for figures and CSV results",
+    )
+    return parser.parse_args()
 
-    paths = sorted(list(INPUT_DIR.glob("*.tif")) + list(INPUT_DIR.glob("*.tiff")))
+
+def main():
+    args = parse_args()
+    input_dir = args.input
+    output_root = args.out
+    setup_dirs(output_root)
+    figdir = output_root / "figs"
+    csv_out = output_root / "image_metrics.csv"
+
+    paths = sorted(list(input_dir.glob("*.tif")) + list(input_dir.glob("*.tiff")))
     if not paths:
-        print(f"No images found in {INPUT_DIR}")
+        print(f"No images found in {input_dir}")
         raise SystemExit(0)
 
     area_per_px_um2 = (PIXEL_SIZE_UM ** 2)
@@ -258,19 +280,19 @@ if __name__ == "__main__":
             # --- read channels ---
             if arr.ndim == 2:
                 dapi_raw = arr.astype(np.float64, copy=False)
-                col_raw  = arr.astype(np.float64, copy=False)
+                col_raw = arr.astype(np.float64, copy=False)
             elif arr.ndim == 3:
                 dapi_raw = arr[DAPI_CHANNEL_INDEX].astype(np.float64, copy=False)
-                col_raw  = arr[COLLAGEN_CHANNEL_INDEX].astype(np.float64, copy=False)
+                col_raw = arr[COLLAGEN_CHANNEL_INDEX].astype(np.float64, copy=False)
             elif arr.ndim == 4:
                 dapi_raw = arr[0, DAPI_CHANNEL_INDEX].astype(np.float64, copy=False)
-                col_raw  = arr[0, COLLAGEN_CHANNEL_INDEX].astype(np.float64, copy=False)
+                col_raw = arr[0, COLLAGEN_CHANNEL_INDEX].astype(np.float64, copy=False)
             else:
                 raise ValueError(f"Unsupported image shape: {arr.shape}")
 
             # --- robust per-image normalization ---
             dapi = robust_normalize(dapi_raw)
-            col  = robust_normalize(col_raw)
+            col = robust_normalize(col_raw)
 
             # --- nuclei segmentation on normalized DAPI ---
             lab, nuc_mask = segment_nuclei(dapi)
@@ -282,24 +304,30 @@ if __name__ == "__main__":
 
             # --- normalized metrics ---
             sum_dapi_norm = float(np.nansum(dapi))
-            sum_col_norm  = float(np.nansum(col))
+            sum_col_norm = float(np.nansum(col))
 
             collagen_per_cell_norm = (sum_col_norm / nuclei_count) if nuclei_count > 0 else np.nan
 
             outside_mask = ~nuc_mask
             outside_area = int(outside_mask.sum())
             ecm_outside_sum_norm = float(np.nansum(col[outside_mask]))
-            ecm_density_outside_norm = (ecm_outside_sum_norm / outside_area) if outside_area > 0 else np.nan
+            ecm_density_outside_norm = (
+                ecm_outside_sum_norm / outside_area if outside_area > 0 else np.nan
+            )
 
-            rows.append({
-                "image_filename": p.name,
-                "condition": get_condition_from_stem(p.stem),
-                "nuclei_count": nuclei_count,
-                "confluence": confluence,
-                "collagen_per_cell_norm": collagen_per_cell_norm,
-                "ecm_density_outside_norm": ecm_density_outside_norm,
-                "collagen_over_dapi_norm": (sum_col_norm / sum_dapi_norm) if sum_dapi_norm > 0 else np.nan,
-            })
+            rows.append(
+                {
+                    "image_filename": p.name,
+                    "condition": get_condition_from_stem(p.stem),
+                    "nuclei_count": nuclei_count,
+                    "confluence": confluence,
+                    "collagen_per_cell_norm": collagen_per_cell_norm,
+                    "ecm_density_outside_norm": ecm_density_outside_norm,
+                    "collagen_over_dapi_norm": (sum_col_norm / sum_dapi_norm)
+                    if sum_dapi_norm > 0
+                    else np.nan,
+                }
+            )
         except Exception as e:
             print(f"[warn] {p.name}: {e}")
 
@@ -318,4 +346,6 @@ if __name__ == "__main__":
         violin_all_conditions(df, feat, figdir)
         qc_scatter(df, feat, figdir)
 
-    print("✅ Done.")
+
+if __name__ == "__main__":
+    main()

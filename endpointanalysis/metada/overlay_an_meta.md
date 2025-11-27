@@ -1,7 +1,7 @@
-# `overlay.py` — Confocal overlay exporter
+# `overlay_analysis.py` — Confocal overlay exporter
 
 ## Purpose
-`confocal/overlay.py` reads multichannel microscopy input (DAPI, Actin, Collagen) and creates publication-ready RGB overlays in `overlay_output/overlays`.
+`overlay_analysis.py` reads multichannel microscopy input (DAPI, Actin, Collagen) and creates publication-ready RGB overlays in `--out/overlays`.
 
 ## Workflow
 
@@ -20,7 +20,11 @@
 
 ## Usage
 ```sh
-python overlay.py -i input_images -o overlay_output --pix 0.21 --scalebar_um 200
+python overlay_analysis.py \
+    --input input_images \
+    --out overlay_output \
+    --pix 0.21 \
+    --scalebar_um 200
 ```
 
 Input hints: filenames should start with `C1_…C8_` or live in a parent named `c1…c8`.
