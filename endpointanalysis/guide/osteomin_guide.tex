@@ -3,13 +3,14 @@
 \usepackage{booktabs}
 \usepackage[utf8]{inputenc}
 \sloppy
-
 \usepackage[T1]{fontenc}
 
 % allow line breaks in long URLs
 \PassOptionsToPackage{hyphens}{url}
+
 \usepackage{geometry}
 \geometry{margin=2.5cm}
+
 \usepackage{hyperref}
 \hypersetup{
     breaklinks=true,
@@ -17,8 +18,92 @@
     urlcolor=blue
 }
 
+% -------------------------
+% ---- STORAGE LINKS -------
+% -------------------------
+
+% Local master data folder
+\newcommand{\localdata}{C:/Users/aliad/Documents/osteomin}
+
+% UiO server (primary lab storage)
+\newcommand{\uioserverdata}{/mn/fys-server1/kondfys/aliaslan/data/}
+
+% Cloud copies (Google Drive + OneDrive)
+\newcommand{\googledata}{https://drive.google.com/drive/folders/1QbGXquTdg0ZWvXDNWVM-L-pLeBURobRO?usp=sharing}
+\newcommand{\onedrivedata}{https://uio-my.sharepoint.com/:f:/g/personal/aliadem_uio_no/IgBenICVupn0RIL3Lm9zlAd3ASNnG41zc4TH_MuMsQkTJFc}
+
+% -------------------------
+% ---- CODE LINKS ----------
+% -------------------------
+
+\newcommand{\gitmain}{https://github.com/aliaslandemir/osteomin}
+\newcommand{\gitanalysis}{https://github.com/aliaslandemir/osteomin/tree/main/endpointanalysis}
+
+% -------------------------
+% ---- MANUSCRIPT LINKS ----
+% -------------------------
+
+% Overleaf projects
+\newcommand{\ovlmain}{https://www.overleaf.com/project/68d16219d9b6ab7685e7c2b5}
+\newcommand{\ovlsupp}{https://www.overleaf.com/project/68d16219d9b6ab7685e7c2b5}
+
+% -------------------------
+
+
+
+\title{OsteoMin Project: Data, Code, and Manuscript Map}
+\author{Ali Aslan Demir}
+\date{\today}
 
 \begin{document}
+
+\maketitle
+
+\section{Purpose}
+Paths for data, analysis codes, manuscripts, and more used in the OsteoMin project. This document contains where are the data, codes, manuscript. How to run endpointanalysis codes. And also; name method for microscopy images.
+
+\section{Experimental Data}
+
+\subsection{Local Master Folder}
+\begin{itemize}
+  \item Local primary data: \texttt{\localdata}
+  \item Synchronized to both Google Drive (Computers/My Laptop) and UiO OneDrive.
+\end{itemize}
+
+\subsection{UiO Server (Primary Laboratory Copy)}
+\begin{itemize}
+  \item Server path: \texttt{\uioserverdata}
+  \item Contains ALP, confocal (Collagen~I), brightfield time-series, ARS, and metadata folders.
+\end{itemize}
+
+\subsection{Cloud Copies}
+\begin{itemize}
+  \item Google Drive (Computers sync): \\[2pt]\url{\googledata}
+  \item UiO OneDrive: \\[2pt]\url{\onedrivedata}
+\end{itemize}
+
+\section{Code and Simulations}
+
+\subsection{GitHub Repositories}
+\begin{itemize}
+  \item OsteoMin Simulation Model: \\[2pt]\url{\gitmain}
+  \item Endpoint analysis scripts: \\[2pt]\url{\gitanalysis}
+\end{itemize}
+
+
+\section{Manuscripts}
+
+\subsection{Overleaf Projects}
+\begin{itemize}
+  \item Main manuscript: \\[2pt]\url{\ovlmain}
+  \item Supplementary material: \\[2pt]\url{\ovlsupp}
+\end{itemize}
+
+
+
+
+
+\newpage
 
 \section{How to Run Codes}
 
@@ -145,6 +230,95 @@ python alp_analysis.py \
 \end{verbatim}
 \end{minipage}
 \end{center}
+
+
+
+\subsection{OsteoMin Cellular Automaton}
+
+The cellular automaton is run from the main OsteoMin repository using
+\texttt{main.py}.  
+Activate the virtual environment first:
+
+\begin{center}
+\begin{minipage}{0.9\linewidth}
+\begin{verbatim}
+source .venv/bin/activate
+\end{verbatim}
+\end{minipage}
+\end{center}
+
+\subsection*{Default Run Command}
+
+\begin{center}
+\begin{minipage}{0.95\linewidth}
+\begin{verbatim}
+python main.py \
+    --days 30 \
+    --cells 72 \
+    --w 33 --h 33 \
+    --boundary-mode periodic \
+    --seed $(shuf -i 1-999999 -n 1) \
+    --media-interval 2 \
+    --aa 1.0 --bgp 1.0 \
+    --random-move --move-prob 1.0 --max-moves 1 \
+    --proliferation --ob-div-prob 0.0 \
+    --apoptosis --apoptosis-prob 0.01 --apoptosis-osteo 0.001 \
+    --osteogenic-commitment --commit-growth 0.01 --commit-delay 3 \
+    --secretion --nucleation --enable-nodules \
+    --spatial-every 1 \
+    --out out \
+    --nodule-window 4 \
+    --k-ha 0.06 --k-nuc 0.025
+\end{verbatim}
+\end{minipage}
+\end{center}
+
+\newpage
+
+\subsection{File naming convention and condition labels}
+
+Microscopy files follow:
+\[
+\texttt{C\{n\}\_D\{day\}\_\{objective\}\_\{modality\}\_\{idx\}.tif}
+\]
+
+Example:
+\texttt{C4\_D28\_4x\_BF\_04.tif}
+
+\noindent\textbf{Components:}
+\begin{itemize}
+    \item \texttt{C\{n\}} — condition (C1--C8)
+    \item \texttt{D\{day\}} — day (D09, D14, D28 ...)
+    \item \texttt{objective} — 4x, 10x, 20x
+    \item \texttt{modality} — BF, DAPI, Actin, Collagen
+    \item \texttt{idx} — image/fov number
+\end{itemize}
+
+\subsubsection*{Condition $\rightarrow$ Label Mapping}
+
+\begin{table}[htbp]
+\centering
+\renewcommand{\arraystretch}{1.1}
+\setlength{\tabcolsep}{8pt}
+\begin{tabular}{@{}l l l@{}}
+\toprule
+\textbf{Code} & \textbf{Condition} & \textbf{Figure label} \\
+\midrule
+C1 & Basal & Basal \\
+C2 & Osteo & A+$\beta$GP \\
+C3 & Osteo + Dex/MK4 (L/L) & A+$\beta$GP, $D_LK_L$ \\
+C4 & Osteo + Dex/MK4 (L/H) & A+$\beta$GP, $D_LK_H$ \\
+C5 & Osteo + Dex/MK4 (H/L) & A+$\beta$GP, $D_HK_L$ \\
+C6 & Osteo + Dex/MK4 (H/H) & A+$\beta$GP, $D_HK_H$ \\
+C7 & Osteo + Dex (H) & A+$\beta$GP, $D_HK_0$ \\
+C8 & Osteo + MK-4 (H) & A+$\beta$GP, $D_0K_H$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent
+L/H indicate low or high doses; $D_0$ or $K_0$ indicate absence of Dex or MK-4.
+
 
 
 \end{document}
