@@ -3,11 +3,11 @@
 ## Project Structure
 ```
 .
-├── main.py
-├── README.md
-├── requirements.txt
-├── endpointanalysis/   # scripts used to process simulation outputs and reproduce analyses
-├── out/                # default output directory
+├── main.py             # default run, CLI ...
+├── README.md           # default run arguments summary
+├── requirements.txt    # freezed on 27.11.25
+├── endpointanalysis/   # scripts used to process endpoint assays
+├── out/                # default output directory for the simulation
 └── src/
     ├── __init__.py
     ├── abm_manager.py
