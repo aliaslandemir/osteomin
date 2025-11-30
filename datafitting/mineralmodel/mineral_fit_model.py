@@ -1,9 +1,6 @@
 #!/usr/bin/env python3
 """
-mineral_fit_model.py — Publication-friendly version
----------------------------------------------------
 
-Minimal ACP→HA mineralization model calibrated to endpoint ARS values.
 
 This model is *lumped, low-dimensional, and phenomenological*. It is not a full
 physicochemical speciation model; instead it provides a mechanistic yet
