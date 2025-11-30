@@ -1,0 +1,25 @@
+
+Multiday Sobol global sensitivity: β-GP / ALP → Pi module
+--------------------------------------------------------
+
+Parameter ranges:
+- basal_alp: 0.2–0.8 mU/mL
+- osteo_alp: 0.8–2.0 mU/mL
+- serum_alp: 0.0–0.05 mU/mL
+- bgp_mM: 5.0–20.0 mM
+- media_interval_days: 1.0–3.0 days
+- start_day: 2.0–4.0
+- measure_day: 7.0–14.0
+
+Sobol settings:
+- Base N = 1000, used N = 1024 (power of 2)
+- Total evaluations = 16384
+- Pi_cum evaluated at days [7, 14, 21, 28]
+
+Example summary (day 28):
+- Dominant parameter (by total-effect ST): osteo_alp (ST = 0.959)
+
+Across days 7→28, the relative importance of ALP
+levels, β-GP availability, and medium-change schedule can be read from
+alppi_sobol_bars_multiday.pdf. Parameters with ST ≈ 0 have negligible
+influence on cumulative Pi in the tested range.

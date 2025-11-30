@@ -1,0 +1,36 @@
+
+Multiday Sobol global sensitivity: ACP → HA mineralization
+---------------------------------------------------------
+
+Baseline fit to endpoints:
+- Basal mineral = 5.2
+- Osteo mineral = 50.0
+- Fitted K_nuc = 3.162e-03
+- Fitted K_ha  = 1.778e+02
+- Squared error = 4.186e+00
+
+Inputs and trajectories:
+- Pi_mM_daily(osteo) from: alp_linear_output.xlsx
+- Collagen_total from: aa_collagen_output.xlsx
+- Baseline ksp_eff = 1.0, S_thresh = 1.0, n_exp = 1.0
+- Baseline medium interval for fit = 2 days
+- Medium interval range in Sobol: 1.0–3.0 days
+
+Sobol settings:
+- Base N = 1000, used N = 1024 (power of 2)
+- Total evaluations = 18432
+- Outputs at days [7, 14, 21, 28]:
+    1) HA_osteo(day)
+    2) HA_osteo(day) - HA_basal(day)
+
+Example (day 28):
+- Most influential parameter for HA_osteo(day 28) by total-effect index:
+  n_exp (ST = 0.649)
+
+See:
+- mineral_sobol_HA_osteo_day*.csv
+- mineral_sobol_HA_contrast_day*.csv
+- mineral_sobol_bars_HA_osteo_multiday.pdf
+- mineral_sobol_bars_contrast_multiday.pdf
+
+for full rankings and confidence intervals across time points.

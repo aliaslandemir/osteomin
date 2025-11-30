@@ -1,0 +1,26 @@
+
+Global Sobol sensitivity of the AA → collagen module
+----------------------------------------------------
+
+Parameter ranges:
+- AA0: 30.0–70.0 µg/mL
+- half-life: 2.0–6.0 h
+- medium interval: 1.0–3.0 days
+- R0_factor: 0.5–1.5
+- R_AA_factor: 0.5–1.5
+
+Sobol settings:
+- Base N = 1000, used N = 1024 (power of 2)
+- Total evaluations = 12288
+- Collagen evaluated at days [7, 14, 21, 28]
+
+Key findings (example based on day 28):
+- medium_interval_days is dominant (ST ≈ 0.519)
+- R0_factor and R_AA_factor contribute moderately (ST ≈ 0.224, 0.303)
+- AA0 and half-life show negligible influence (ST ≈ 0)
+
+Across days 7→28, the relative importance of the
+medium-change interval and the collagen production rates is conserved,
+reflecting cumulative collagen deposition driven mainly by dosing
+schedule and effective per-day synthesis, rather than uncertainties in
+AA dose or decay kinetics.
