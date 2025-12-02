@@ -76,3 +76,10 @@ Plot absorbance values from a Excel range like 'G3:G6' (G6 is blank).
 Usage:
     python cip_raw_curve.py alp_raw_data.xlsx "G3:G6" -o cip.png
 """
+
+
+
+# D8 = 0.0002 U/well
+# E8 = 0.0001 U/well
+# F8 = 0.00005 U/well
+# G8 = 0.0 U/well
