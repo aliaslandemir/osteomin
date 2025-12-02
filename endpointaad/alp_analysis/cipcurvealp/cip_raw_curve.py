@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""
-Plot absorbance values from a simple Excel range like 'C5:C8'.
 
-Usage:
-    python plot_cip_range.py alp_raw.xlsx "C5:C8" -o cip.png
-"""
 
 import argparse
 import pandas as pd
@@ -72,3 +67,12 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
+"""
+Plot absorbance values from a Excel range like 'G3:G6' (G6 is blank).
+
+Usage:
+    python cip_raw_curve.py alp_raw_data.xlsx "G3:G6" -o cip.png
+"""
