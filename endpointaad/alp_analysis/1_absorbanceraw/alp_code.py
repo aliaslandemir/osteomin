@@ -44,4 +44,4 @@ if __name__ == "__main__":
 
 
 ### Run example:
-### python alp_code.py --meta alpmetada.txt --data alp_raw_data.xlsx --out alpplot.png
+### python alp_code.py --meta alpmetada.txt --data alp_raw_data.xlsx --out alpplot.pdf

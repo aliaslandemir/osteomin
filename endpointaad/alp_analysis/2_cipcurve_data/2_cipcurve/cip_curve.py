@@ -88,7 +88,7 @@ plt.ylabel("Net A405")
 plt.title("CIP Calibration Curve")
 
 plt.tight_layout()
-plt.savefig("cip_calibration_curve.png", dpi=300)
+plt.savefig("cip_calibration_curve.pdf", dpi=300)
 plt.show()
 
 

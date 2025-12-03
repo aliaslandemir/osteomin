@@ -38,7 +38,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("xlsx")
     ap.add_argument("range", help="Excel-like range, e.g. C5:C8")
-    ap.add_argument("-o", "--out", default="cip.png")
+    ap.add_argument("-o", "--out", default="cip.pdf")
     args = ap.parse_args()
 
     # load excel
@@ -69,14 +69,12 @@ if __name__ == "__main__":
     main()
 
 
-
 """
 Plot absorbance values from a Excel range like 'G3:G6' (G6 is blank).
 
 Usage:
-    python cip_raw_curve.py alp_raw_data.xlsx "G3:G6" -o cip.png
+    python cip_raw_curve.py alp_raw_data.xlsx "G3:G6" -o cip.pdf
 """
-
 
 
 # D8 = 0.0002 U/well
