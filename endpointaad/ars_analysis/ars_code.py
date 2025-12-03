@@ -76,3 +76,8 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+# To run:
+
+#  python ars_code.py --input ../ars --out ars_norm
