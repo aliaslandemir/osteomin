@@ -41,10 +41,9 @@ def two_line_label(name: str) -> str:
         "Osteo+D/MK4 (L/H)": r"A+$\beta$-GP" + "\n" + r"$D_LK_H$",
         "Osteo+D/MK4 (H/L)": r"A+$\beta$-GP" + "\n" + r"$D_HK_L$",
         "Osteo+D/MK4 (H/H)": r"A+$\beta$-GP" + "\n" + r"$D_HK_H$",
-        "Osteo+Dex (H)":    r"A+$\beta$-GP" + "\n" + r"$D_HK_0$",
-        "Osteo+MK-4 (H)":   r"A+$\beta$-GP" + "\n" + r"$D_0K_H$",
+        "Osteo+Dex (H)": r"A+$\beta$-GP" + "\n" + r"$D_HK_0$",
+        "Osteo+MK-4 (H)": r"A+$\beta$-GP" + "\n" + r"$D_0K_H$",
     }
-
     return m.get(name, name)
 
 
@@ -58,7 +57,6 @@ def read_channels(path: Path):
     with tf.TiffFile(path) as tif:
         arr = tif.asarray()
 
-    # FIX 2 — safer handling
     if arr.ndim == 2:
         raise ValueError("2D TIFF found but channel count unknown.")
 
@@ -131,6 +129,7 @@ def run_kruskal(df: pd.DataFrame, outdir: Path):
 
 
 def benjamini_hochberg(pvals: np.ndarray) -> np.ndarray:
+    """Benjamini–Hochberg FDR correction (same as ALP script)."""
     m = len(pvals)
     order = np.argsort(pvals)
     ranked = pvals[order]
@@ -147,7 +146,9 @@ def benjamini_hochberg(pvals: np.ndarray) -> np.ndarray:
 
 
 def run_pairwise_vs_basal(df: pd.DataFrame, outdir: Path):
-    basal_vals = df.loc[df["condition"] == BASAL_COND, "collagen_over_dapi_bg"].dropna().values
+    basal_vals = (
+        df.loc[df["condition"] == BASAL_COND, "collagen_over_dapi_bg"].dropna().values
+    )
     if len(basal_vals) == 0:
         print("No basal data.")
         return pd.DataFrame(), {}
@@ -164,17 +165,19 @@ def run_pairwise_vs_basal(df: pd.DataFrame, outdir: Path):
             continue
 
         U, p_raw = stats.mannwhitneyu(basal_vals, vals, alternative="two-sided")
-        records.append({
-            "basal": BASAL_COND,
-            "condition": cond,
-            "n_basal": len(basal_vals),
-            "n_cond": len(vals),
-            "median_basal": float(np.median(basal_vals)),
-            "median_cond": float(np.median(vals)),
-            "median_diff": float(np.median(vals) - np.median(basal_vals)),
-            "U": U,
-            "p_raw": p_raw,
-        })
+        records.append(
+            {
+                "basal": BASAL_COND,
+                "condition": cond,
+                "n_basal": len(basal_vals),
+                "n_cond": len(vals),
+                "mean_basal": float(np.mean(basal_vals)),
+                "mean_cond": float(np.mean(vals)),
+                "mean_diff": float(np.mean(vals) - np.mean(basal_vals)),
+                "U": U,
+                "p_raw": p_raw,
+            }
+        )
         p_raw_list.append(p_raw)
         cond_list.append(cond)
 
@@ -196,7 +199,8 @@ def run_pairwise_vs_basal(df: pd.DataFrame, outdir: Path):
 def plot_scatter(df: pd.DataFrame, outdir: Path, p_value: float, sig_dict: dict):
     fig, ax = plt.subplots(figsize=(8, 4))
 
-    x_pos = {cond: i for i, cond in enumerate(CONDITIONS)}
+    # x positions: 1..N (same style as ALP script)
+    x_pos = {cond: i for i, cond in enumerate(CONDITIONS, start=1)}
 
     all_vals = []
     for cond in CONDITIONS:
@@ -204,14 +208,17 @@ def plot_scatter(df: pd.DataFrame, outdir: Path, p_value: float, sig_dict: dict)
         all_vals.extend(vals)
         xpos = x_pos[cond]
         if len(vals) > 0:
-            ax.scatter([xpos]*len(vals), vals, s=30)
-            ax.hlines(np.median(vals), xpos-0.2, xpos+0.2, linewidth=1, color="0.2")
+            ax.scatter([xpos] * len(vals), vals, s=30)
+            mean_val = float(np.mean(vals))
+            ax.hlines(mean_val, xpos - 0.2, xpos + 0.2, linewidth=1, color="0.2")
 
-    #ax.set_xlabel("Condition")
     ax.set_ylabel("Collagen/DAPI (smoothed sum ratio)")
 
     if not all_vals:
-        ax.set_title("Collagen/DAPI per field of view\nStars = BH-adjusted p < 0.05 vs basal")
+        ax.set_title(
+            "Collagen/DAPI per field of view\n"
+            "Stars indicate Benjamini–Hochberg–adjusted p < 0.05 vs basal"
+        )
         fig.savefig(outdir / "scatter_empty.pdf", dpi=300)
         return
 
@@ -221,46 +228,55 @@ def plot_scatter(df: pd.DataFrame, outdir: Path, p_value: float, sig_dict: dict)
     ax.set_xticks([x_pos[c] for c in CONDITIONS])
     ax.set_xticklabels([two_line_label(COND_CODE[c]) for c in CONDITIONS])
 
-    basal_vals = df.loc[df["condition"] == BASAL_COND, "collagen_over_dapi_bg"].dropna().values
-    median_basal = float(np.median(basal_vals))
+    basal_vals = (
+        df.loc[df["condition"] == BASAL_COND, "collagen_over_dapi_bg"].dropna().values
+    )
+    mean_basal = float(np.mean(basal_vals))
 
+    # ----- Δ-mean labels in ALP style -----
     label_y = y_max + 0.05 * yr
     for cond in CONDITIONS:
         vals = df.loc[df["condition"] == cond, "collagen_over_dapi_bg"].dropna().values
         if not len(vals):
             continue
         xpos = x_pos[cond]
-        median_cond = float(np.median(vals))
+        mean_cond = float(np.mean(vals))
+
         if cond == BASAL_COND:
             label = "baseline"
         else:
-            diff = median_cond - median_basal
+            diff = mean_cond - mean_basal
             ad = abs(diff)
             if ad == 0:
                 label = "0"
             else:
-                level = "strong" if ad > 2 else "mod" if ad >= 1 else "mild"
+                # same thresholds as ALP script
+                level = "strong" if ad > 2.0 else "mod" if ad >= 1.0 else "mild"
                 arrow = "↑" if diff > 0 else "↓"
                 label = f"{diff:+.2f} {arrow} {level}"
+
         ax.text(xpos, label_y, label, ha="center", va="bottom", fontsize=7)
 
-    star_y = y_max + 0.10 * yr
+    # ----- significance stars (BH-adjusted MWU vs basal) -----
+    star_y = y_max + 0.12 * yr
     for cond in CONDITIONS:
         if cond != BASAL_COND and sig_dict.get(cond, False):
             ax.text(x_pos[cond], star_y, "*", ha="center", va="bottom", fontsize=12)
 
-    # FIX 1 — move definition outside loop
-    title_main = (
-        "Collagen/DAPI per field of view\n"
-        "Stars indicate Benjamini–Hochberg–adjusted p < 0.05 vs basal"
-    )
+    # ----- title (same wording style + optional KW p-value) -----
+    title_lines = [
+        "Collagen/DAPI per field of view",
+        "Stars indicate Benjamini–Hochberg–adjusted p < 0.05 vs basal",
+    ]
+    if p_value is not None and not np.isnan(p_value):
+        title_lines.append(f"Kruskal–Wallis p = {p_value:.2e}")
 
-    ax.set_title(title_main)
+    ax.set_title("\n".join(title_lines))
 
-    ax.set_ylim(y_min - 0.05*yr, y_max + 0.20*yr)
+    ax.set_ylim(y_min - 0.05 * yr, y_max + 0.25 * yr)
     fig.tight_layout()
     out = outdir / f"{int(BG_SIGMA)}_scatter_collagen_over_dapi_bg.pdf"
-    fig.savefig(out, dpi=300)
+    fig.savefig(out, dpi=300, bbox_inches="tight")
     plt.close(fig)
     print(f"[saved] {out}")
 
@@ -301,8 +317,11 @@ def main():
     df.to_csv(csv_path, index=False)
     print(f"[saved] {csv_path}")
 
+    # Global KW + pairwise MWU vs basal (BH), same logic as ALP script
     _, sig_dict = run_pairwise_vs_basal(df, out_dir)
-    plot_scatter(df, out_dir, None, sig_dict)
+    _, p_kw = run_kruskal(df, out_dir)
+
+    plot_scatter(df, out_dir, p_kw, sig_dict)
 
 
 if __name__ == "__main__":

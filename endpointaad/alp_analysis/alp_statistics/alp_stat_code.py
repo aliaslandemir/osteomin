@@ -1,0 +1,197 @@
+#!/usr/bin/env python3
+
+import argparse
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from scipy import stats
+
+from pipeline import parse_metadata, read_values_xlsx
+
+
+# ----------------- STATS HELPERS ----------------- #
+
+def benjamini_hochberg(pvals: np.ndarray) -> np.ndarray:
+    """Benjamini–Hochberg FDR correction."""
+    m = len(pvals)
+    order = np.argsort(pvals)
+    ranked = pvals[order]
+    adj = np.empty(m)
+    prev = 1.0
+    for i in range(m - 1, -1, -1):
+        rank = i + 1
+        val = ranked[i] * m / rank
+        prev = min(prev, val)
+        adj[i] = min(prev, 1.0)
+    out = np.empty(m)
+    out[order] = adj
+    return out
+
+
+def alp_stats(cond_to_mU, conds_c, basal="C1"):
+    """Compute Kruskal–Wallis + pairwise MWU vs basal with BH correction."""
+    rows = []
+    for cond in conds_c:
+        for v in cond_to_mU.get(cond, []):
+            rows.append({"condition": cond, "value": v})
+    df = pd.DataFrame(rows)
+
+    # Kruskal–Wallis
+    groups = [df[df["condition"] == c]["value"].dropna().values for c in conds_c]
+    H, p_kw = stats.kruskal(*groups)
+
+    # Pairwise vs basal
+    basal_vals = df[df["condition"] == basal]["value"].dropna().values
+    p_raw, cond_list, diffs = [], [], []
+
+    for cond in conds_c:
+        if cond == basal:
+            continue
+        vals = df[df["condition"] == cond]["value"].dropna().values
+        if len(vals) == 0:
+            continue
+
+        U, p_raw_val = stats.mannwhitneyu(basal_vals, vals, alternative="two-sided")
+        p_raw.append(p_raw_val)
+        cond_list.append(cond)
+
+        diffs.append(np.mean(vals) - np.mean(basal_vals))
+
+    if p_raw:
+        p_adj = benjamini_hochberg(np.array(p_raw))
+        sig_dict = {c: (pa < 0.05) for c, pa in zip(cond_list, p_adj)}
+        diff_dict = {c: d for c, d in zip(cond_list, diffs)}
+    else:
+        sig_dict, diff_dict = {}, {}
+
+    return H, p_kw, sig_dict, diff_dict
+
+
+# ----------------- ARG PARSING ----------------- #
+
+def parse_args():
+    p = argparse.ArgumentParser(
+        description="Blank-correct ALP values and convert to mU/mL."
+    )
+    p.add_argument("--pipeline", default="pipeline.py")
+    p.add_argument("--metadata", required=True)
+    p.add_argument("--data", required=True)
+    p.add_argument("--blank", type=float, default=0.066)
+    p.add_argument("--conversion", type=float, required=True)
+    p.add_argument("--out", help="Optional output PDF/PNG")
+    return p.parse_args()
+
+
+# ----------------- MAIN ----------------- #
+
+def main():
+    args = parse_args()
+
+    # read metadata + xlsx
+    well_to_cond, cond_order = parse_metadata(args.metadata)
+    cond_to_values = read_values_xlsx(args.data, well_to_cond)
+
+    # blank-correct + convert
+    cond_to_mU = {}
+    for cond, vals in cond_to_values.items():
+        out = []
+        for v in vals:
+            v_net = v - args.blank
+            mU = max(v_net * args.conversion, 0.0)
+            out.append(mU)
+        cond_to_mU[cond] = out
+
+    # only C1–C8
+    conds_c = [c for c in cond_order if c.startswith("C")]
+
+    xs, ys = [], []
+    for i, cond in enumerate(conds_c, start=1):
+        for v in cond_to_mU.get(cond, []):
+            xs.append(i)
+            ys.append(v)
+
+    if xs and ys:
+        # ---------- STATS ----------
+        H, p_kw, sig_dict, diff_dict = alp_stats(cond_to_mU, conds_c, basal="C1")
+
+        means = {c: np.mean(cond_to_mU.get(c, [])) for c in conds_c}
+        mean_basal = means["C1"]
+
+        # ---------- PLOT ----------
+        fig, ax = plt.subplots(figsize=(8, 4))
+
+        # scatter + mean lines
+        for i, cond in enumerate(conds_c, start=1):
+            vals = cond_to_mU.get(cond, [])
+            if len(vals) > 0:
+                ax.scatter([i] * len(vals), vals, s=30)
+                mean_val = np.mean(vals)
+                ax.hlines(mean_val, i - 0.2, i + 0.2, linewidth=1, color="0.2")
+
+        ax.set_xticks(range(1, len(conds_c) + 1))
+        ax.set_xticklabels(conds_c)
+
+        ax.set_ylabel("ALP activity (mU/mL)")
+
+        # y-range
+        y_min, y_max = min(ys), max(ys)
+        yr = y_max - y_min if y_max > y_min else 1
+        label_y = y_max + 0.05 * yr
+        star_y = y_max + 0.12 * yr
+
+        # Δ-mean labels + stars
+        for i, cond in enumerate(conds_c, start=1):
+            if cond == "C1":
+                ax.text(i, label_y, "baseline", ha="center", fontsize=7)
+                continue
+
+            diff = means[cond] - mean_basal
+            ad = abs(diff)
+
+            if ad == 0:
+                lbl = "0"
+            else:
+                level = "strong" if ad > 0.3 else "mod" if ad >= 0.15 else "mild"
+                arrow = "↑" if diff > 0 else "↓"
+                lbl = f"{diff:+.2f} {arrow} {level}"
+
+            ax.text(i, label_y, lbl, ha="center", fontsize=7)
+
+            if sig_dict.get(cond, False):
+                ax.text(i, star_y, "*", ha="center", fontsize=12)
+
+        ax.set_title(
+            "ALP activity per condition\n"
+            "Stars indicate Benjamini–Hochberg–adjusted p < 0.05 vs basal"
+        )
+
+        ax.set_ylim(y_min - 0.05 * yr, y_max + 0.25 * yr)
+        fig.tight_layout()
+
+        if args.out:
+            fig.savefig(args.out, dpi=300, bbox_inches="tight")
+            print(f"Saved: {args.out}")
+        else:
+            plt.show()
+
+
+if __name__ == "__main__":
+    main()
+
+
+
+# To run:
+
+
+"""
+
+
+python alp_stat_code.py \
+    --metadata alpmetadata.txt \
+    --data alp_raw_data.xlsx \
+    --blank 0.066 \
+    --conversion 11.01 \
+    --out alp_activity_stat.pdf
+
+    
+"""

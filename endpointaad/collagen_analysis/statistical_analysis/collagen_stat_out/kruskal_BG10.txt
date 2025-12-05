@@ -1,0 +1,4 @@
+Kruskal–Wallis test on collagen_over_dapi_bg
+Conditions: C1, C2, C3, C4, C5, C6, C7, C8
+H: 32.4354
+p: 3.3721e-05
