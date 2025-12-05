@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-
 import argparse
 from pathlib import Path
 import re
@@ -17,7 +16,7 @@ OUTPUT_DIR = Path("collagen_output")
 
 DAPI_CHANNEL = 0
 COLLAGEN_CHANNEL = 2
-BG_SIGMA = 15.0  # 5, 10, 15, 20 etc.
+BG_SIGMA = 10.0  # default; can be overridden by --sigma
 CONDITIONS = [f"C{i}" for i in range(1, 9)]  # C1..C8
 
 
@@ -46,17 +45,14 @@ def read_channels(path: Path):
     return dapi, col
 
 
-def bg_subtract(img: np.ndarray) -> np.ndarray:
-    bg = ndi.gaussian_filter(img, BG_SIGMA)
-    out = img - bg
-    out[out < 0] = 0
-    return out
+def bg_smooth(img: np.ndarray) -> np.ndarray:
+    return ndi.gaussian_filter(img, BG_SIGMA)
 
 
 def compute_metric(path: Path) -> dict:
     dapi_raw, col_raw = read_channels(path)
-    dapi_bg = bg_subtract(dapi_raw)
-    col_bg = bg_subtract(col_raw)
+    dapi_bg = bg_smooth(dapi_raw)
+    col_bg = bg_smooth(col_raw)
 
     sum_dapi = float(np.sum(dapi_bg))
     sum_col = float(np.sum(col_bg))
@@ -86,7 +82,8 @@ def plot_scatter(df: pd.DataFrame, outdir: Path):
     ax.set_title("")
     fig.tight_layout()
 
-    out = outdir / "scatter_collagen_over_dapi_bg.pdf"
+    fname = f"{int(BG_SIGMA)}_scatter_collagen_over_dapi_bg.pdf"
+    out = outdir / fname
     fig.savefig(out, dpi=300)
     plt.close(fig)
     print(f"[saved] {out}")
@@ -97,11 +94,22 @@ def parse_args():
     p = argparse.ArgumentParser(description="Collagen/DAPI scatter.")
     p.add_argument("-i", "--input", type=Path, default=INPUT_DIR)
     p.add_argument("-o", "--out", type=Path, default=OUTPUT_DIR)
+    p.add_argument(
+        "-s",
+        "--sigma",
+        type=float,
+        default=BG_SIGMA,
+        help="Gaussian sigma for smoothing (e.g. 5, 10, 15).",
+    )
     return p.parse_args()
 
 
 def main():
+    global BG_SIGMA
+
     args = parse_args()
+    BG_SIGMA = args.sigma  # override default with CLI value
+
     in_dir = args.input
     out_dir = args.out
     out_dir.mkdir(exist_ok=True, parents=True)
@@ -120,17 +128,17 @@ def main():
 
     df = pd.DataFrame(rows)
     df = df[df["condition"].isin(CONDITIONS)]
-    df.to_csv(out_dir / "image_metrics.csv", index=False)
-    print(f"[saved] {out_dir/'image_metrics.csv'}")
 
+    sigma_str = f"{BG_SIGMA:g}"
+    csv_path = out_dir / f"image_metrics_BG{sigma_str}.csv"
+    df.to_csv(csv_path, index=False)
+
+    print(f"[saved] {csv_path}")
     plot_scatter(df, out_dir)
 
 
 if __name__ == "__main__":
     main()
 
-
-
-# To run
-
-# python collagen_code.py --input input_images --out collagen_out
+# To run:
+# python collagen_code.py --input input_images --out collagen_out --sigma 10

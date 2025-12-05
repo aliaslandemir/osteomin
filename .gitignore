@@ -1,3 +1,9 @@
+# data
+
+input_images/
+
+
+
 # venv & python cache
 venv/
 .env/
