@@ -34,15 +34,16 @@ CONDITIONS = list(COND_CODE.keys())
 
 
 def two_line_label(name: str) -> str:
+    """Two-line labels for conditions."""
     m = {
         "Basal": "Basal",
-        "Osteo": r"A+$\beta$-GP",
-        "Osteo+D/MK4 (L/L)": r"A+$\beta$-GP" + "\n" + r"$D_LK_L$",
-        "Osteo+D/MK4 (L/H)": r"A+$\beta$-GP" + "\n" + r"$D_LK_H$",
-        "Osteo+D/MK4 (H/L)": r"A+$\beta$-GP" + "\n" + r"$D_HK_L$",
-        "Osteo+D/MK4 (H/H)": r"A+$\beta$-GP" + "\n" + r"$D_HK_H$",
-        "Osteo+Dex (H)": r"A+$\beta$-GP" + "\n" + r"$D_HK_0$",
-        "Osteo+MK-4 (H)": r"A+$\beta$-GP" + "\n" + r"$D_0K_H$",
+        "Osteo": r"AA+$\beta$-GP",
+        "Osteo+D/MK4 (L/L)": r"AA+$\beta$-GP" + "\n" + r"$D_LK_L$",
+        "Osteo+D/MK4 (L/H)": r"AA+$\beta$-GP" + "\n" + r"$D_LK_H$",
+        "Osteo+D/MK4 (H/L)": r"AA+$\beta$-GP" + "\n" + r"$D_HK_L$",
+        "Osteo+D/MK4 (H/H)": r"AA+$\beta$-GP" + "\n" + r"$D_HK_H$",
+        "Osteo+Dex (H)": r"AA+$\beta$-GP" + "\n" + r"$D_HK_0$",
+        "Osteo+MK-4 (H)": r"AA+$\beta$-GP" + "\n" + r"$D_0K_H$",
     }
     return m.get(name, name)
 
@@ -191,7 +192,8 @@ def run_pairwise_vs_basal(df: pd.DataFrame, outdir: Path):
     results_df.to_csv(out_csv, index=False)
     print(f"[saved] {out_csv}")
 
-    sig_dict = {cond: (p_adj < 0.05) for cond, p_adj in zip(cond_list, p_adj_arr)}
+    # sig_dict now stores the *adjusted* p-values, not just True/False
+    sig_dict = {cond: float(p_adj) for cond, p_adj in zip(cond_list, p_adj_arr)}
     return results_df, sig_dict
 
 
@@ -219,7 +221,13 @@ def plot_scatter(df: pd.DataFrame, outdir: Path, p_value: float, sig_dict: dict)
             "Collagen/DAPI per field of view\n"
             "Stars indicate Benjamini–Hochberg–adjusted p < 0.05 vs basal"
         )
-        fig.savefig(outdir / "scatter_empty.pdf", dpi=300)
+        png_empty = outdir / "scatter_empty.png"
+        pdf_empty = png_empty.with_suffix(".pdf")
+        fig.savefig(png_empty, dpi=300, bbox_inches="tight")
+        fig.savefig(pdf_empty, dpi=300, bbox_inches="tight")
+        plt.close(fig)
+        print(f"[saved] {png_empty}")
+        print(f"[saved] {pdf_empty}")
         return
 
     y_min, y_max = min(all_vals), max(all_vals)
@@ -257,16 +265,25 @@ def plot_scatter(df: pd.DataFrame, outdir: Path, p_value: float, sig_dict: dict)
 
         ax.text(xpos, label_y, label, ha="center", va="bottom", fontsize=7)
 
-    # ----- significance stars (BH-adjusted MWU vs basal) -----
+    # ----- significance stars (BH-adjusted MWU vs basal), gated by KW -----
     star_y = y_max + 0.12 * yr
-    for cond in CONDITIONS:
-        if cond != BASAL_COND and sig_dict.get(cond, False):
-            ax.text(x_pos[cond], star_y, "*", ha="center", va="bottom", fontsize=12)
+    if p_value is not None and not np.isnan(p_value) and p_value < 0.05:
+        # Only show stars if global Kruskal–Wallis is significant
+        for cond in CONDITIONS:
+            if cond == BASAL_COND:
+                continue
+            p_adj = sig_dict.get(cond, np.nan)
+            if not np.isnan(p_adj) and p_adj < 0.05:
+                ax.text(x_pos[cond], star_y, "*", ha="center", va="bottom", fontsize=12)
+    else:
+        # If KW not significant, we explicitly do not draw stars
+        pass
 
     # ----- title (same wording style + optional KW p-value) -----
     title_lines = [
         "Collagen/DAPI per field of view",
-        "Stars indicate Benjamini–Hochberg–adjusted p < 0.05 vs basal",
+        "Stars indicate Benjamini–Hochberg–adjusted p < 0.05 vs basal"
+        " (shown only if Kruskal–Wallis p < 0.05)",
     ]
     if p_value is not None and not np.isnan(p_value):
         title_lines.append(f"Kruskal–Wallis p = {p_value:.2e}")
@@ -275,10 +292,13 @@ def plot_scatter(df: pd.DataFrame, outdir: Path, p_value: float, sig_dict: dict)
 
     ax.set_ylim(y_min - 0.05 * yr, y_max + 0.25 * yr)
     fig.tight_layout()
-    out = outdir / f"{int(BG_SIGMA)}_scatter_collagen_over_dapi_bg.pdf"
-    fig.savefig(out, dpi=300, bbox_inches="tight")
+    png_out = outdir / f"{int(BG_SIGMA)}_scatter_collagen_over_dapi_bg.png"
+    pdf_out = png_out.with_suffix(".pdf")
+    fig.savefig(png_out, dpi=300, bbox_inches="tight")
+    fig.savefig(pdf_out, dpi=300, bbox_inches="tight")
     plt.close(fig)
-    print(f"[saved] {out}")
+    print(f"[saved] {png_out}")
+    print(f"[saved] {pdf_out}")
 
 
 # -------- main --------
@@ -317,16 +337,26 @@ def main():
     df.to_csv(csv_path, index=False)
     print(f"[saved] {csv_path}")
 
-    # Global KW + pairwise MWU vs basal (BH), same logic as ALP script
-    _, sig_dict = run_pairwise_vs_basal(df, out_dir)
-    _, p_kw = run_kruskal(df, out_dir)
+    # 1) Global Kruskal–Wallis
+    H_kw, p_kw = run_kruskal(df, out_dir)
 
+    # 2) Pairwise MWU vs basal + BH *only used* if KW significant
+    if not np.isnan(p_kw) and p_kw < 0.05:
+        print(f"Kruskal–Wallis significant (p = {p_kw:.4e}); running post-hoc tests.")
+        _, sig_dict = run_pairwise_vs_basal(df, out_dir)
+    else:
+        print(
+            f"Kruskal–Wallis not significant or invalid (p = {p_kw:.4e}); "
+            "skipping post-hoc significance."
+        )
+        sig_dict = {}
+
+    # 3) Plot (stars only appear if KW < 0.05 and BH-adjusted p < 0.05)
     plot_scatter(df, out_dir, p_kw, sig_dict)
 
 
 if __name__ == "__main__":
     main()
 
-
 # Example:
-# python collagen_code.py --input ../input_images --out collagen_out --sigma 10
+# python collagen_stat_code.py --input ../input_images --out collagen_stat_out --sigma 10

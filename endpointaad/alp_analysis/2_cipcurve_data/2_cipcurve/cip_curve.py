@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -88,7 +90,14 @@ plt.ylabel("Net A405")
 plt.title("CIP Calibration Curve")
 
 plt.tight_layout()
-plt.savefig("cip_calibration_curve.pdf", dpi=300)
+fig = plt.gcf()
+base = Path("cip_calibration_curve")
+pdf_out = base.with_suffix(".pdf")
+png_out = base.with_suffix(".png")
+fig.savefig(pdf_out, dpi=300)
+fig.savefig(png_out, dpi=300)
+print(f"Saved {pdf_out}")
+print(f"Saved {png_out}")
 plt.show()
 
 

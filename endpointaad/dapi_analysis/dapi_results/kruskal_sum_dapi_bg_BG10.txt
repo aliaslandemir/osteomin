@@ -1,0 +1,4 @@
+Kruskal–Wallis test on sum_dapi_bg
+Conditions: C1, C2, C3, C4, C5, C6, C7, C8
+H: 25.9847
+p: 5.0685e-04

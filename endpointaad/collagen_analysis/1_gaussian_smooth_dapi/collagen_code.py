@@ -17,7 +17,35 @@ OUTPUT_DIR = Path("collagen_output")
 DAPI_CHANNEL = 0
 COLLAGEN_CHANNEL = 2
 BG_SIGMA = 10.0  # default; can be overridden by --sigma
-CONDITIONS = [f"C{i}" for i in range(1, 9)]  # C1..C8
+
+
+# -------------------- CONDITIONS & LABELS --------------------
+COND_CODE = {
+    "C1": "Basal",
+    "C2": "Osteo",
+    "C3": "Osteo+D/MK4 (L/L)",
+    "C4": "Osteo+D/MK4 (L/H)",
+    "C5": "Osteo+D/MK4 (H/L)",
+    "C6": "Osteo+D/MK4 (H/H)",
+    "C7": "Osteo+Dex (H)",
+    "C8": "Osteo+MK-4 (H)",
+}
+CONDITIONS = list(COND_CODE.keys())
+
+
+def two_line_label(name: str) -> str:
+    """Two-line labels for conditions."""
+    m = {
+        "Basal": "Basal",
+        "Osteo": r"AA+$\beta$-GP",
+        "Osteo+D/MK4 (L/L)": r"AA+$\beta$-GP" + "\n" + r"$D_LK_L$",
+        "Osteo+D/MK4 (L/H)": r"AA+$\beta$-GP" + "\n" + r"$D_LK_H$",
+        "Osteo+D/MK4 (H/L)": r"AA+$\beta$-GP" + "\n" + r"$D_HK_L$",
+        "Osteo+D/MK4 (H/H)": r"AA+$\beta$-GP" + "\n" + r"$D_HK_H$",
+        "Osteo+Dex (H)": r"AA+$\beta$-GP" + "\n" + r"$D_HK_0$",
+        "Osteo+MK-4 (H)": r"AA+$\beta$-GP" + "\n" + r"$D_0K_H$",
+    }
+    return m.get(name, name)
 
 
 # -------- helper functions --------
@@ -68,25 +96,29 @@ def compute_metric(path: Path) -> dict:
 # -------- plotting --------
 def plot_scatter(df: pd.DataFrame, outdir: Path):
     fig, ax = plt.subplots(figsize=(8, 4))
-    x_vals, y_vals = [], []
 
+    x_pos = {cond: i for i, cond in enumerate(CONDITIONS, start=1)}
     for cond in CONDITIONS:
         vals = df.loc[df["condition"] == cond, "collagen_over_dapi_bg"].values
-        for v in vals:
-            x_vals.append(cond)
-            y_vals.append(v)
+        xpos = x_pos[cond]
+        if len(vals) > 0:
+            ax.scatter([xpos] * len(vals), vals, s=30)
 
-    ax.scatter(x_vals, y_vals, s=30)
-    ax.set_xlabel("Condition")
+    #ax.set_xlabel("Condition")
     ax.set_ylabel("collagen_over_dapi_bg")
+    ax.set_xticks([x_pos[c] for c in CONDITIONS])
+    ax.set_xticklabels([two_line_label(COND_CODE[c]) for c in CONDITIONS])
     ax.set_title("")
     fig.tight_layout()
 
-    fname = f"{int(BG_SIGMA)}_scatter_collagen_over_dapi_bg.pdf"
-    out = outdir / fname
-    fig.savefig(out, dpi=300)
+    fname = f"{int(BG_SIGMA)}_scatter_collagen_over_dapi_bg.png"
+    png_out = outdir / fname
+    pdf_out = png_out.with_suffix(".pdf")
+    fig.savefig(png_out, dpi=300)
+    fig.savefig(pdf_out, dpi=300)
     plt.close(fig)
-    print(f"[saved] {out}")
+    print(f"[saved] {png_out}")
+    print(f"[saved] {pdf_out}")
 
 
 # -------- main --------

@@ -2,6 +2,9 @@
 
 
 import argparse
+from pathlib import Path
+from typing import Optional
+
 import pandas as pd
 import matplotlib.pyplot as plt
 
@@ -39,6 +42,10 @@ def main():
     ap.add_argument("xlsx")
     ap.add_argument("range", help="Excel-like range, e.g. C5:C8")
     ap.add_argument("-o", "--out", default="cip.pdf")
+    ap.add_argument(
+        "--png",
+        help="Optional PNG path; defaults to the same stem as --out with .png.",
+    )
     args = ap.parse_args()
 
     # load excel
@@ -61,8 +68,25 @@ def main():
     plt.ylabel("A405")
     plt.title("CIP Absorbance")
     plt.tight_layout()
-    plt.savefig(args.out, dpi=300)
-    print(f"Saved {args.out}")
+    fig = plt.gcf()
+    pdf_path = Path(args.out) if args.out else None
+    png_path = (
+        Path(args.png)
+        if args.png
+        else pdf_path.with_suffix(".png")
+        if pdf_path
+        else None
+    )
+    save_figures(fig, pdf_path, png_path)
+
+
+def save_figures(fig, pdf_path: Optional[Path], png_path: Optional[Path]):
+    if pdf_path:
+        fig.savefig(pdf_path, dpi=300)
+        print(f"Saved {pdf_path}")
+    if png_path:
+        fig.savefig(png_path, dpi=300)
+        print(f"Saved {png_path}")
 
 
 if __name__ == "__main__":
