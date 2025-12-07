@@ -67,7 +67,6 @@ def compute_collagen_at_days(
     # Collagen time course
     _, collagen_total = simulate_collagen(
         days=days_total,
-        model_type="linear",
         R0=R0,
         R_AA=R_AA,
         AA_norm=AA_norm,
@@ -322,3 +321,8 @@ AA dose or decay kinetics.
 
 if __name__ == "__main__":
     main()
+
+
+## To Run
+
+## python ascorbic_sensitivity.py     --basal_if 2.5     --osteo_if 3.6     --N 1024     --eval_days 7 14 21 28     --outdir aa_sensitivity_output
