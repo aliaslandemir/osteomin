@@ -2,13 +2,14 @@
 
 import argparse
 from pathlib import Path
-import re
+from typing import Dict, List, Optional, Tuple
+
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import tifffile as tf
 from scipy import ndimage as ndi
 from scipy import stats
-import matplotlib.pyplot as plt
 
 # ---------------- configurable ----------------
 INPUT_DIR = Path("input_images")
@@ -17,7 +18,6 @@ OUTPUT_DIR = Path("collagen_output")
 DAPI_CHANNEL = 0
 COLLAGEN_CHANNEL = 2
 BG_SIGMA = 10.0
-BASAL_COND = "C1"
 
 # -------------------- CONDITIONS & LABELS --------------------
 COND_CODE = {
@@ -48,8 +48,19 @@ def two_line_label(name: str) -> str:
     return m.get(name, name)
 
 
-# -------- helper functions --------
-def get_condition(stem: str) -> str:
+def save_figures(fig, pdf_path: Optional[Path], png_path: Optional[Path]):
+    if pdf_path:
+        fig.savefig(pdf_path, dpi=300, bbox_inches="tight")
+        print(f"Saved: {pdf_path}")
+    if png_path:
+        fig.savefig(png_path, dpi=300, bbox_inches="tight")
+        print(f"Saved: {png_path}")
+
+
+# -------- image helpers --------
+def get_condition_from_name(stem: str) -> str:
+    import re
+
     m = re.match(r"^(C[1-8])[_-]", stem, re.IGNORECASE)
     return m.group(1).upper() if m else "Unknown"
 
@@ -96,267 +107,354 @@ def compute_metric(path: Path) -> dict:
 
     return {
         "image": path.name,
-        "condition": get_condition(path.stem),
+        "condition": get_condition_from_name(path.stem),
         "collagen_over_dapi_bg": ratio,
     }
 
 
-# -------- stats --------
-def run_kruskal(df: pd.DataFrame, outdir: Path):
+# ----------------- STATS HELPERS ----------------- #
+
+def cliffs_delta(a: np.ndarray, b: np.ndarray) -> float:
+    """Cliff's delta (non-parametric effect size)."""
+    a = np.asarray(a)
+    b = np.asarray(b)
+    greater = 0
+    lesser = 0
+    for x in a:
+        greater += np.sum(x > b)
+        lesser += np.sum(x < b)
+    n_tot = a.size * b.size
+    if n_tot == 0:
+        return np.nan
+    return (greater - lesser) / n_tot
+
+
+def benjamini_hochberg(pvals: List[float]) -> List[float]:
+    """BH FDR correction, returns list of adjusted p-values."""
+    p = np.asarray(pvals, dtype=float)
+    m = p.size
+    if m == 0:
+        return []
+
+    order = np.argsort(p)
+    ranked_p = p[order]
+    adj = ranked_p * m / (np.arange(m) + 1)
+
+    # enforce monotone decreasing adjustment
+    adj_rev = np.minimum.accumulate(adj[::-1])[::-1]
+    adj_final = np.clip(adj_rev, 0.0, 1.0)
+
+    p_adj = np.empty_like(adj_final)
+    p_adj[order] = adj_final
+    return p_adj.tolist()
+
+
+def mannwhitney_z(a: np.ndarray, b: np.ndarray) -> float:
+    """Approximate z-score for Mann–Whitney U (no tie correction)."""
+    a = np.asarray(a)
+    b = np.asarray(b)
+    n1 = a.size
+    n2 = b.size
+    if n1 == 0 or n2 == 0:
+        return np.nan
+    U, _ = stats.mannwhitneyu(a, b, alternative="two-sided")
+    mean_U = n1 * n2 / 2.0
+    std_U = np.sqrt(n1 * n2 * (n1 + n2 + 1) / 12.0)
+    if std_U == 0:
+        return np.nan
+    return (U - mean_U) / std_U
+
+
+def collagen_stats(
+    cond_to_ratio: Dict[str, List[float]],
+    conds_order: List[str],
+    basal: str = "C1",
+    alpha: float = 0.05,
+) -> Tuple[float, float, Dict[str, bool], Dict[str, Dict[str, float]]]:
+    """
+    Kruskal–Wallis across all conditions, then Dunn-style
+    Mann–Whitney vs basal (BH-corrected).
+    """
+
+    # Build groups for KW in the requested order
     groups = []
-    labels = []
-    for cond in CONDITIONS:
-        vals = df.loc[df["condition"] == cond, "collagen_over_dapi_bg"].dropna().values
-        if len(vals) > 0:
+    conds_used = []
+    for c in conds_order:
+        vals = np.asarray(cond_to_ratio.get(c, []), dtype=float)
+        if vals.size > 0:
             groups.append(vals)
-            labels.append(cond)
+            conds_used.append(c)
 
     if len(groups) < 2:
-        print("Not enough groups for Kruskal–Wallis.")
-        return np.nan, np.nan
+        return np.nan, np.nan, {}, {}
 
-    H, p = stats.kruskal(*groups)
+    H, p_kw = stats.kruskal(*groups)
 
-    sigma_str = f"{BG_SIGMA:g}"
-    out_txt = outdir / f"kruskal_BG{sigma_str}.txt"
-    with open(out_txt, "w") as f:
-        f.write("Kruskal–Wallis test on collagen_over_dapi_bg\n")
-        f.write("Conditions: " + ", ".join(labels) + "\n")
-        f.write(f"H: {H:.4f}\n")
-        f.write(f"p: {p:.4e}\n")
+    if basal not in cond_to_ratio or len(cond_to_ratio[basal]) == 0:
+        raise ValueError(f"Basal condition '{basal}' has no data.")
 
-    print(f"[saved] {out_txt}")
-    return H, p
+    basal_vals = np.asarray(cond_to_ratio[basal], dtype=float)
 
+    # pairwise vs basal
+    names = []
+    p_raws = []
+    zs = []
+    deltas = []
+    ns = []
+    means = []
 
-def benjamini_hochberg(pvals: np.ndarray) -> np.ndarray:
-    """Benjamini–Hochberg FDR correction (same as ALP script)."""
-    m = len(pvals)
-    order = np.argsort(pvals)
-    ranked = pvals[order]
-    adj = np.empty(m)
-    prev = 1.0
-    for i in range(m - 1, -1, -1):
-        rank = i + 1
-        val = ranked[i] * m / rank
-        prev = min(prev, val)
-        adj[i] = min(prev, 1.0)
-    out = np.empty(m)
-    out[order] = adj
-    return out
+    diff_dict: Dict[str, Dict[str, float]] = {}
+    diff_dict[basal] = {
+        "mean": float(np.mean(basal_vals)),
+        "n": int(basal_vals.size),
+        "p_raw": np.nan,
+        "p_adj": np.nan,
+        "z": np.nan,
+        "delta": np.nan,
+    }
 
-
-def run_pairwise_vs_basal(df: pd.DataFrame, outdir: Path):
-    basal_vals = (
-        df.loc[df["condition"] == BASAL_COND, "collagen_over_dapi_bg"].dropna().values
-    )
-    if len(basal_vals) == 0:
-        print("No basal data.")
-        return pd.DataFrame(), {}
-
-    records = []
-    p_raw_list = []
-    cond_list = []
-
-    for cond in CONDITIONS:
-        if cond == BASAL_COND:
+    for c in conds_order:
+        vals = np.asarray(cond_to_ratio.get(c, []), dtype=float)
+        if c == basal:
             continue
-        vals = df.loc[df["condition"] == cond, "collagen_over_dapi_bg"].dropna().values
-        if len(vals) == 0:
-            continue
-
-        U, p_raw = stats.mannwhitneyu(basal_vals, vals, alternative="two-sided")
-        records.append(
-            {
-                "basal": BASAL_COND,
-                "condition": cond,
-                "n_basal": len(basal_vals),
-                "n_cond": len(vals),
-                "mean_basal": float(np.mean(basal_vals)),
-                "mean_cond": float(np.mean(vals)),
-                "mean_diff": float(np.mean(vals) - np.mean(basal_vals)),
-                "U": U,
-                "p_raw": p_raw,
+        if vals.size == 0:
+            diff_dict[c] = {
+                "mean": np.nan,
+                "n": 0,
+                "p_raw": np.nan,
+                "p_adj": np.nan,
+                "z": np.nan,
+                "delta": np.nan,
             }
-        )
-        p_raw_list.append(p_raw)
-        cond_list.append(cond)
-
-    p_adj_arr = benjamini_hochberg(np.array(p_raw_list))
-
-    for rec, p_adj in zip(records, p_adj_arr):
-        rec["p_adj_BH"] = float(p_adj)
-
-    results_df = pd.DataFrame(records)
-    out_csv = outdir / f"pairwise_vs_{BASAL_COND}_BG{BG_SIGMA}.csv"
-    results_df.to_csv(out_csv, index=False)
-    print(f"[saved] {out_csv}")
-
-    # sig_dict now stores the *adjusted* p-values, not just True/False
-    sig_dict = {cond: float(p_adj) for cond, p_adj in zip(cond_list, p_adj_arr)}
-    return results_df, sig_dict
-
-
-# -------- plotting --------
-def plot_scatter(df: pd.DataFrame, outdir: Path, p_value: float, sig_dict: dict):
-    fig, ax = plt.subplots(figsize=(8, 4))
-
-    # x positions: 1..N (same style as ALP script)
-    x_pos = {cond: i for i, cond in enumerate(CONDITIONS, start=1)}
-
-    all_vals = []
-    for cond in CONDITIONS:
-        vals = df.loc[df["condition"] == cond, "collagen_over_dapi_bg"].dropna().values
-        all_vals.extend(vals)
-        xpos = x_pos[cond]
-        if len(vals) > 0:
-            ax.scatter([xpos] * len(vals), vals, s=30)
-            mean_val = float(np.mean(vals))
-            ax.hlines(mean_val, xpos - 0.2, xpos + 0.2, linewidth=1, color="0.2")
-
-    ax.set_ylabel("Collagen/DAPI (smoothed sum ratio)")
-
-    if not all_vals:
-        ax.set_title(
-            "Collagen/DAPI per field of view\n"
-            "Stars indicate Benjamini–Hochberg–adjusted p < 0.05 vs basal"
-        )
-        png_empty = outdir / "scatter_empty.png"
-        pdf_empty = png_empty.with_suffix(".pdf")
-        fig.savefig(png_empty, dpi=300, bbox_inches="tight")
-        fig.savefig(pdf_empty, dpi=300, bbox_inches="tight")
-        plt.close(fig)
-        print(f"[saved] {png_empty}")
-        print(f"[saved] {pdf_empty}")
-        return
-
-    y_min, y_max = min(all_vals), max(all_vals)
-    yr = y_max - y_min if y_max > y_min else 1.0
-
-    ax.set_xticks([x_pos[c] for c in CONDITIONS])
-    ax.set_xticklabels([two_line_label(COND_CODE[c]) for c in CONDITIONS])
-
-    basal_vals = (
-        df.loc[df["condition"] == BASAL_COND, "collagen_over_dapi_bg"].dropna().values
-    )
-    mean_basal = float(np.mean(basal_vals))
-
-    # ----- Δ-mean labels in ALP style -----
-    label_y = y_max + 0.05 * yr
-    for cond in CONDITIONS:
-        vals = df.loc[df["condition"] == cond, "collagen_over_dapi_bg"].dropna().values
-        if not len(vals):
             continue
-        xpos = x_pos[cond]
-        mean_cond = float(np.mean(vals))
 
-        if cond == BASAL_COND:
-            label = "baseline"
-        else:
-            diff = mean_cond - mean_basal
-            ad = abs(diff)
-            if ad == 0:
-                label = "0"
-            else:
-                # same thresholds as ALP script
-                level = "strong" if ad > 2.0 else "mod" if ad >= 1.0 else "mild"
-                arrow = "↑" if diff > 0 else "↓"
-                label = f"{diff:+.2f} {arrow} {level}"
+        _, p_raw = stats.mannwhitneyu(basal_vals, vals, alternative="two-sided")
+        z = mannwhitney_z(basal_vals, vals)
+        delta = cliffs_delta(basal_vals, vals)
 
-        ax.text(xpos, label_y, label, ha="center", va="bottom", fontsize=7)
+        names.append(c)
+        p_raws.append(p_raw)
+        zs.append(z)
+        deltas.append(delta)
+        ns.append(int(vals.size))
+        means.append(float(np.mean(vals)))
 
-    # ----- significance stars (BH-adjusted MWU vs basal), gated by KW -----
-    star_y = y_max + 0.12 * yr
-    if p_value is not None and not np.isnan(p_value) and p_value < 0.05:
-        # Only show stars if global Kruskal–Wallis is significant
-        for cond in CONDITIONS:
-            if cond == BASAL_COND:
-                continue
-            p_adj = sig_dict.get(cond, np.nan)
-            if not np.isnan(p_adj) and p_adj < 0.05:
-                ax.text(x_pos[cond], star_y, "*", ha="center", va="bottom", fontsize=12)
-    else:
-        # If KW not significant, we explicitly do not draw stars
-        pass
+    p_adjs = benjamini_hochberg(p_raws) if p_raws else []
 
-    # ----- title (same wording style + optional KW p-value) -----
-    title_lines = [
-        "Collagen/DAPI per field of view",
-        "Stars indicate Benjamini–Hochberg–adjusted p < 0.05 vs basal"
-        " (shown only if Kruskal–Wallis p < 0.05)",
-    ]
-    if p_value is not None and not np.isnan(p_value):
-        title_lines.append(f"Kruskal–Wallis p = {p_value:.2e}")
+    sig_dict: Dict[str, bool] = {}
+    for i, c in enumerate(names):
+        diff_dict[c] = {
+            "mean": means[i],
+            "n": ns[i],
+            "p_raw": p_raws[i],
+            "p_adj": p_adjs[i],
+            "z": zs[i],
+            "delta": deltas[i],
+        }
+        sig_dict[c] = p_adjs[i] < alpha
 
-    ax.set_title("\n".join(title_lines))
-
-    ax.set_ylim(y_min - 0.05 * yr, y_max + 0.25 * yr)
-    fig.tight_layout()
-    png_out = outdir / f"{int(BG_SIGMA)}_scatter_collagen_over_dapi_bg.png"
-    pdf_out = png_out.with_suffix(".pdf")
-    fig.savefig(png_out, dpi=300, bbox_inches="tight")
-    fig.savefig(pdf_out, dpi=300, bbox_inches="tight")
-    plt.close(fig)
-    print(f"[saved] {png_out}")
-    print(f"[saved] {pdf_out}")
+    return H, p_kw, sig_dict, diff_dict
 
 
-# -------- main --------
+# ----------------- ARG PARSING ----------------- #
 def parse_args():
-    p = argparse.ArgumentParser()
-    p.add_argument("-i", "--input", type=Path, default=INPUT_DIR)
-    p.add_argument("-o", "--out", type=Path, default=OUTPUT_DIR)
-    p.add_argument("-s", "--sigma", type=float, default=BG_SIGMA)
+    p = argparse.ArgumentParser(
+        description=(
+            "Compute collagen/DAPI (Gaussian-smoothed sum ratio) from TIFF images "
+            "and run Kruskal–Wallis + Dunn-style vs basal with BH correction."
+        )
+    )
+    p.add_argument("-input", type=Path, default=INPUT_DIR)
+    p.add_argument("--out", help="Optional output PDF path")
+    p.add_argument(
+        "--png",
+        help="Optional PNG path; defaults to the same stem as --out with .png.",
+    )
+    p.add_argument(
+        "--basal",
+        default="C1",
+        help="Code of basal condition (default: C1).",
+    )
+    p.add_argument(
+        "-s",
+        "--sigma",
+        type=float,
+        default=BG_SIGMA,
+        help="Gaussian sigma for background smoothing.",
+    )
     return p.parse_args()
 
 
+# ----------------- MAIN ----------------- #
 def main():
     global BG_SIGMA
     args = parse_args()
     BG_SIGMA = args.sigma
 
-    out_dir = args.out
-    out_dir.mkdir(exist_ok=True)
-
-    paths = sorted(list(args.input.glob("*.tif")) + list(args.input.glob("*.tiff")))
+    input_dir = args.input
+    paths = sorted(list(input_dir.glob("*.tif")) + list(input_dir.glob("*.tiff")))
     if not paths:
-        print("No images found.")
+        print("No images found in", input_dir)
         return
 
+    # compute metrics per image
     rows = []
-    for p in paths:
+    for pth in paths:
         try:
-            rows.append(compute_metric(p))
+            rows.append(compute_metric(pth))
         except Exception as e:
-            print(f"[warn] {p}: {e}")
+            print(f"[warn] {pth}: {e}")
 
     df = pd.DataFrame(rows)
     df = df[df["condition"].isin(CONDITIONS)]
 
-    csv_path = out_dir / f"image_metrics_BG{BG_SIGMA}.csv"
+    if df.empty:
+        print("No valid C1–C8 images found after filtering.")
+        return
+
+    # save raw metrics
+    out_dir = OUTPUT_DIR if args.out is None and args.png is None else Path(".")
+    out_dir.mkdir(exist_ok=True)
+    csv_path = out_dir / f"collagen_image_metrics_BG{BG_SIGMA}.csv"
     df.to_csv(csv_path, index=False)
-    print(f"[saved] {csv_path}")
+    print(f"Saved metrics CSV: {csv_path}")
 
-    # 1) Global Kruskal–Wallis
-    H_kw, p_kw = run_kruskal(df, out_dir)
-
-    # 2) Pairwise MWU vs basal + BH *only used* if KW significant
-    if not np.isnan(p_kw) and p_kw < 0.05:
-        print(f"Kruskal–Wallis significant (p = {p_kw:.4e}); running post-hoc tests.")
-        _, sig_dict = run_pairwise_vs_basal(df, out_dir)
-    else:
-        print(
-            f"Kruskal–Wallis not significant or invalid (p = {p_kw:.4e}); "
-            "skipping post-hoc significance."
+    # build cond_to_vals dict
+    cond_to_ratio: Dict[str, List[float]] = {}
+    for cond in CONDITIONS:
+        vals = (
+            df.loc[df["condition"] == cond, "collagen_over_dapi_bg"]
+            .dropna()
+            .astype(float)
+            .tolist()
         )
-        sig_dict = {}
+        if vals:
+            cond_to_ratio[cond] = vals
 
-    # 3) Plot (stars only appear if KW < 0.05 and BH-adjusted p < 0.05)
-    plot_scatter(df, out_dir, p_kw, sig_dict)
+    conds_c = [c for c in CONDITIONS if c in cond_to_ratio]
+
+    if not conds_c:
+        print("No conditions with data, exiting.")
+        return
+
+    xs, ys = [], []
+    for i, cond in enumerate(conds_c, start=1):
+        for v in cond_to_ratio.get(cond, []):
+            xs.append(i)
+            ys.append(v)
+
+    if not xs or not ys:
+        print("No numeric values for collagen_over_dapi_bg, exiting.")
+        return
+
+    # ---------- STATS ----------
+    H, p_kw, sig_dict, diff_dict = collagen_stats(
+        cond_to_ratio, conds_c, basal=args.basal
+    )
+
+    print("\n===== Kruskal–Wallis across all conditions (collagen/DAPI) =====")
+    print(f"H = {H:.3f}, p = {p_kw:.4g}")
+
+    print("\n===== Per-condition stats vs basal (collagen/DAPI) =====")
+    basal_mean = diff_dict.get(args.basal, {}).get("mean", np.nan)
+    for cond in conds_c:
+        info = diff_dict.get(cond, {})
+        mean_val = info.get("mean", np.nan)
+        n = int(info.get("n", 0))
+        delta = info.get("delta", np.nan)
+        if cond == args.basal:
+            print(f"{cond} (Basal): mean = {mean_val:.4g}, n = {n}")
+        else:
+            p_raw = info.get("p_raw", np.nan)
+            p_adj = info.get("p_adj", np.nan)
+            z = info.get("z", np.nan)
+            print(
+                f"{cond}: mean = {mean_val:.4g}, n = {n}, "
+                f"Δmean (vs basal) = {mean_val - basal_mean:+.4g}, "
+                f"Cliff δ = {delta:+.3f}, "
+                f"z = {z:.3f}, p_raw = {p_raw:.4g}, p_BH = {p_adj:.4g}, "
+                f"significant = {sig_dict.get(cond, False)}"
+            )
+
+    means = {c: diff_dict.get(c, {}).get("mean", np.nan) for c in conds_c}
+    mean_basal = means.get(args.basal, np.nan)
+
+    # ---------- PLOT ----------
+    fig, ax = plt.subplots(figsize=(8, 4))
+
+    # scatter + mean lines (with jitter)
+    for i, cond in enumerate(conds_c, start=1):
+        vals = cond_to_ratio.get(cond, [])
+        if len(vals) > 0:
+            x_jitter = np.random.normal(loc=i, scale=0.05, size=len(vals))
+            ax.scatter(x_jitter, vals, s=30)
+            mean_val = np.mean(vals)
+            ax.hlines(mean_val, i - 0.2, i + 0.2, linewidth=1, color="0.2")
+
+    ax.set_xticks(range(1, len(conds_c) + 1))
+    labels = [two_line_label(COND_CODE.get(cond, cond)) for cond in conds_c]
+    ax.set_xticklabels(labels)
+
+    ax.set_ylabel("Collagen/DAPI (Gaussian-smoothed sum ratio)")
+
+    # y-range + annotation heights
+    y_min, y_max = min(ys), max(ys)
+    yr = y_max - y_min if y_max > y_min else 1.0
+    label_y = y_max + 0.05 * yr
+    star_y = y_max + 0.12 * yr
+
+    # Δ-mean labels + stars vs basal
+    for i, cond in enumerate(conds_c, start=1):
+        if cond == args.basal:
+            ax.text(i, label_y, "baseline", ha="center", fontsize=7)
+            continue
+
+        diff = means[cond] - mean_basal
+        if np.isnan(diff):
+            lbl = "NA"
+        else:
+            arrow = "↑" if diff > 0 else "↓"
+            lbl = f"{diff:+.2f} {arrow}"
+
+        ax.text(i, label_y, lbl, ha="center", fontsize=7)
+
+        if sig_dict.get(cond, False):
+            ax.text(i, star_y, "*", ha="center", fontsize=12)
+
+    ax.set_title(
+        "Collagen/DAPI (Gaussian-smoothed sum ratio)\n"
+        "Stars mark BH-corrected Mann–Whitney significance vs Basal"
+    )
+
+    ax.set_ylim(y_min - 0.05 * yr, y_max + 0.25 * yr)
+    fig.tight_layout()
+
+    # save / show
+    if args.out or args.png:
+        pdf_path = Path(args.out) if args.out else None
+        png_path = (
+            Path(args.png)
+            if args.png
+            else pdf_path.with_suffix(".png") if pdf_path else None
+        )
+        save_figures(fig, pdf_path, png_path)
+    else:
+        plt.show()
 
 
 if __name__ == "__main__":
     main()
 
-# Example:
-# python collagen_stat_code.py --input ../input_images --out collagen_stat_out --sigma 10
+
+
+# To Run
+
+"""
+Example usage:
+
+python collagen_stat_code.py \
+  -input input_images \
+  --basal C1 \
+  --out collagen_stats.pdf
+
+"""

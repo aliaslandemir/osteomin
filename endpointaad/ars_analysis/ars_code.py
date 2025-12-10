@@ -11,6 +11,34 @@ import matplotlib.pyplot as plt
 COND_RE = re.compile(r"^(C[1-8])", re.IGNORECASE)
 
 
+COND_CODE = {
+    "C1": "Basal",
+    "C2": "Osteo",
+    "C3": "Osteo+D/MK4 (L/L)",
+    "C4": "Osteo+D/MK4 (L/H)",
+    "C5": "Osteo+D/MK4 (H/L)",
+    "C6": "Osteo+D/MK4 (H/H)",
+    "C7": "Osteo+Dex (H)",
+    "C8": "Osteo+MK-4 (H)",
+}
+CONDITIONS = list(COND_CODE.keys())
+
+
+def two_line_label(name: str) -> str:
+    """Two-line labels for conditions."""
+    m = {
+        "Basal": "Basal",
+        "Osteo": r"AA+$\beta$-GP",
+        "Osteo+D/MK4 (L/L)": r"AA+$\beta$-GP" + "\n" + r"$D_LK_L$",
+        "Osteo+D/MK4 (L/H)": r"AA+$\beta$-GP" + "\n" + r"$D_LK_H$",
+        "Osteo+D/MK4 (H/L)": r"AA+$\beta$-GP" + "\n" + r"$D_HK_L$",
+        "Osteo+D/MK4 (H/H)": r"AA+$\beta$-GP" + "\n" + r"$D_HK_H$",
+        "Osteo+Dex (H)": r"AA+$\beta$-GP" + "\n" + r"$D_HK_0$",
+        "Osteo+MK-4 (H)": r"AA+$\beta$-GP" + "\n" + r"$D_0K_H$",
+    }
+    return m.get(name, name)
+
+
 def load_rgb_float(p: Path):
     img = io.imread(str(p))
     if img.ndim == 2:
@@ -66,7 +94,7 @@ def main():
     fig, ax = plt.subplots(figsize=(8, 4))
     ax.scatter(xs, ys)
     ax.set_xticks(range(1, len(conds) + 1))
-    ax.set_xticklabels(conds)
+    ax.set_xticklabels([two_line_label(COND_CODE[c]) for c in conds])
     ax.set_ylabel("Mean (R - G)")
     ax.set_title("Mean (R - G) per condition")
     fig.tight_layout()
