@@ -1,5 +1,31 @@
 #!/usr/bin/env python3
 
+"""
+Image-level collagen/DAPI metric with non-parametric stats.
+
+Per image (RAW, no thresholds, no bg-subtraction):
+- Read multichannel TIFFs, extract DAPI + collagen channels
+- Compute:
+    * C_sum   = sum of collagen intensities over all pixels
+    * D_sum   = sum of DAPI intensities over all pixels
+    * D_area  = number of pixels where DAPI intensity != 0
+    * A_total = total number of pixels in the image
+
+Define the metric:
+    metric = (C_sum / D_sum) * (D_area / A_total)
+
+For the chosen basal condition (default C1), compute the median of 'metric'
+across all basal images, and define:
+
+    metric_rel = metric / median_basal_metric
+
+Stats:
+- Kruskal–Wallis across all conditions on metric_rel
+- Dunn-style pairwise Mann–Whitney vs basal (two-sided) with BH FDR correction
+- Cliff’s delta + z-score per comparison
+- Plot per-image metric_rel + mean + Δmean vs basal + * for BH-significant vs basal
+"""
+
 import argparse
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -8,7 +34,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import tifffile as tf
-from scipy import ndimage as ndi
 from scipy import stats
 
 # ---------------- configurable ----------------
@@ -17,7 +42,6 @@ OUTPUT_DIR = Path("collagen_output")
 
 DAPI_CHANNEL = 0
 COLLAGEN_CHANNEL = 2
-BG_SIGMA = 10.0
 
 # -------------------- CONDITIONS & LABELS --------------------
 COND_CODE = {
@@ -66,6 +90,7 @@ def get_condition_from_name(stem: str) -> str:
 
 
 def read_channels(path: Path):
+    """Read DAPI and collagen channels from a multi-channel TIFF (RAW)."""
     with tf.TiffFile(path) as tif:
         arr = tif.asarray()
 
@@ -92,28 +117,39 @@ def read_channels(path: Path):
     return dapi, col
 
 
-def bg_smooth(img: np.ndarray) -> np.ndarray:
-    return ndi.gaussian_filter(img, BG_SIGMA)
-
-
-def compute_metric(path: Path) -> dict:
+def compute_metric_for_image(path: Path) -> dict:
+    """
+    Compute raw-intensity based metric for a single image:
+      C_sum, D_sum, D_area, A_total, metric
+    """
     dapi_raw, col_raw = read_channels(path)
-    dapi_bg = bg_smooth(dapi_raw)
-    col_bg = bg_smooth(col_raw)
 
-    sum_dapi = float(np.sum(dapi_bg))
-    sum_col = float(np.sum(col_bg))
-    ratio = sum_col / sum_dapi if sum_dapi > 0 else np.nan
+    A_total = float(dapi_raw.size)
+    D_sum = float(np.sum(dapi_raw))
+    C_sum = float(np.sum(col_raw))
+    D_area = float(np.count_nonzero(dapi_raw))  # pixels with DAPI != 0
+
+    def sdiv(num, den):
+        return float(num / den) if den > 0 else np.nan
+
+    left = sdiv(C_sum, D_sum)
+    right = sdiv(D_area, A_total)
+    metric = left * right if np.isfinite(left) and np.isfinite(right) else np.nan
 
     return {
         "image": path.name,
         "condition": get_condition_from_name(path.stem),
-        "collagen_over_dapi_bg": ratio,
+        "C_sum": C_sum,
+        "D_sum": D_sum,
+        "D_area": D_area,
+        "A_total": A_total,
+        "left_Csum_over_Dsum": left,
+        "right_Darea_over_Atotal": right,
+        "metric": metric,
     }
 
 
-# ----------------- STATS HELPERS ----------------- #
-
+# ----------------- STATS HELPERS (from ALP script) ----------------- #
 def cliffs_delta(a: np.ndarray, b: np.ndarray) -> float:
     """Cliff's delta (non-parametric effect size)."""
     a = np.asarray(a)
@@ -140,7 +176,7 @@ def benjamini_hochberg(pvals: List[float]) -> List[float]:
     ranked_p = p[order]
     adj = ranked_p * m / (np.arange(m) + 1)
 
-    # enforce monotone decreasing adjustment
+    # enforce monotone decreasing of adjusted p when going from largest to smallest p
     adj_rev = np.minimum.accumulate(adj[::-1])[::-1]
     adj_final = np.clip(adj_rev, 0.0, 1.0)
 
@@ -150,7 +186,7 @@ def benjamini_hochberg(pvals: List[float]) -> List[float]:
 
 
 def mannwhitney_z(a: np.ndarray, b: np.ndarray) -> float:
-    """Approximate z-score for Mann–Whitney U (no tie correction)."""
+    """Approximate z-score for Mann–Whitney U test (no tie correction)."""
     a = np.asarray(a)
     b = np.asarray(b)
     n1 = a.size
@@ -165,22 +201,25 @@ def mannwhitney_z(a: np.ndarray, b: np.ndarray) -> float:
     return (U - mean_U) / std_U
 
 
-def collagen_stats(
-    cond_to_ratio: Dict[str, List[float]],
+def metric_stats(
+    cond_to_vals: Dict[str, List[float]],
     conds_order: List[str],
     basal: str = "C1",
     alpha: float = 0.05,
 ) -> Tuple[float, float, Dict[str, bool], Dict[str, Dict[str, float]]]:
     """
-    Kruskal–Wallis across all conditions, then Dunn-style
-    Mann–Whitney vs basal (BH-corrected).
-    """
+    Run Kruskal–Wallis across all conditions (on metric_rel),
+    then Dunn-style pairwise Mann–Whitney vs basal (BH-corrected).
 
-    # Build groups for KW in the requested order
+    Returns:
+        H, p_kw, sig_dict (BH-significant vs basal),
+        diff_dict: per-condition stats (mean, n, p_raw, p_adj, z, delta).
+    """
+    # Prepare data in the requested order
     groups = []
     conds_used = []
     for c in conds_order:
-        vals = np.asarray(cond_to_ratio.get(c, []), dtype=float)
+        vals = np.asarray(cond_to_vals.get(c, []), dtype=float)
         if vals.size > 0:
             groups.append(vals)
             conds_used.append(c)
@@ -188,14 +227,15 @@ def collagen_stats(
     if len(groups) < 2:
         return np.nan, np.nan, {}, {}
 
+    # Kruskal–Wallis
     H, p_kw = stats.kruskal(*groups)
 
-    if basal not in cond_to_ratio or len(cond_to_ratio[basal]) == 0:
+    if basal not in cond_to_vals or len(cond_to_vals[basal]) == 0:
         raise ValueError(f"Basal condition '{basal}' has no data.")
 
-    basal_vals = np.asarray(cond_to_ratio[basal], dtype=float)
+    basal_vals = np.asarray(cond_to_vals[basal], dtype=float)
 
-    # pairwise vs basal
+    # Pairwise vs basal
     names = []
     p_raws = []
     zs = []
@@ -205,7 +245,7 @@ def collagen_stats(
 
     diff_dict: Dict[str, Dict[str, float]] = {}
     diff_dict[basal] = {
-        "mean": float(np.mean(basal_vals)),
+        "mean": float(np.mean(basal_vals)) if basal_vals.size > 0 else np.nan,
         "n": int(basal_vals.size),
         "p_raw": np.nan,
         "p_adj": np.nan,
@@ -214,7 +254,7 @@ def collagen_stats(
     }
 
     for c in conds_order:
-        vals = np.asarray(cond_to_ratio.get(c, []), dtype=float)
+        vals = np.asarray(cond_to_vals.get(c, []), dtype=float)
         if c == basal:
             continue
         if vals.size == 0:
@@ -260,8 +300,9 @@ def collagen_stats(
 def parse_args():
     p = argparse.ArgumentParser(
         description=(
-            "Compute collagen/DAPI (Gaussian-smoothed sum ratio) from TIFF images "
-            "and run Kruskal–Wallis + Dunn-style vs basal with BH correction."
+            "Compute raw collagen/DAPI metric = (C_sum/D_sum)*(D_area/A_total) "
+            "from TIFF images, normalize to basal (metric_rel), and run "
+            "Kruskal–Wallis + Dunn-style Mann–Whitney vs basal with BH correction."
         )
     )
     p.add_argument("-input", type=Path, default=INPUT_DIR)
@@ -276,20 +317,17 @@ def parse_args():
         help="Code of basal condition (default: C1).",
     )
     p.add_argument(
-        "-s",
-        "--sigma",
+        "--alpha",
         type=float,
-        default=BG_SIGMA,
-        help="Gaussian sigma for background smoothing.",
+        default=0.05,
+        help="Significance threshold for BH-adjusted p (default: 0.05).",
     )
     return p.parse_args()
 
 
 # ----------------- MAIN ----------------- #
 def main():
-    global BG_SIGMA
     args = parse_args()
-    BG_SIGMA = args.sigma
 
     input_dir = args.input
     paths = sorted(list(input_dir.glob("*.tif")) + list(input_dir.glob("*.tiff")))
@@ -297,11 +335,11 @@ def main():
         print("No images found in", input_dir)
         return
 
-    # compute metrics per image
+    # ---------- compute metrics per image ----------
     rows = []
     for pth in paths:
         try:
-            rows.append(compute_metric(pth))
+            rows.append(compute_metric_for_image(pth))
         except Exception as e:
             print(f"[warn] {pth}: {e}")
 
@@ -312,50 +350,66 @@ def main():
         print("No valid C1–C8 images found after filtering.")
         return
 
-    # save raw metrics
+    # ---------- Normalization vs basal (per plate) ----------
+    basal_mask = df["condition"] == args.basal
+    if not basal_mask.any():
+        raise ValueError(
+            f"Basal condition '{args.basal}' has no rows in the DataFrame."
+        )
+
+    basal_vals_raw = df.loc[basal_mask, "metric"].dropna().astype(float)
+    if basal_vals_raw.empty:
+        raise ValueError(
+            f"Basal condition '{args.basal}' has no finite 'metric' values."
+        )
+    metric0 = float(basal_vals_raw.median())
+    df["metric_rel"] = df["metric"] / metric0 if metric0 > 0 else np.nan
+
+    # save raw + normalized metrics
     out_dir = OUTPUT_DIR if args.out is None and args.png is None else Path(".")
     out_dir.mkdir(exist_ok=True)
-    csv_path = out_dir / f"collagen_image_metrics_BG{BG_SIGMA}.csv"
+    csv_path = out_dir / "collagen_raw_metric_Csum_Dsum_Darea_Atotal_metricrel.csv"
     df.to_csv(csv_path, index=False)
     print(f"Saved metrics CSV: {csv_path}")
+    print(f"Basal median metric = {metric0:.4g}")
 
-    # build cond_to_vals dict
-    cond_to_ratio: Dict[str, List[float]] = {}
+    # build cond_to_vals dict for metric_rel (used for stats+plot)
+    cond_to_rel: Dict[str, List[float]] = {}
     for cond in CONDITIONS:
         vals = (
-            df.loc[df["condition"] == cond, "collagen_over_dapi_bg"]
+            df.loc[df["condition"] == cond, "metric_rel"]
             .dropna()
             .astype(float)
             .tolist()
         )
         if vals:
-            cond_to_ratio[cond] = vals
+            cond_to_rel[cond] = vals
 
-    conds_c = [c for c in CONDITIONS if c in cond_to_ratio]
+    conds_c = [c for c in CONDITIONS if c in cond_to_rel]
 
     if not conds_c:
-        print("No conditions with data, exiting.")
+        print("No conditions with metric_rel data, exiting.")
         return
 
     xs, ys = [], []
     for i, cond in enumerate(conds_c, start=1):
-        for v in cond_to_ratio.get(cond, []):
+        for v in cond_to_rel.get(cond, []):
             xs.append(i)
             ys.append(v)
 
     if not xs or not ys:
-        print("No numeric values for collagen_over_dapi_bg, exiting.")
+        print("No numeric values for metric_rel, exiting.")
         return
 
     # ---------- STATS ----------
-    H, p_kw, sig_dict, diff_dict = collagen_stats(
-        cond_to_ratio, conds_c, basal=args.basal
+    H, p_kw, sig_dict, diff_dict = metric_stats(
+        cond_to_rel, conds_c, basal=args.basal, alpha=args.alpha
     )
 
-    print("\n===== Kruskal–Wallis across all conditions (collagen/DAPI) =====")
+    print("\n===== Kruskal–Wallis across all conditions (metric_rel) =====")
     print(f"H = {H:.3f}, p = {p_kw:.4g}")
 
-    print("\n===== Per-condition stats vs basal (collagen/DAPI) =====")
+    print("\n===== Per-condition stats vs basal (metric_rel) =====")
     basal_mean = diff_dict.get(args.basal, {}).get("mean", np.nan)
     for cond in conds_c:
         info = diff_dict.get(cond, {})
@@ -384,7 +438,7 @@ def main():
 
     # scatter + mean lines (with jitter)
     for i, cond in enumerate(conds_c, start=1):
-        vals = cond_to_ratio.get(cond, [])
+        vals = cond_to_rel.get(cond, [])
         if len(vals) > 0:
             x_jitter = np.random.normal(loc=i, scale=0.05, size=len(vals))
             ax.scatter(x_jitter, vals, s=30)
@@ -393,9 +447,9 @@ def main():
 
     ax.set_xticks(range(1, len(conds_c) + 1))
     labels = [two_line_label(COND_CODE.get(cond, cond)) for cond in conds_c]
-    ax.set_xticklabels(labels)
+    ax.set_xticklabels(labels, fontsize=9)
 
-    ax.set_ylabel("Collagen/DAPI (Gaussian-smoothed sum ratio)")
+    ax.set_ylabel("metric_rel (fold vs Basal)")
 
     # y-range + annotation heights
     y_min, y_max = min(ys), max(ys)
@@ -403,7 +457,7 @@ def main():
     label_y = y_max + 0.05 * yr
     star_y = y_max + 0.12 * yr
 
-    # Δ-mean labels + stars vs basal
+    # Δ-mean labels + stars vs basal (BH-significant)
     for i, cond in enumerate(conds_c, start=1):
         if cond == args.basal:
             ax.text(i, label_y, "baseline", ha="center", fontsize=7)
@@ -422,8 +476,8 @@ def main():
             ax.text(i, star_y, "*", ha="center", fontsize=12)
 
     ax.set_title(
-        "Collagen/DAPI (Gaussian-smoothed sum ratio)\n"
-        "Stars mark BH-corrected Mann–Whitney significance vs Basal"
+        "(C_sum/D_sum) · (D_area/A_total), normalized to Basal\n"
+        "Kruskal–Wallis + BH-corrected Mann–Whitney vs Basal"
     )
 
     ax.set_ylim(y_min - 0.05 * yr, y_max + 0.25 * yr)
@@ -446,15 +500,13 @@ if __name__ == "__main__":
     main()
 
 
-
 # To Run
-
 """
 Example usage:
 
-python collagen_stat_code.py \
-  -input input_images \
+python coll_metric_kw_mw.py \
+  -input ../../input_images \
   --basal C1 \
-  --out collagen_stats.pdf
-
+  --alpha 0.05 \
+  --out collagen_metric_kw.pdf
 """
