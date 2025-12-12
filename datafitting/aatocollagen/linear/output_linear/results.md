@@ -1,37 +1,30 @@
-# AA → Collagen Model Summary
+# AA → Collagen (linear, 24 h exposure) — minimal report
 
-## Input Parameters
-- Model type: linear
-- Initial AA concentration: 50.0 µg/mL
+## Inputs
+- AA0: 50.0 µg/mL
 - AA half-life: 3.0 h
 - Medium interval: 2 days
-- Basal IF (day 14): 2.5
-- Osteo IF (day 14): 3.6
+- Supplements start day: 3
+- Simulated days: 14
 - Measurement day: 14
-- Supplements added at day: 3
-- Total simulation days: 14
+- BASAL (basal) endpoint at day 14: 1.36
+- AA (osteo) endpoint at day 14: 1.58
 
-## Fitted Parameters
-- R0 (basal collagen/day): 0.1786
-- R_AA (AA-driven collagen/day): 0.1827
+## Fitted parameters (from endpoints)
+- R0: 0.0971429 (basal collagen/day)
+- R_AA: 0.0365477 (AA-driven collagen/day)
 
-## AA Exposure (Diagnostic)
-- Max 24 h mean AA: 10.0591 µg/mL
-- Max effective AA (first 12 h): 18.9349 µg/mL
-- Max AA effect (normalized): 1.0000
+## Diagnostics (24 h)
+- max AA_daily_24h: 10.0591 µg/mL
+- sum AA_norm[1..D]: 6.01953
 
-## Collagen Outputs
-- Total collagen at day 14: 3.6000
-- Daily collagen on last day: 0.3613
+## Endpoint consistency
+- Model basal at day 14: 1.36
+- Model osteo at day 14: 1.58
+- Exp ratio (AA/BASAL): 1.16176
+- Model ratio (AA/BASAL): 1.16176
 
-## Fit Summary at Measurement Day
-- Basal (exp vs model): 2.500 vs 2.500
-- Osteo (exp vs model): 3.600 vs 3.600
-- Exp ratio (Osteo/Basal): 1.440
-- Model ratio (Osteo/Basal): 1.440
-- Osteo relative error (model vs exp): -0.0%
-
-## Files Generated
-- Excel: `aa_collagen_output.xlsx`
-- Time-course: `timecourse.pdf/png`
-- Fit comparison: `fit_comparison.pdf/png`
+## Files
+- `aa_collagen_output.xlsx`
+- `basal_vs_aa_minimal.pdf` / `basal_vs_aa_minimal.png`
+- `aa_exposure_daily.pdf` / `aa_exposure_daily.png`
