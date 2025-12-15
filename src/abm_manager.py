@@ -11,7 +11,9 @@ __all__ = ["ABMManager"]
 class ABMManager:
     """On-lattice ABM with event tracking lists per day."""
 
-    def __init__(self, cfg: ABMConfig, rng: np.random.Generator, track_cells: bool = False):
+    def __init__(
+        self, cfg: ABMConfig, rng: np.random.Generator, track_cells: bool = False
+    ):
         self.cfg = cfg
         self.rng = rng
         self.width, self.height = int(cfg.width), int(cfg.height)
@@ -45,7 +47,7 @@ class ABMManager:
 
         # base movement weights
         base_axial = 1.0
-        base_diag = 0.5
+        base_diag = 1.0 / np.sqrt(2)  # ≈ 0.707
 
         direction_weights = [base_axial] * 4 + [base_diag] * 4
         total = sum(direction_weights)
@@ -299,12 +301,10 @@ class ABMManager:
                 "alive": False,
                 "ever_ob": bool(cell.ever_ob),
                 "birth_day": int(cell.birth_day),
-                "day_committed": int(cell.day_committed)
-                if cell.day_committed is not None
-                else None,
-                "day_died": int(cell.day_died)
-                if cell.day_died is not None
-                else None,
+                "day_committed": (
+                    int(cell.day_committed) if cell.day_committed is not None else None
+                ),
+                "day_died": int(cell.day_died) if cell.day_died is not None else None,
                 "last_div_day": int(cell.last_div_day),
                 "move_count": int(cell.move_count),
             }
