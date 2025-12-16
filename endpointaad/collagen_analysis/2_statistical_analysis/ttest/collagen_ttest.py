@@ -34,6 +34,8 @@ import numpy as np
 import pandas as pd
 import tifffile as tf
 from scipy import stats
+from scipy.ndimage import gaussian_filter
+
 
 # ---------------- configurable ----------------
 INPUT_DIR = Path("input_images")
@@ -123,11 +125,21 @@ def compute_metric_for_image(path: Path) -> dict:
     """
     dapi_raw, col_raw = read_channels(path)
 
-    # Fundamental quantities (RAW, no thresholding)
-    A_total = float(dapi_raw.size)
-    D_sum = float(np.sum(dapi_raw))
-    C_sum = float(np.sum(col_raw))
-    D_area = float(np.count_nonzero(dapi_raw))  # pixels with DAPI != 0
+    # --- background estimation (slowly varying) ---
+    SIGMA_BG = 20  # px; adjust once, then FIX IT
+
+    dapi_bg = gaussian_filter(dapi_raw, sigma=SIGMA_BG)
+    col_bg = gaussian_filter(col_raw, sigma=SIGMA_BG)
+
+    # --- background subtraction (no smoothing of signal) ---
+    dapi = np.clip(dapi_raw - dapi_bg, 0, None)
+    col = np.clip(col_raw - col_bg, 0, None)
+
+    # --- fundamental quantities (BG-corrected) ---
+    A_total = float(dapi.size)
+    D_sum = float(np.sum(dapi))
+    C_sum = float(np.sum(col))
+    D_area = float(np.count_nonzero(dapi))
 
     def sdiv(num, den):
         return float(num / den) if den > 0 else np.nan
@@ -415,8 +427,8 @@ if __name__ == "__main__":
 """
 Example usage:
 
-python coll_raw_metric.py \
-  -input ../../input_images \
+python coll_ttest.py \
+  -input ../../../input_images \
   --basal C1 \
   --alpha 0.05 \
   --out collagen_raw_metric.pdf
