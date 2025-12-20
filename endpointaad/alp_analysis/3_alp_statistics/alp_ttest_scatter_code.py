@@ -1,27 +1,53 @@
 #!/usr/bin/env python3
-
 """
-Simple ALP stats/plot assuming technical replicates and parametric tests.
+Publication-ready ALP (technical replicates) — RAW / ABSOLUTE mU/mL
+MATCHES collagen-style plot + stats, but WITHOUT fold normalization.
 
-- Blank-corrects and converts ALP readings to mU/mL
-- Computes mean ± SEM for each condition
-- Runs Welch's t-tests vs Basal (C1), treating technical replicates as independent
-- Plots jittered individual points + mean ± SEM and marks * for p < 0.05
+Keeps the SAME IO as your old ALP script:
+- parse_metadata(metadata.txt)  -> well_to_cond, cond_order
+- read_values_xlsx(data.xlsx, well_to_cond) -> cond_to_values (raw absorbance)
 
-NOTE: This is a "simple" parametric pipeline; it ignores
-      (i) non-normality, (ii) tiny n, and (iii) multiple-testing correction.
-      Use mainly as a quick visual / sanity check.
+Pipeline:
+1) blank-correct + convert to mU/mL (clamped to >=0)
+2) Stats on RAW ALP_mU_mL (absolute):
+   - Global Kruskal–Wallis across all present conditions (reported)
+   - Family A (lower black stars): C1 vs C2–C8, Mann–Whitney U (two-sided) + BH
+   - Family B (upper red stars):   C2 vs C3–C8, Mann–Whitney U (two-sided) + BH (excluding C1)
+3) Plot:
+   - clean violins + colored points + black mean±SEM
+   - bracket-less stars in two rows (black vs C1, red vs C2)
+   - separators (C1–C2 and C6–C7)
+   - Δmean row (mean difference vs C1) at bottom (IN mU/mL)
+   - descriptive stats header
+
+Outputs:
+- CSV: per-well absorbance + ALP_mU_mL
+- TXT: stats report
+- Figure: PDF + PNG (RAW)
+
+Run:
+python alp_publishable_dualref_RAW_pro.py \
+  --metadata alpmetadata.txt \
+  --data alp_raw_data.xlsx \
+  --blank 0.066 \
+  --conversion 11.01 \
+  --alpha 0.05 \
+  --out_prefix alp_raw \
+  --out_dir alp_output
 """
 
 import argparse
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Tuple
 
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 from scipy import stats
+from matplotlib.offsetbox import AnchoredOffsetbox, HPacker, TextArea
 
 from pipeline import parse_metadata, read_values_xlsx
+
 
 # -------------------- CONDITIONS & LABELS --------------------
 
@@ -37,9 +63,33 @@ COND_CODE = {
 }
 CONDITIONS = list(COND_CODE.keys())
 
+# Comparison families (same as collagen)
+FAM_A_REF = "C1"
+FAM_A_TARGETS = ["C2", "C3", "C4", "C5", "C6", "C7", "C8"]  # vs C1
+FAM_B_REF = "C2"
+FAM_B_TARGETS = ["C3", "C4", "C5", "C6", "C7", "C8"]        # vs C2 (exclude C1)
+
+# ---- Publication-safe palette (Okabe–Ito-ish; distinct) ----
+COND_COLORS = {
+    "C1": "#2B2B2B",  # Basal: charcoal
+    "C2": "#0072B2",  # Osteo ref: blue
+    "C3": "#009E73",  # green
+    "C4": "#E69F00",  # orange
+    "C5": "#CC79A7",  # purple/pink
+    "C6": "#D55E00",  # vermillion
+    "C7": "#56B4E9",  # light blue
+    "C8": "#8C6D31",  # brown/olive
+}
+VIOLIN_FACE = "#E6E6E6"
+VIOLIN_EDGE = "#B3B3B3"
+
+STAR_COLOR_A = "#000000"   # black (vs C1)
+STAR_COLOR_B = "#B22222"   # dark red (vs C2)
+
+SEPARATOR_LINE = "#F2F2F2"
+
 
 def two_line_label(name: str) -> str:
-    """Two-line labels for conditions for plotting."""
     m = {
         "Basal": "Basal",
         "Osteo": r"AA+$\beta$-GP",
@@ -53,238 +103,400 @@ def two_line_label(name: str) -> str:
     return m.get(name, name)
 
 
-def save_figures(fig, pdf_path: Optional[Path], png_path: Optional[Path]):
-    """Save figure as PDF/PNG if paths are provided."""
-    if pdf_path:
-        fig.savefig(pdf_path, dpi=300, bbox_inches="tight")
-        print(f"Saved: {pdf_path}")
-    if png_path:
-        fig.savefig(png_path, dpi=300, bbox_inches="tight")
-        print(f"Saved: {png_path}")
+# -------------------- stats helpers --------------------
+
+def benjamini_hochberg(pvals: List[float]) -> List[float]:
+    p = np.asarray(pvals, dtype=float)
+    m = p.size
+    if m == 0:
+        return []
+    order = np.argsort(p)
+    ranked = p[order]
+    adj = ranked * m / (np.arange(m) + 1)
+    adj = np.minimum.accumulate(adj[::-1])[::-1]
+    adj = np.clip(adj, 0.0, 1.0)
+    out = np.empty_like(adj)
+    out[order] = adj
+    return out.tolist()
+
+def star_from_p(p: float) -> str:
+    if not np.isfinite(p):
+        return ""
+    if p < 0.001:
+        return "***"
+    if p < 0.01:
+        return "**"
+    if p < 0.05:
+        return "*"
+    return ""
+
+def sem(x: np.ndarray) -> float:
+    x = np.asarray(x, dtype=float)
+    x = x[np.isfinite(x)]
+    if x.size <= 1:
+        return np.nan
+    return float(np.std(x, ddof=1) / np.sqrt(x.size))
+
+def kw_all_conditions(cond_to_vals: Dict[str, np.ndarray], conds_order: List[str]) -> Tuple[float, float]:
+    groups = []
+    for c in conds_order:
+        v = np.asarray(cond_to_vals.get(c, np.array([])), dtype=float)
+        v = v[np.isfinite(v)]
+        if v.size > 0:
+            groups.append(v)
+    if len(groups) < 2:
+        return np.nan, np.nan
+    H, p = stats.kruskal(*groups)
+    return float(H), float(p)
+
+def pairwise_vs_ref_BH(
+    cond_to_vals: Dict[str, np.ndarray],
+    ref: str,
+    targets: List[str],
+    alpha: float,
+) -> Dict[str, Dict[str, float]]:
+    ref_vals = np.asarray(cond_to_vals.get(ref, np.array([])), dtype=float)
+    ref_vals = ref_vals[np.isfinite(ref_vals)]
+
+    out: Dict[str, Dict[str, float]] = {}
+    names: List[str] = []
+    p_raws: List[float] = []
+
+    for c in targets:
+        vals = np.asarray(cond_to_vals.get(c, np.array([])), dtype=float)
+        vals = vals[np.isfinite(vals)]
+
+        if ref_vals.size == 0 or vals.size == 0:
+            out[c] = {"p_raw": np.nan, "p_adj": np.nan, "sig": False}
+            continue
+
+        _, p_raw = stats.mannwhitneyu(ref_vals, vals, alternative="two-sided")
+        out[c] = {"p_raw": float(p_raw)}
+        names.append(c)
+        p_raws.append(float(p_raw))
+
+    p_adjs = benjamini_hochberg(p_raws)
+    for c, padj in zip(names, p_adjs):
+        out[c]["p_adj"] = float(padj)
+        out[c]["sig"] = bool(padj < alpha)
+    return out
 
 
-# ----------------- ARG PARSING ----------------- #
+# -------------------- plotting helpers --------------------
 
+def make_positions_with_gaps(conds: List[str]) -> Tuple[List[float], List[float]]:
+    xs = []
+    base = 0.0
+    for c in conds:
+        base += 1.0
+        if c == "C2":
+            base += 0.30  # gap after C1
+        if c == "C7":
+            base += 0.35  # gap after C6
+        xs.append(base)
+
+    idx = {c: i for i, c in enumerate(conds)}
+    seps = []
+    if "C1" in idx and "C2" in idx:
+        seps.append((xs[idx["C1"]] + xs[idx["C2"]]) / 2.0)
+    if "C6" in idx and "C7" in idx:
+        seps.append((xs[idx["C6"]] + xs[idx["C7"]]) / 2.0)
+    return xs, seps
+
+def mean_diff_labels_vs_c1(df: pd.DataFrame, value_col: str, conds: List[str]) -> List[str]:
+    ref_mean = df.loc[df["condition"] == "C1", value_col].mean()
+    out = []
+    for c in conds:
+        if c == "C1":
+            out.append("baseline")
+        else:
+            m = df.loc[df["condition"] == c, value_col].mean()
+            d = m - ref_mean
+            arrow = "↑" if d > 0 else "↓"
+            # ALP units can be small; keep 2 decimals but avoid "-0.00"
+            if abs(d) < 0.005:
+                d = 0.0
+            out.append(f"{d:+.2f} {arrow}")
+    return out
+
+def add_stats_header(ax, fs=8.6, grey="0.35", red="#B22222"):
+    t0 = TextArea("Stars: * p<0.05, ** p<0.01, *** p<0.001 (BH)",
+                  textprops=dict(color=grey, fontsize=fs))
+    s0 = TextArea("   |   ", textprops=dict(color=grey, fontsize=fs))
+    t1 = TextArea("Lower (black): vs C1 (MWU + BH)",
+                  textprops=dict(color=grey, fontsize=fs))
+    s1 = TextArea("   |   ", textprops=dict(color=grey, fontsize=fs))
+    t2 = TextArea("Upper (red): vs C2 (MWU + BH, excl. C1)",
+                  textprops=dict(color=red, fontsize=fs))
+
+    row = HPacker(children=[t0, s0, t1, s1, t2], align="center", pad=0, sep=0)
+    box = AnchoredOffsetbox(
+        loc="upper center",
+        child=row,
+        frameon=False,
+        bbox_to_anchor=(0.5, 1.0),
+        bbox_transform=ax.transAxes,
+        borderpad=0.0,
+    )
+    box.set_clip_on(False)
+    ax.add_artist(box)
+
+def plot_violin_pro(
+    df: pd.DataFrame,
+    value_col: str,
+    conds: List[str],
+    title: str,
+    ylab: str,
+    famA: Dict[str, Dict[str, float]],
+    famB: Dict[str, Dict[str, float]],
+    seed: int = 0,
+) -> plt.Figure:
+    rng = np.random.default_rng(seed)
+    xs, seps = make_positions_with_gaps(conds)
+    data = [df.loc[df["condition"] == c, value_col].dropna().astype(float).values for c in conds]
+
+    allv = np.concatenate([v for v in data if v.size > 0]) if any(v.size > 0 for v in data) else np.array([0.0])
+    y_min = float(np.min(allv))
+    y_max = float(np.max(allv))
+    yr = (y_max - y_min) if y_max > y_min else 1.0
+
+    yA = y_max + 0.045 * yr   # black stars
+    yB = y_max + 0.080 * yr   # red stars
+
+    fig, ax = plt.subplots(figsize=(10.4, 4.9))
+    ax.set_axisbelow(True)
+    ax.grid(axis="y", alpha=0.12)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+    vp = ax.violinplot(
+        data,
+        positions=xs,
+        widths=0.72,
+        showmeans=False,
+        showmedians=False,
+        showextrema=False,
+    )
+    for body in vp["bodies"]:
+        body.set_facecolor(VIOLIN_FACE)
+        body.set_edgecolor(VIOLIN_EDGE)
+        body.set_alpha(1.0)
+        body.set_linewidth(1.0)
+
+    for s in seps:
+        ax.axvline(s, color="white", linewidth=12, zorder=1)
+        ax.axvline(s, color=SEPARATOR_LINE, linewidth=1.5, zorder=2)
+
+    for x, c, vals in zip(xs, conds, data):
+        if vals.size == 0:
+            continue
+        jitter = rng.normal(0, 0.055, size=vals.size)
+        ax.scatter(
+            x + jitter,
+            vals,
+            s=40,
+            color=COND_COLORS.get(c, "#444444"),
+            edgecolor="white",
+            linewidth=0.7,
+            alpha=0.95,
+            zorder=3,
+        )
+        m = float(np.mean(vals))
+        s = sem(vals)
+        ax.errorbar(
+            [x], [m], yerr=[s],
+            fmt="o",
+            color="black",
+            markersize=4.5,
+            capsize=3.2,
+            linewidth=1.1,
+            zorder=4,
+        )
+
+    for x, c in zip(xs, conds):
+        if c in FAM_A_TARGETS:
+            st = star_from_p(famA.get(c, {}).get("p_adj", np.nan))
+            if st:
+                ax.text(x, yA + 0.015 * yr, st, ha="center", va="bottom",
+                        fontsize=12, color=STAR_COLOR_A, zorder=6)
+        if c in FAM_B_TARGETS:
+            st = star_from_p(famB.get(c, {}).get("p_adj", np.nan))
+            if st:
+                ax.text(x, yB + 0.015 * yr, st, ha="center", va="bottom",
+                        fontsize=12, color=STAR_COLOR_B, zorder=6)
+
+    delta_labels = mean_diff_labels_vs_c1(df, value_col, conds)
+    y_delta = y_min - 0.11 * yr
+    for x, lab in zip(xs, delta_labels):
+        ax.text(x, y_delta, lab, ha="center", va="top", fontsize=8.2, color="0.35")
+
+    ax.text(xs[0] - 0.75, y_delta, r"$\Delta$mean", ha="left", va="top",
+            fontsize=8.2, color="0.35", clip_on=False)
+
+    ax.set_xticks(xs)
+    ax.set_xticklabels([two_line_label(COND_CODE[c]) for c in conds], fontsize=9)
+
+    ax.set_ylabel(ylab)
+    ax.set_title(title, fontsize=13)
+    ax.set_ylim(y_min - 0.17 * yr, y_max + 0.26 * yr)
+
+    fig.tight_layout()
+    add_stats_header(ax)
+    return fig
+
+
+# -------------------- CLI --------------------
 
 def parse_args():
-    p = argparse.ArgumentParser(
-        description="Simple ALP stats/plot using Welch t-tests vs Basal (technical replicates)."
-    )
-    p.add_argument("--metadata", required=True, help="Metadata text file.")
-    p.add_argument("--data", required=True, help="Raw ALP data xlsx.")
-    p.add_argument(
-        "--blank", type=float, default=0.066, help="Blank absorbance (default: 0.066)."
-    )
-    p.add_argument(
-        "--conversion",
-        type=float,
-        required=True,
-        help="Conversion factor from net absorbance to mU/mL.",
-    )
-    p.add_argument("--out", help="Optional output PDF path.")
-    p.add_argument(
-        "--png",
-        help="Optional PNG path; defaults to same stem as --out with .png if not given.",
-    )
-    p.add_argument(
-        "--basal", default="C1", help="Code of basal condition (default: C1)."
-    )
-    p.add_argument(
-        "--alpha",
-        type=float,
-        default=0.05,
-        help="Significance threshold for stars (default: 0.05).",
-    )
+    p = argparse.ArgumentParser(description="ALP RAW mU/mL stats + pro violin plot (MWU+BH dual-family).")
+    p.add_argument("--metadata", required=True, help="Metadata text file (same format as before).")
+    p.add_argument("--data", required=True, help="Raw ALP data xlsx (same as before).")
+    p.add_argument("--blank", type=float, default=0.066, help="Blank absorbance (default: 0.066).")
+    p.add_argument("--conversion", type=float, required=True,
+                   help="Conversion factor from net absorbance to mU/mL.")
+    p.add_argument("--alpha", type=float, default=0.05, help="BH threshold (default 0.05).")
+    p.add_argument("--out_prefix", type=str, default="alp_raw", help="Output filename prefix.")
+    p.add_argument("--out_dir", type=Path, default=Path("alp_output"), help="Output directory.")
+    p.add_argument("--seed", type=int, default=0, help="Random seed for jitter.")
     return p.parse_args()
-
-
-# ----------------- MAIN ----------------- #
 
 
 def main():
     args = parse_args()
+    args.out_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1) Read metadata and raw values
+    # 1) Read metadata and raw values (UNCHANGED)
     well_to_cond, cond_order = parse_metadata(args.metadata)
-    cond_to_values = read_values_xlsx(args.data, well_to_cond)
+    cond_to_values = read_values_xlsx(args.data, well_to_cond)  # raw absorbance
 
-    # 2) Blank-correct and convert to mU/mL
-    cond_to_mU: Dict[str, List[float]] = {}
+    # 2) Convert to per-well mU/mL
+    rows = []
     for cond, vals in cond_to_values.items():
-        out = []
-        for v in vals:
-            v_net = v - args.blank
-            mU = max(v_net * args.conversion, 0.0)
-            out.append(mU)
-        cond_to_mU[cond] = out
+        if cond not in CONDITIONS:
+            continue
+        for i, v in enumerate(vals):
+            try:
+                v = float(v)
+            except Exception:
+                continue
+            v_net = v - float(args.blank)
+            mU = max(v_net * float(args.conversion), 0.0)
+            rows.append({
+                "condition": cond,
+                "well_index": i + 1,
+                "abs_raw": v,
+                "abs_net": v_net,
+                "ALP_mU_mL": mU,
+            })
 
-    # 3) Restrict to C1–C8 in metadata order
-    conds_c = [c for c in cond_order if c in CONDITIONS]
-    if not conds_c:
-        print("No conditions C1–C8 found in metadata; exiting.")
+    df = pd.DataFrame(rows)
+    if df.empty:
+        print("No valid ALP values found for conditions C1–C8.")
         return
 
-    # 4) Compute mean, SEM, and Welch t-tests vs Basal
-    if args.basal not in cond_to_mU or len(cond_to_mU[args.basal]) == 0:
-        raise ValueError(f"Basal condition '{args.basal}' has no data.")
+    # 3) Restrict to conditions present in metadata order
+    conds = [c for c in cond_order if (c in CONDITIONS and (df["condition"] == c).any())]
+    if not conds:
+        print("No conditions C1–C8 found in metadata order; exiting.")
+        return
 
-    basal_vals = np.asarray(cond_to_mU[args.basal], dtype=float)
-    mean_dict: Dict[str, float] = {}
-    sem_dict: Dict[str, float] = {}
-    pvals: Dict[str, float] = {}
+    if "C1" not in conds:
+        raise ValueError("Missing C1 (Basal).")
+    if "C2" not in conds:
+        raise ValueError("Missing C2 (Osteo).")
 
-    for cond in conds_c:
-        vals = np.asarray(cond_to_mU.get(cond, []), dtype=float)
-        if vals.size == 0:
-            mean_dict[cond] = np.nan
-            sem_dict[cond] = np.nan
-            pvals[cond] = np.nan
-            continue
+    # Save CSV (per-well, RAW)
+    csv_path = args.out_dir / f"{args.out_prefix}_alp_metrics_raw.csv"
+    df.to_csv(csv_path, index=False)
+    print(f"Saved CSV: {csv_path}")
 
-        mean = float(np.mean(vals))
-        sem = (
-            float(np.std(vals, ddof=1) / np.sqrt(vals.size))
-            if vals.size > 1
-            else np.nan
-        )
-        mean_dict[cond] = mean
-        sem_dict[cond] = sem
+    # Convenience: map condition->values for RAW column
+    cond_to_vals: Dict[str, np.ndarray] = {}
+    for c in conds:
+        v = df.loc[df["condition"] == c, "ALP_mU_mL"].dropna().astype(float).values
+        if v.size:
+            cond_to_vals[c] = v
 
-        if cond == args.basal:
-            pvals[cond] = np.nan
-        else:
-            # Welch's t-test (does not assume equal variance)
-            t_stat, p = stats.ttest_ind(basal_vals, vals, equal_var=False)
-            pvals[cond] = p
+    # 4) Global KW + pairwise MWU+BH families
+    H, pkw = kw_all_conditions(cond_to_vals, conds)
 
-    # 5) Print a small stats summary
-    print("\n===== Simple Welch t-tests vs Basal (technical replicates) =====")
-    print(f"Basal condition: {args.basal}")
-    for cond in conds_c:
-        mean = mean_dict[cond]
-        sem = sem_dict[cond]
-        p = pvals[cond]
-        n = len(cond_to_mU.get(cond, []))
-        if cond == args.basal:
-            print(f"{cond} (Basal): mean = {mean:.4g}, SEM = {sem:.4g}, n = {n}")
-        else:
-            p_str = "NA" if np.isnan(p) else f"{p:.4g}"
-            print(
-                f"{cond}: mean = {mean:.4g}, SEM = {sem:.4g}, n = {n}, "
-                f"p (Welch vs Basal) = {p_str}"
-            )
-
-    # 6) Scatter + mean/SEM plot instead of bar plot
-    x_positions = np.arange(1, len(conds_c) + 1)
-
-    # Prepare means and sems
-    means = [mean_dict[c] for c in conds_c]
-    sems = [sem_dict[c] for c in conds_c]
-
-    # Y-limits based on all individual values
-    all_vals = []
-    for c in conds_c:
-        all_vals.extend(cond_to_mU.get(c, []))
-
-    if all_vals:
-        y_min = float(np.min(all_vals))
-        y_max = float(np.max(all_vals))
-    else:
-        y_min, y_max = 0.0, 1.0
-
-    yr = y_max - y_min if y_max > y_min else 1.0
-
-    fig, ax = plt.subplots(figsize=(8, 4))
-
-    # Reproducible jitter
-    rng = np.random.default_rng(42)
-    jitter_width = 0.20
-
-    # Plot individual points (technical replicates)
-    for x, cond in zip(x_positions, conds_c):
-        vals = np.asarray(cond_to_mU.get(cond, []), dtype=float)
-        if vals.size == 0:
-            continue
-        jitter = rng.uniform(-jitter_width, jitter_width, size=vals.size)
-        ax.scatter(
-            np.full_like(vals, x, dtype=float) + jitter,
-            vals,
-            s=28,
-            alpha=0.8,
-            edgecolor="black",
-            linewidth=0.4,
-        )
-
-    # Plot mean ± SEM as horizontal lines + whiskers
-    for x, cond, m, se in zip(x_positions, conds_c, means, sems):
-        if np.isnan(m):
-            continue
-        # mean line
-        ax.hlines(m, x - 0.28, x + 0.28, linewidth=2.0)
-        # SEM whiskers if available
-        if not np.isnan(se):
-            ax.vlines(x, m - se, m + se, linewidth=1.2)
-            ax.hlines(m - se, x - 0.12, x + 0.12, linewidth=1.0)
-            ax.hlines(m + se, x - 0.12, x + 0.12, linewidth=1.0)
-
-    # x-axis labels
-    labels = [two_line_label(COND_CODE.get(cond, cond)) for cond in conds_c]
-    ax.set_xticks(x_positions)
-    ax.set_xticklabels(labels)
-
-    ax.set_ylabel("ALP activity (mU·mL⁻¹, 30-min pNPP assay)")
-
-    # Stars for p < alpha (placed above max point of each group)
-    for x, cond in zip(x_positions, conds_c):
-        if cond == args.basal:
-            continue
-        p = pvals[cond]
-        if p is None or np.isnan(p) or p >= args.alpha:
-            continue
-
-        vals = np.asarray(cond_to_mU.get(cond, []), dtype=float)
-        if vals.size == 0:
-            continue
-        group_max = float(np.max(vals))
-        star_y = group_max + 0.08 * yr
-        ax.text(x, star_y, "*", ha="center", va="bottom", fontsize=12)
-
-    ax.set_ylim(y_min - 0.05 * yr, y_max + 0.25 * yr)
-
-    ax.set_title(
-        "ALP activity (mU/mL, 30-min pNPP assay)\n"
-        "Dots = technical replicates, lines = mean±SEM, "
-        "stars = Welch t-test p < α vs Basal\n"
-        "(technical replicates treated as independent; no multiple-testing correction)"
+    famA = pairwise_vs_ref_BH(
+        cond_to_vals,
+        ref=FAM_A_REF,
+        targets=[c for c in FAM_A_TARGETS if c in conds],
+        alpha=args.alpha,
+    )
+    famB = pairwise_vs_ref_BH(
+        cond_to_vals,
+        ref=FAM_B_REF,
+        targets=[c for c in FAM_B_TARGETS if c in conds],
+        alpha=args.alpha,
     )
 
-    fig.tight_layout()
+    # 5) Stats report
+    rpt = args.out_dir / f"{args.out_prefix}_ALP_mU_mL_stats.txt"
+    with open(rpt, "w", encoding="utf-8") as f:
+        f.write("ALP activity — RAW mU/mL (30-min pNPP assay)\n")
+        f.write("Metric column: ALP_mU_mL\n")
+        f.write("Per-well values treated as independent technical replicates.\n")
+        f.write("Test: Mann–Whitney U (two-sided)\n")
+        f.write("Multiple testing: Benjamini–Hochberg within each family\n")
+        f.write(f"Alpha: {args.alpha}\n")
+        f.write(f"Blank absorbance: {args.blank}\n")
+        f.write(f"Conversion factor: {args.conversion} (net abs → mU/mL)\n\n")
+        f.write(f"Kruskal–Wallis across all conditions: H={H:.4g}, p={pkw:.4g}\n\n")
 
-    # 7) Save or show
-    if args.out or args.png:
-        pdf_path = Path(args.out) if args.out else None
-        png_path = (
-            Path(args.png)
-            if args.png
-            else pdf_path.with_suffix(".png") if pdf_path else None
-        )
-        save_figures(fig, pdf_path, png_path)
-    else:
-        plt.show()
+        f.write("Family A (black): C1 vs targets\n")
+        for c in [x for x in FAM_A_TARGETS if x in conds]:
+            f.write(
+                f"  {c} vs C1: p_raw={famA.get(c, {}).get('p_raw', np.nan):.4g}, "
+                f"p_adj={famA.get(c, {}).get('p_adj', np.nan):.4g}\n"
+            )
+
+        f.write("\nFamily B (red): C2 vs targets (excluding C1)\n")
+        for c in [x for x in FAM_B_TARGETS if x in conds]:
+            f.write(
+                f"  {c} vs C2: p_raw={famB.get(c, {}).get('p_raw', np.nan):.4g}, "
+                f"p_adj={famB.get(c, {}).get('p_adj', np.nan):.4g}\n"
+            )
+
+    print(f"Saved stats: {rpt}")
+
+    # 6) Plot (RAW mU/mL)
+    fig = plot_violin_pro(
+        df=df,
+        value_col="ALP_mU_mL",
+        conds=conds,
+        title="ALP activity (30-min pNPP assay)",
+        ylab=r"ALP activity (mU·mL$^{-1}$)",
+        famA=famA,
+        famB=famB,
+        seed=args.seed,
+    )
+
+    pdf = args.out_dir / f"{args.out_prefix}_ALP_mU_mL.pdf"
+    png = args.out_dir / f"{args.out_prefix}_ALP_mU_mL.png"
+    fig.savefig(pdf, dpi=300, bbox_inches="tight")
+    fig.savefig(png, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved: {pdf}")
+    print(f"Saved: {png}")
 
 
 if __name__ == "__main__":
     main()
 
 
-# To Run:
-
-
 """
-python alp_ttest_scatter.py \
-    --metadata alpmetadata.txt \
-    --data alp_raw_data.xlsx \
-    --blank 0.066 \
-    --conversion 11.01 \
-    --out alp_activity_scatter.pdf
+Run:
+
+python alp_ttest_scatter_code.py \
+  --metadata alpmetadata.txt \
+  --data alp_raw_data.xlsx \
+  --blank 0.066 \
+  --conversion 11.01 \
+  --alpha 0.05 \
+  --out_prefix alp_raw \
+  --out_dir alp_output
+  
 """

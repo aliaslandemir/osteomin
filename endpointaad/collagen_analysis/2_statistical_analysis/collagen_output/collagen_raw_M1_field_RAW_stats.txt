@@ -1,0 +1,24 @@
+Collagen density per field (RAW)
+Metric column: M1_field
+Test: Mann–Whitney U (two-sided)
+Multiple testing: Benjamini–Hochberg within each family
+Alpha: 0.05
+
+Kruskal–Wallis across all conditions: H=19.93, p=0.005719
+
+Family A (black): C1 vs targets
+  C2 vs C1: p_raw=0.6905, p_adj=0.6905
+  C3 vs C1: p_raw=0.09524, p_adj=0.1111
+  C4 vs C1: p_raw=0.007937, p_adj=0.01852
+  C5 vs C1: p_raw=0.09524, p_adj=0.1111
+  C6 vs C1: p_raw=0.007937, p_adj=0.01852
+  C7 vs C1: p_raw=0.09524, p_adj=0.1111
+  C8 vs C1: p_raw=0.007937, p_adj=0.01852
+
+Family B (red): C2 vs targets (excluding C1)
+  C3 vs C2: p_raw=0.09524, p_adj=0.09524
+  C4 vs C2: p_raw=0.007937, p_adj=0.01587
+  C5 vs C2: p_raw=0.09524, p_adj=0.09524
+  C6 vs C2: p_raw=0.007937, p_adj=0.01587
+  C7 vs C2: p_raw=0.09524, p_adj=0.09524
+  C8 vs C2: p_raw=0.007937, p_adj=0.01587

@@ -1,0 +1,27 @@
+ALP activity — RAW mU/mL (30-min pNPP assay)
+Metric column: ALP_mU_mL
+Per-well values treated as independent technical replicates.
+Test: Mann–Whitney U (two-sided)
+Multiple testing: Benjamini–Hochberg within each family
+Alpha: 0.05
+Blank absorbance: 0.066
+Conversion factor: 11.01 (net abs → mU/mL)
+
+Kruskal–Wallis across all conditions: H=16.36, p=0.02199
+
+Family A (black): C1 vs targets
+  C2 vs C1: p_raw=0.1, p_adj=0.35
+  C3 vs C1: p_raw=0.2, p_adj=0.4667
+  C4 vs C1: p_raw=1, p_adj=1
+  C5 vs C1: p_raw=1, p_adj=1
+  C6 vs C1: p_raw=0.1, p_adj=0.35
+  C7 vs C1: p_raw=1, p_adj=1
+  C8 vs C1: p_raw=1, p_adj=1
+
+Family B (red): C2 vs targets (excluding C1)
+  C3 vs C2: p_raw=0.1, p_adj=0.1
+  C4 vs C2: p_raw=0.1, p_adj=0.1
+  C5 vs C2: p_raw=0.1, p_adj=0.1
+  C6 vs C2: p_raw=0.1, p_adj=0.1
+  C7 vs C2: p_raw=0.1, p_adj=0.1
+  C8 vs C2: p_raw=0.07652, p_adj=0.1

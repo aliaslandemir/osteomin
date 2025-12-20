@@ -1,0 +1,24 @@
+ARS area fraction — Fold vs C1 (median)
+Metric column: ARS_foldC1 (from fraction_percent)
+Test: Mann–Whitney U (two-sided)
+Multiple testing: Benjamini–Hochberg within each family
+Alpha: 0.05
+Basal threshold: 98th percentile of (R-G) in C1; value=0.109804
+Kruskal–Wallis across all conditions: H=47.77, p=3.954e-08
+
+Family A (black): C1 vs targets
+  C2 vs C1: p_raw=0.0004123, p_adj=0.0004123
+  C3 vs C1: p_raw=0.0004123, p_adj=0.0004123
+  C4 vs C1: p_raw=0.0004123, p_adj=0.0004123
+  C5 vs C1: p_raw=0.0004123, p_adj=0.0004123
+  C6 vs C1: p_raw=0.0004123, p_adj=0.0004123
+  C7 vs C1: p_raw=0.0004123, p_adj=0.0004123
+  C8 vs C1: p_raw=0.0004123, p_adj=0.0004123
+
+Family B (red): C2 vs targets (excluding C1)
+  C3 vs C2: p_raw=0.4799, p_adj=0.5759
+  C4 vs C2: p_raw=0.7239, p_adj=0.7239
+  C5 vs C2: p_raw=0.02728, p_adj=0.04091
+  C6 vs C2: p_raw=0.0007923, p_adj=0.002377
+  C7 vs C2: p_raw=0.01044, p_adj=0.02089
+  C8 vs C2: p_raw=0.0004123, p_adj=0.002377
