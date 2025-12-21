@@ -43,69 +43,28 @@ python ars_abs_dualref_pro.py -input ../ars --percentile 98 --px 1.62 --metric s
 import argparse
 import re
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict
 
 import numpy as np
 import pandas as pd
 from skimage import io
+from plot_style import (
+    COND_CODE,
+    CONDITIONS,
+    FAM_A_REF,
+    FAM_A_TARGETS,
+    FAM_B_REF,
+    FAM_B_TARGETS,
+    kw_all_conditions,
+    pairwise_vs_ref_BH,
+    plot_violin,
+)
 import matplotlib.pyplot as plt
-from scipy import stats
-from matplotlib.offsetbox import AnchoredOffsetbox, HPacker, TextArea
 from PIL import Image  # fast JPEG overlays
 
 
 # ---------------- configurable ----------------
 COND_RE = re.compile(r"^(C[1-8])", re.IGNORECASE)
-COND_CODE = {
-    "C1": "Basal",
-    "C2": "Osteo",
-    "C3": "Osteo+D/MK4 (L/L)",
-    "C4": "Osteo+D/MK4 (L/H)",
-    "C5": "Osteo+D/MK4 (H/L)",
-    "C6": "Osteo+D/MK4 (H/H)",
-    "C7": "Osteo+Dex (H)",
-    "C8": "Osteo+MK-4 (H)",
-}
-CONDITIONS = list(COND_CODE.keys())
-
-# Comparison families (match collagen/ALP)
-FAM_A_REF = "C1"
-FAM_A_TARGETS = ["C2", "C3", "C4", "C5", "C6", "C7", "C8"]  # vs C1
-FAM_B_REF = "C2"
-FAM_B_TARGETS = ["C3", "C4", "C5", "C6", "C7", "C8"]        # vs C2 (exclude C1)
-
-# ---- Publication-safe palette (Okabe–Ito-ish; distinct) ----
-COND_COLORS = {
-    "C1": "#2B2B2B",  # Basal: charcoal
-    "C2": "#0072B2",  # Osteo ref: blue
-    "C3": "#009E73",  # green
-    "C4": "#E69F00",  # orange
-    "C5": "#CC79A7",  # purple/pink
-    "C6": "#D55E00",  # vermillion
-    "C7": "#56B4E9",  # light blue
-    "C8": "#8C6D31",  # brown/olive
-}
-VIOLIN_FACE = "#E6E6E6"
-VIOLIN_EDGE = "#B3B3B3"
-
-STAR_COLOR_A = "#000000"   # black (vs C1)
-STAR_COLOR_B = "#B22222"   # dark red (vs C2)
-SEPARATOR_LINE = "#F2F2F2"
-
-
-# ---------------- labels ----------------
-def two_line_label(name: str) -> str:
-    m = {
-        "Basal": "Basal",
-        "Osteo": r"AA+$\beta$-GP",
-        "Osteo+D/MK4 (L/L)": r"AA+$\beta$-GP" + "\n" + r"$D_LK_L$",
-        "Osteo+D/MK4 (L/H)": r"AA+$\beta$-GP" + "\n" + r"$D_LK_H$",
-        "Osteo+D/MK4 (H/L)": r"AA+$\beta$-GP" + "\n" + r"$D_HK_L$",
-        "Osteo+D/MK4 (H/H)": r"AA+$\beta$-GP" + "\n" + r"$D_HK_H$",
-        "Osteo+Dex (H)": r"AA+$\beta$-GP" + "\n" + r"$D_HK_0$",
-        "Osteo+MK-4 (H)": r"AA+$\beta$-GP" + "\n" + r"$D_0K_H$",
-    }
-    return m.get(name, name)
 
 
 # ---------------- detection + IO (same behavior) ----------------
@@ -158,263 +117,6 @@ def save_overlay_jpeg(arr_uint8: np.ndarray, out_path: Path, scale: float = 0.5)
         subsampling=2,
         optimize=True,
     )
-
-
-# ---------------- stats helpers (match collagen/ALP) ----------------
-def benjamini_hochberg(pvals: List[float]) -> List[float]:
-    p = np.asarray(pvals, dtype=float)
-    m = p.size
-    if m == 0:
-        return []
-    order = np.argsort(p)
-    ranked = p[order]
-    adj = ranked * m / (np.arange(m) + 1)
-    adj = np.minimum.accumulate(adj[::-1])[::-1]
-    adj = np.clip(adj, 0.0, 1.0)
-    out = np.empty_like(adj)
-    out[order] = adj
-    return out.tolist()
-
-
-def star_from_p(p: float) -> str:
-    if not np.isfinite(p):
-        return ""
-    if p < 0.001:
-        return "***"
-    if p < 0.01:
-        return "**"
-    if p < 0.05:
-        return "*"
-    return ""
-
-
-def sem(x: np.ndarray) -> float:
-    x = np.asarray(x, dtype=float)
-    x = x[np.isfinite(x)]
-    if x.size <= 1:
-        return np.nan
-    return float(np.std(x, ddof=1) / np.sqrt(x.size))
-
-
-def kw_all_conditions(cond_to_vals: Dict[str, np.ndarray], conds_order: List[str]) -> Tuple[float, float]:
-    groups = []
-    for c in conds_order:
-        v = np.asarray(cond_to_vals.get(c, np.array([])), dtype=float)
-        v = v[np.isfinite(v)]
-        if v.size > 0:
-            groups.append(v)
-    if len(groups) < 2:
-        return np.nan, np.nan
-    H, p = stats.kruskal(*groups)
-    return float(H), float(p)
-
-
-def pairwise_vs_ref_BH(
-    cond_to_vals: Dict[str, np.ndarray],
-    ref: str,
-    targets: List[str],
-    alpha: float,
-) -> Dict[str, Dict[str, float]]:
-    ref_vals = np.asarray(cond_to_vals.get(ref, np.array([])), dtype=float)
-    ref_vals = ref_vals[np.isfinite(ref_vals)]
-
-    out: Dict[str, Dict[str, float]] = {}
-    names: List[str] = []
-    p_raws: List[float] = []
-
-    for c in targets:
-        vals = np.asarray(cond_to_vals.get(c, np.array([])), dtype=float)
-        vals = vals[np.isfinite(vals)]
-
-        if ref_vals.size == 0 or vals.size == 0:
-            out[c] = {"p_raw": np.nan, "p_adj": np.nan, "sig": False}
-            continue
-
-        _, p_raw = stats.mannwhitneyu(ref_vals, vals, alternative="two-sided")
-        out[c] = {"p_raw": float(p_raw)}
-        names.append(c)
-        p_raws.append(float(p_raw))
-
-    p_adjs = benjamini_hochberg(p_raws)
-    for c, padj in zip(names, p_adjs):
-        out[c]["p_adj"] = float(padj)
-        out[c]["sig"] = bool(padj < alpha)
-    return out
-
-
-# ---------------- plotting (match collagen/ALP) ----------------
-def make_positions_with_gaps(conds: List[str]) -> Tuple[List[float], List[float]]:
-    xs = []
-    base = 0.0
-    for c in conds:
-        base += 1.0
-
-        if c == "C3":
-            base += 0.30   # gap between C2–C3
-
-        if c == "C7":
-            base += 0.35   # gap between C6–C7
-
-        xs.append(base)
-
-    idx = {c: i for i, c in enumerate(conds)}
-    seps = []
-
-    # separator C2–C3
-    if "C2" in idx and "C3" in idx:
-        seps.append((xs[idx["C2"]] + xs[idx["C3"]]) / 2.0)
-
-    # separator C6–C7
-    if "C6" in idx and "C7" in idx:
-        seps.append((xs[idx["C6"]] + xs[idx["C7"]]) / 2.0)
-
-    return xs, seps
-
-
-def mean_diff_labels_vs_c1(df: pd.DataFrame, value_col: str, conds: List[str]) -> List[str]:
-    ref_mean = df.loc[df["cond"] == "C1", value_col].mean()
-    out = []
-    for c in conds:
-        if c == "C1":
-            out.append("baseline")
-        else:
-            m = df.loc[df["cond"] == c, value_col].mean()
-            d = m - ref_mean
-            arrow = "↑" if d > 0 else "↓"
-            # for large units (µm²), don't show too many decimals
-            if abs(d) >= 1000:
-                out.append(f"{d:+.0f} {arrow}")
-            elif abs(d) >= 10:
-                out.append(f"{d:+.1f} {arrow}")
-            else:
-                out.append(f"{d:+.2f} {arrow}")
-    return out
-
-
-def add_stats_header(ax, fs=8.6, grey="0.35", red="#B22222"):
-    t0 = TextArea("Stars: * p<0.05, ** p<0.01, *** p<0.001 (BH)",
-                  textprops=dict(color=grey, fontsize=fs))
-    s0 = TextArea("   |   ", textprops=dict(color=grey, fontsize=fs))
-    t1 = TextArea("Lower (black): vs C1 (MWU + BH)",
-                  textprops=dict(color=grey, fontsize=fs))
-    s1 = TextArea("   |   ", textprops=dict(color=grey, fontsize=fs))
-    t2 = TextArea("Upper (red): vs C2 (MWU + BH, excl. C1)",
-                  textprops=dict(color=red, fontsize=fs))
-    row = HPacker(children=[t0, s0, t1, s1, t2], align="center", pad=0, sep=0)
-    box = AnchoredOffsetbox(
-        loc="upper center",
-        child=row,
-        frameon=False,
-        bbox_to_anchor=(0.5, 1.0),
-        bbox_transform=ax.transAxes,
-        borderpad=0.0,
-    )
-    box.set_clip_on(False)
-    ax.add_artist(box)
-
-
-def plot_violin_pro(
-    df: pd.DataFrame,
-    value_col: str,
-    conds: List[str],
-    title: str,
-    ylab: str,
-    famA: Dict[str, Dict[str, float]],
-    famB: Dict[str, Dict[str, float]],
-    seed: int = 0,
-) -> plt.Figure:
-    rng = np.random.default_rng(seed)
-    xs, seps = make_positions_with_gaps(conds)
-    data = [df.loc[df["cond"] == c, value_col].dropna().astype(float).values for c in conds]
-
-    allv = np.concatenate([v for v in data if v.size > 0]) if any(v.size > 0 for v in data) else np.array([0.0])
-    y_min = float(np.min(allv))
-    y_max = float(np.max(allv))
-    yr = (y_max - y_min) if y_max > y_min else 1.0
-
-    yA = y_max + 0.045 * yr   # black stars
-    yB = y_max + 0.080 * yr   # red stars
-
-    fig, ax = plt.subplots(figsize=(10.4, 4.9))
-    ax.set_axisbelow(True)
-    ax.grid(axis="y", alpha=0.12)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-
-    vp = ax.violinplot(
-        data,
-        positions=xs,
-        widths=0.72,
-        showmeans=False,
-        showmedians=False,
-        showextrema=False,
-    )
-    for body in vp["bodies"]:
-        body.set_facecolor(VIOLIN_FACE)
-        body.set_edgecolor(VIOLIN_EDGE)
-        body.set_alpha(1.0)
-        body.set_linewidth(1.0)
-
-    for s in seps:
-        ax.axvline(s, color="white", linewidth=12, zorder=1)
-        ax.axvline(s, color=SEPARATOR_LINE, linewidth=1.5, zorder=2)
-
-    for x, c, vals in zip(xs, conds, data):
-        if vals.size == 0:
-            continue
-        jitter = rng.normal(0, 0.055, size=vals.size)
-        ax.scatter(
-            x + jitter,
-            vals,
-            s=40,
-            color=COND_COLORS.get(c, "#444444"),
-            edgecolor="white",
-            linewidth=0.7,
-            alpha=0.95,
-            zorder=3,
-        )
-        m = float(np.mean(vals))
-        s = sem(vals)
-        ax.errorbar(
-            [x], [m], yerr=[s],
-            fmt="o",
-            color="black",
-            markersize=4.5,
-            capsize=3.2,
-            linewidth=1.1,
-            zorder=4,
-        )
-
-    for x, c in zip(xs, conds):
-        if c in FAM_A_TARGETS:
-            st = star_from_p(famA.get(c, {}).get("p_adj", np.nan))
-            if st:
-                ax.text(x, yA + 0.015 * yr, st, ha="center", va="bottom",
-                        fontsize=12, color=STAR_COLOR_A, zorder=6)
-        if c in FAM_B_TARGETS:
-            st = star_from_p(famB.get(c, {}).get("p_adj", np.nan))
-            if st:
-                ax.text(x, yB + 0.015 * yr, st, ha="center", va="bottom",
-                        fontsize=12, color=STAR_COLOR_B, zorder=6)
-
-    delta_labels = mean_diff_labels_vs_c1(df, value_col, conds)
-    y_delta = y_min - 0.11 * yr
-    for x, lab in zip(xs, delta_labels):
-        ax.text(x, y_delta, lab, ha="center", va="top", fontsize=8.2, color="0.35")
-
-    ax.text(xs[0] - 0.75, y_delta, r"$\Delta$mean", ha="left", va="top",
-            fontsize=8.2, color="0.35", clip_on=False)
-
-    ax.set_xticks(xs)
-    ax.set_xticklabels([two_line_label(COND_CODE[c]) for c in conds], fontsize=9)
-
-    ax.set_ylabel(ylab)
-    ax.set_title(title, fontsize=13)
-    ax.set_ylim(y_min - 0.17 * yr, y_max + 0.26 * yr)
-
-    fig.tight_layout()
-    add_stats_header(ax)
-    return fig
 
 
 # ---------------- CLI ----------------
@@ -513,7 +215,7 @@ def main():
         rows.append(
             dict(
                 image=p.name,
-                cond=cond,
+                condition=cond,
                 threshold_percentile=args.percentile,
                 threshold_value_rg=threshold,
                 stained_px=stained_px,
@@ -533,7 +235,7 @@ def main():
     if df.empty:
         raise RuntimeError("No valid C1–C8 images processed.")
 
-    conds = [c for c in CONDITIONS if (df["cond"] == c).any()]
+    conds = [c for c in CONDITIONS if (df["condition"] == c).any()]
     if "C1" not in conds:
         raise RuntimeError("Missing C1 (Basal).")
     if "C2" not in conds:
@@ -549,7 +251,7 @@ def main():
     # 3) Stats on the chosen ABSOLUTE metric
     value_col = args.metric
     cond_to_vals: Dict[str, np.ndarray] = {
-        c: df.loc[df["cond"] == c, value_col].dropna().astype(float).values for c in conds
+        c: df.loc[df["condition"] == c, value_col].dropna().astype(float).values for c in conds
     }
 
     H, pkw = kw_all_conditions(cond_to_vals, conds)
@@ -606,7 +308,7 @@ def main():
     print("Saved stats:", rpt)
 
     # 4) Plot
-    fig = plot_violin_pro(
+    fig = plot_violin(
         df=df,
         value_col=value_col,
         conds=conds,

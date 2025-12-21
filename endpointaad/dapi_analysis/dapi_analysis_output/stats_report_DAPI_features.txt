@@ -1,10 +1,10 @@
 DAPI nuclei shape metrics — KEPT nuclei only
-Segmentation: Otsu + watershed; clear_border; remove_small_objects
+Segmentation: Gaussian+CLAHE -> Otsu -> watershed; clear_border; remove_small_objects
 Pixel size: 0.21 µm/px
 Filters: area 140.0-300.0 µm²; circularity 0.6-1.2
 Stats: MWU (two-sided) + BH within each family
 Alpha: 0.05
-Integrated intensity: mean_intensity × area_px
+Integrated intensity: mean_intensity × area_px (=sum of raw intensities in nucleus)
 
 === Feature: area_um2 ===
 Kruskal–Wallis across all present conditions: H=80.43, p=1.123e-14

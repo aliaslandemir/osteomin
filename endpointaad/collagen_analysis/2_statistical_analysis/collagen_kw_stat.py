@@ -1,37 +1,41 @@
 #!/usr/bin/env python3
 """
-Publication-ready collagen metrics — RAW / ABSOLUTE (NO fold normalization)
-Dual-family stats + collagen/ALP-style plot
-
-Based on your current collagen script :contentReference[oaicite:0]{index=0}, but UPDATED to:
-- REMOVE fold vs C1 median completely
-- Run stats on RAW metrics (absolute)
-- Plot RAW metrics (absolute) with same violin + points + mean±SEM + dual star rows + Δmean row
+Collagen metrics — RAW / ABSOLUTE (NO fold normalization)
+STYLE UPDATED to match alp_stat_code.py:
+- violins (light grey)
+- small colored jittered points
+- mean marker (red circle) + median marker (dark diamond) with alpha
+- mean/median legend
+- dual-family stars (black vs C1; red vs C2)
+- separators (C2–C3 and C6–C7)
+- Δmean row (mean difference vs C1)
+- descriptive stats header
 
 Per image (RAW):
 - C_sum   = sum(collagen intensities)
 - A_total = total # pixels
 - D_area  = # pixels where DAPI > 0  (assumes true background pixels are exactly 0)
+- D_sum   = sum(dapi intensities)
 
 RAW metrics:
-- M1_field = C_sum / A_total   (collagen density per field; intensity/pixel)
-- M2_cov   = C_sum / D_area    (collagen per DAPI-positive area; intensity/pixel in nuclei+cell regions proxy)
-- f_cov    = D_area / A_total  (coverage proxy; fraction of pixels DAPI-positive)
-- M3_dsum  = C_sum / D_sum     (collagen per total DAPI intensity; intensity/intensity)
+- M1_field = C_sum / A_total
+- M2_cov   = C_sum / D_area
+- f_cov    = D_area / A_total
+- M3_dsum  = C_sum / D_sum
 
-Stats (per RAW metric):
+Stats (per metric):
 - Global Kruskal–Wallis across all present conditions (reported)
 - Family A (lower, black): C1 vs (C2–C8), Mann–Whitney U + BH
 - Family B (upper, red):   C2 vs (C3–C8), Mann–Whitney U + BH (excluding C1)
 
 Outputs:
 - CSV metrics (RAW)
-- one stats report TXT per RAW metric
-- figures (PDF + PNG): M1_field, M2_cov, M3_dsum, f_cov
+- one stats report TXT per metric
+- figures (PDF + PNG)
 
 Run:
-python collagen_publishable_dualref_RAW_pro.py \
-  -input ../../../confocal \
+python collagen_kw_stat.py \
+  -input ../../confocal \
   --alpha 0.05 \
   --out_prefix collagen_raw \
   --out_dir collagen_output
@@ -47,6 +51,7 @@ import tifffile as tf
 import matplotlib.pyplot as plt
 from scipy import stats
 from matplotlib.offsetbox import AnchoredOffsetbox, HPacker, TextArea
+from matplotlib.lines import Line2D
 
 
 # ---------------- defaults ----------------
@@ -76,22 +81,32 @@ FAM_B_TARGETS = ["C3", "C4", "C5", "C6", "C7", "C8"]        # vs C2 (exclude C1)
 
 # ---- Publication-safe palette ----
 COND_COLORS = {
-    "C1": "#2B2B2B",  # Basal: charcoal
-    "C2": "#0072B2",  # Osteo ref: blue
-    "C3": "#009E73",  # green
-    "C4": "#E69F00",  # orange
-    "C5": "#CC79A7",  # purple/pink
-    "C6": "#D55E00",  # vermillion
-    "C7": "#56B4E9",  # light blue
-    "C8": "#8C6D31",  # brown/olive
+    "C1": "#6B6B5E",  # stone / warm neutral
+    "C2": "#1F5AA6",  # blue (primary osteo)
+    "C3": "#1B7F5A",  # green (biological, secondary)
+    "C4": "#C97A00",  # orange (active, controlled)
+    "C5": "#A65C8A",  # magenta (distinct, muted)
+    "C6": "#B24C1A",  # vermillion (strong contrast)
+    "C7": "#6AAED6",  # light blue (secondary to C2)
+    "C8": "#7A6A3A",  # olive-brown (earthy, distinct)
 }
+
 VIOLIN_FACE = "#E6E6E6"
 VIOLIN_EDGE = "#B3B3B3"
+STAR_COLOR_A = "#000000"
+STAR_COLOR_B = "#B22222"
+SEPARATOR_LINE = "#F2F2F2"
+
+
 
 STAR_COLOR_A = "#000000"   # black (vs C1)
 STAR_COLOR_B = "#B22222"   # dark red (vs C2)
 
 SEPARATOR_LINE = "#F2F2F2"
+
+# mean/median markers (match ALP style)
+MEAN_COLOR   = "#B22222"   # firebrick
+MEDIAN_COLOR = "#2B2B2B"   # charcoal
 
 
 # ---------------- labels ----------------
@@ -196,14 +211,6 @@ def star_from_p(p: float) -> str:
     return ""
 
 
-def sem(x: np.ndarray) -> float:
-    x = np.asarray(x, dtype=float)
-    x = x[np.isfinite(x)]
-    if x.size <= 1:
-        return np.nan
-    return float(np.std(x, ddof=1) / np.sqrt(x.size))
-
-
 def kw_all_conditions(cond_to_vals: Dict[str, np.ndarray], conds_order: List[str]) -> Tuple[float, float]:
     groups = []
     for c in conds_order:
@@ -250,38 +257,28 @@ def pairwise_vs_ref_BH(
     return out
 
 
-# ---------------- plotting ----------------
+# ---------------- plotting (ALP-style) ----------------
 def make_positions_with_gaps(conds: List[str]) -> Tuple[List[float], List[float]]:
     xs = []
     base = 0.0
     for c in conds:
         base += 1.0
-
         if c == "C3":
             base += 0.30   # gap between C2–C3
-
         if c == "C7":
             base += 0.35   # gap between C6–C7
-
         xs.append(base)
 
     idx = {c: i for i, c in enumerate(conds)}
     seps = []
-
-    # separator C2–C3
     if "C2" in idx and "C3" in idx:
         seps.append((xs[idx["C2"]] + xs[idx["C3"]]) / 2.0)
-
-    # separator C6–C7
     if "C6" in idx and "C7" in idx:
         seps.append((xs[idx["C6"]] + xs[idx["C7"]]) / 2.0)
-
     return xs, seps
 
 
-
 def mean_diff_labels_vs_c1(df: pd.DataFrame, value_col: str, conds: List[str]) -> List[str]:
-    """Mean difference (RAW) vs C1 mean, with arrow."""
     ref_mean = df.loc[df["condition"] == "C1", value_col].mean()
     out = []
     for c in conds:
@@ -291,18 +288,12 @@ def mean_diff_labels_vs_c1(df: pd.DataFrame, value_col: str, conds: List[str]) -
             m = df.loc[df["condition"] == c, value_col].mean()
             d = m - ref_mean
             arrow = "↑" if d > 0 else "↓"
-            # formatting: keep it readable across metrics
-            if np.isnan(d):
+            if not np.isfinite(d):
                 out.append("NA")
             else:
                 if abs(d) < 0.005:
                     d = 0.0
-                if abs(d) >= 1000:
-                    out.append(f"{d:+.0f} {arrow}")
-                elif abs(d) >= 10:
-                    out.append(f"{d:+.1f} {arrow}")
-                else:
-                    out.append(f"{d:+.2f} {arrow}")
+                out.append(f"{d:+.2f} {arrow}")
     return out
 
 
@@ -329,7 +320,20 @@ def add_stats_header(ax, fs=8.6, grey="0.35", red="#B22222"):
     ax.add_artist(box)
 
 
-def plot_violin_pro(
+def add_mean_median_legend(ax):
+    handles = [
+        Line2D([], [], marker="o", linestyle="None",
+               markerfacecolor=MEAN_COLOR, markeredgecolor="white",
+               markersize=7, label="Mean"),
+        Line2D([], [], marker="D", linestyle="None",
+               markerfacecolor=MEDIAN_COLOR, markeredgecolor="white",
+               markersize=7, label="Median"),
+    ]
+    ax.legend(handles=handles, loc="upper left", fontsize=8.5,
+              frameon=False, handletextpad=0.4, borderaxespad=0.3)
+
+
+def plot_violin(
     df: pd.DataFrame,
     value_col: str,
     conds: List[str],
@@ -343,7 +347,8 @@ def plot_violin_pro(
     xs, seps = make_positions_with_gaps(conds)
     data = [df.loc[df["condition"] == c, value_col].dropna().astype(float).values for c in conds]
 
-    allv = np.concatenate([v for v in data if v.size > 0]) if any(v.size > 0 for v in data) else np.array([0.0])
+    any_nonempty = any(v.size > 0 for v in data)
+    allv = np.concatenate([v for v in data if v.size > 0]) if any_nonempty else np.array([0.0])
     y_min = float(np.min(allv))
     y_max = float(np.max(allv))
     yr = (y_max - y_min) if y_max > y_min else 1.0
@@ -354,16 +359,12 @@ def plot_violin_pro(
     fig, ax = plt.subplots(figsize=(10.4, 4.9))
     ax.set_axisbelow(True)
     ax.grid(axis="y", alpha=0.12)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
 
     vp = ax.violinplot(
         data,
         positions=xs,
         widths=0.72,
-        showmeans=False,
-        showmedians=False,
-        showextrema=False,
+        showmeans=False, showmedians=False, showextrema=False,
     )
     for body in vp["bodies"]:
         body.set_facecolor(VIOLIN_FACE)
@@ -375,32 +376,46 @@ def plot_violin_pro(
         ax.axvline(s, color="white", linewidth=12, zorder=1)
         ax.axvline(s, color=SEPARATOR_LINE, linewidth=1.5, zorder=2)
 
+    # points + mean/median markers (ALP-style)
     for x, c, vals in zip(xs, conds, data):
         if vals.size == 0:
             continue
+
         jitter = rng.normal(0, 0.055, size=vals.size)
         ax.scatter(
-            x + jitter,
-            vals,
-            s=40,
+            x + jitter, vals,
+            s=22,
             color=COND_COLORS.get(c, "#444444"),
             edgecolor="white",
             linewidth=0.7,
             alpha=0.95,
             zorder=3,
         )
-        m = float(np.mean(vals))
-        s = sem(vals)
-        ax.errorbar(
-            [x], [m], yerr=[s],
-            fmt="o",
-            color="black",
-            markersize=4.5,
-            capsize=3.2,
-            linewidth=1.1,
-            zorder=4,
+
+        mean_val = float(np.mean(vals))
+        median_val = float(np.median(vals))
+
+        # keep your alpha choice
+        ax.scatter(
+            x, mean_val,
+            s=55, marker="o",
+            color=MEAN_COLOR,
+            edgecolor="white",
+            linewidth=0.8,
+            alpha=0.60,
+            zorder=5,
+        )
+        ax.scatter(
+            x, median_val,
+            s=60, marker="D",
+            color=MEDIAN_COLOR,
+            edgecolor="white",
+            linewidth=0.8,
+            alpha=0.60,
+            zorder=5,
         )
 
+    # stars (two rows)
     for x, c in zip(xs, conds):
         if c in FAM_A_TARGETS:
             st = star_from_p(famA.get(c, {}).get("p_adj", np.nan))
@@ -413,11 +428,11 @@ def plot_violin_pro(
                 ax.text(x, yB + 0.015 * yr, st, ha="center", va="bottom",
                         fontsize=12, color=STAR_COLOR_B, zorder=6)
 
+    # Δmean row (vs C1)
     delta_labels = mean_diff_labels_vs_c1(df, value_col, conds)
     y_delta = y_min - 0.11 * yr
     for x, lab in zip(xs, delta_labels):
         ax.text(x, y_delta, lab, ha="center", va="top", fontsize=8.2, color="0.35")
-
     ax.text(xs[0] - 0.75, y_delta, r"$\Delta$mean", ha="left", va="top",
             fontsize=8.2, color="0.35", clip_on=False)
 
@@ -428,14 +443,15 @@ def plot_violin_pro(
     ax.set_title(title, fontsize=13)
     ax.set_ylim(y_min - 0.17 * yr, y_max + 0.26 * yr)
 
-    fig.tight_layout()
     add_stats_header(ax)
+    add_mean_median_legend(ax)
+    fig.tight_layout()
     return fig
 
 
 # ---------------- main ----------------
 def parse_args():
-    p = argparse.ArgumentParser(description="Collagen RAW metrics + dual-family MWU+BH + pro plots (no fold).")
+    p = argparse.ArgumentParser(description="Collagen RAW metrics + dual-family MWU+BH + ALP-style plots.")
     p.add_argument("-input", type=Path, default=INPUT_DIR, help="Folder containing TIFF images.")
     p.add_argument("--alpha", type=float, default=0.05, help="BH threshold (default 0.05).")
     p.add_argument("--out_prefix", type=str, default="collagen_raw", help="Output filename prefix.")
@@ -487,8 +503,6 @@ def main():
                 out[c] = v
         return out
 
-    # ---- RAW plots ----
-    # NOTE: units are "intensity per pixel" for M1/M2, "ratio" for f_cov, "intensity/intensity" for M3
     plot_specs = [
         ("M1_field", "Collagen density per field", "Mean collagen intensity per pixel"),
         ("M2_cov", "Collagen per DAPI-positive area", "Collagen intensity / DAPI-positive pixel"),
@@ -514,7 +528,7 @@ def main():
             alpha=args.alpha,
         )
 
-        # stats report per plot
+        # stats report per metric
         rpt = args.out_dir / f"{args.out_prefix}_{col}_RAW_stats.txt"
         with open(rpt, "w", encoding="utf-8") as f:
             f.write(f"{title} (RAW)\n")
@@ -538,7 +552,7 @@ def main():
                     f"p_adj={famB.get(c, {}).get('p_adj', np.nan):.4g}\n"
                 )
 
-        fig = plot_violin_pro(
+        fig = plot_violin(
             df=df,
             value_col=col,
             conds=conds,
@@ -562,6 +576,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 """

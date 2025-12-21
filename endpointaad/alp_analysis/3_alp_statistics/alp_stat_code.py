@@ -1,9 +1,17 @@
 #!/usr/bin/env python3
 """
 Publication-ready ALP (technical replicates) — RAW / ABSOLUTE mU/mL
-MATCHES collagen-style plot + stats, but WITHOUT fold normalization.
+PLOT STYLE UPDATED to match your reference style:
+- violins (light grey)
+- small colored jittered points
+- mean marker (red circle) + median marker (dark diamond)
+- mean/median legend
+- dual-family stars (black vs C1; red vs C2)
+- separators (C2–C3 and C6–C7)
+- Δmean row (mean difference vs C1) at bottom (IN mU/mL)
+- descriptive stats header
 
-Keeps the SAME IO as your old ALP script:
+Keeps the SAME IO:
 - parse_metadata(metadata.txt)  -> well_to_cond, cond_order
 - read_values_xlsx(data.xlsx, well_to_cond) -> cond_to_values (raw absorbance)
 
@@ -13,12 +21,7 @@ Pipeline:
    - Global Kruskal–Wallis across all present conditions (reported)
    - Family A (lower black stars): C1 vs C2–C8, Mann–Whitney U (two-sided) + BH
    - Family B (upper red stars):   C2 vs C3–C8, Mann–Whitney U (two-sided) + BH (excluding C1)
-3) Plot:
-   - clean violins + colored points + black mean±SEM
-   - bracket-less stars in two rows (black vs C1, red vs C2)
-   - separators (C1–C2 and C6–C7)
-   - Δmean row (mean difference vs C1) at bottom (IN mU/mL)
-   - descriptive stats header
+3) Plot as above
 
 Outputs:
 - CSV: per-well absorbance + ALP_mU_mL
@@ -26,7 +29,7 @@ Outputs:
 - Figure: PDF + PNG (RAW)
 
 Run:
-python alp_publishable_dualref_RAW_pro.py \
+python alp_stat_code.py \
   --metadata alpmetadata.txt \
   --data alp_raw_data.xlsx \
   --blank 0.066 \
@@ -45,6 +48,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from scipy import stats
 from matplotlib.offsetbox import AnchoredOffsetbox, HPacker, TextArea
+from matplotlib.lines import Line2D
 
 from pipeline import parse_metadata, read_values_xlsx
 
@@ -63,7 +67,7 @@ COND_CODE = {
 }
 CONDITIONS = list(COND_CODE.keys())
 
-# Comparison families (same as collagen)
+# Comparison families
 FAM_A_REF = "C1"
 FAM_A_TARGETS = ["C2", "C3", "C4", "C5", "C6", "C7", "C8"]  # vs C1
 FAM_B_REF = "C2"
@@ -80,6 +84,7 @@ COND_COLORS = {
     "C7": "#56B4E9",  # light blue
     "C8": "#8C6D31",  # brown/olive
 }
+
 VIOLIN_FACE = "#E6E6E6"
 VIOLIN_EDGE = "#B3B3B3"
 
@@ -87,6 +92,10 @@ STAR_COLOR_A = "#000000"   # black (vs C1)
 STAR_COLOR_B = "#B22222"   # dark red (vs C2)
 
 SEPARATOR_LINE = "#F2F2F2"
+
+# mean/median markers (match reference style)
+MEAN_COLOR   = "#B22222"   # red mean circle
+MEDIAN_COLOR = "#2B2B2B"   # dark median diamond
 
 
 def two_line_label(name: str) -> str:
@@ -129,13 +138,6 @@ def star_from_p(p: float) -> str:
     if p < 0.05:
         return "*"
     return ""
-
-def sem(x: np.ndarray) -> float:
-    x = np.asarray(x, dtype=float)
-    x = x[np.isfinite(x)]
-    if x.size <= 1:
-        return np.nan
-    return float(np.std(x, ddof=1) / np.sqrt(x.size))
 
 def kw_all_conditions(cond_to_vals: Dict[str, np.ndarray], conds_order: List[str]) -> Tuple[float, float]:
     groups = []
@@ -189,28 +191,19 @@ def make_positions_with_gaps(conds: List[str]) -> Tuple[List[float], List[float]
     base = 0.0
     for c in conds:
         base += 1.0
-
         if c == "C3":
             base += 0.30   # gap between C2–C3
-
         if c == "C7":
             base += 0.35   # gap between C6–C7
-
         xs.append(base)
 
     idx = {c: i for i, c in enumerate(conds)}
     seps = []
-
-    # separator C2–C3
     if "C2" in idx and "C3" in idx:
         seps.append((xs[idx["C2"]] + xs[idx["C3"]]) / 2.0)
-
-    # separator C6–C7
     if "C6" in idx and "C7" in idx:
         seps.append((xs[idx["C6"]] + xs[idx["C7"]]) / 2.0)
-
     return xs, seps
-
 
 
 def mean_diff_labels_vs_c1(df: pd.DataFrame, value_col: str, conds: List[str]) -> List[str]:
@@ -223,11 +216,11 @@ def mean_diff_labels_vs_c1(df: pd.DataFrame, value_col: str, conds: List[str]) -
             m = df.loc[df["condition"] == c, value_col].mean()
             d = m - ref_mean
             arrow = "↑" if d > 0 else "↓"
-            # ALP units can be small; keep 2 decimals but avoid "-0.00"
             if abs(d) < 0.005:
                 d = 0.0
             out.append(f"{d:+.2f} {arrow}")
     return out
+
 
 def add_stats_header(ax, fs=8.6, grey="0.35", red="#B22222"):
     t0 = TextArea("Stars: * p<0.05, ** p<0.01, *** p<0.001 (BH)",
@@ -251,7 +244,21 @@ def add_stats_header(ax, fs=8.6, grey="0.35", red="#B22222"):
     box.set_clip_on(False)
     ax.add_artist(box)
 
-def plot_violin_pro(
+
+def add_mean_median_legend(ax):
+    handles = [
+        Line2D([], [], marker="o", linestyle="None",
+               markerfacecolor=MEAN_COLOR, markeredgecolor="white",
+               markersize=7, label="Mean"),
+        Line2D([], [], marker="D", linestyle="None",
+               markerfacecolor=MEDIAN_COLOR, markeredgecolor="white",
+               markersize=7, label="Median"),
+    ]
+    ax.legend(handles=handles, loc="upper left", fontsize=8.5,
+              frameon=False, handletextpad=0.4, borderaxespad=0.3)
+
+
+def plot_violin(
     df: pd.DataFrame,
     value_col: str,
     conds: List[str],
@@ -265,7 +272,8 @@ def plot_violin_pro(
     xs, seps = make_positions_with_gaps(conds)
     data = [df.loc[df["condition"] == c, value_col].dropna().astype(float).values for c in conds]
 
-    allv = np.concatenate([v for v in data if v.size > 0]) if any(v.size > 0 for v in data) else np.array([0.0])
+    any_nonempty = any(v.size > 0 for v in data)
+    allv = np.concatenate([v for v in data if v.size > 0]) if any_nonempty else np.array([0.0])
     y_min = float(np.min(allv))
     y_max = float(np.max(allv))
     yr = (y_max - y_min) if y_max > y_min else 1.0
@@ -276,16 +284,12 @@ def plot_violin_pro(
     fig, ax = plt.subplots(figsize=(10.4, 4.9))
     ax.set_axisbelow(True)
     ax.grid(axis="y", alpha=0.12)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
 
     vp = ax.violinplot(
         data,
         positions=xs,
         widths=0.72,
-        showmeans=False,
-        showmedians=False,
-        showextrema=False,
+        showmeans=False, showmedians=False, showextrema=False,
     )
     for body in vp["bodies"]:
         body.set_facecolor(VIOLIN_FACE)
@@ -297,32 +301,45 @@ def plot_violin_pro(
         ax.axvline(s, color="white", linewidth=12, zorder=1)
         ax.axvline(s, color=SEPARATOR_LINE, linewidth=1.5, zorder=2)
 
+    # points + mean/median markers
     for x, c, vals in zip(xs, conds, data):
         if vals.size == 0:
             continue
+
         jitter = rng.normal(0, 0.055, size=vals.size)
         ax.scatter(
-            x + jitter,
-            vals,
-            s=40,
+            x + jitter, vals,
+            s=22,
             color=COND_COLORS.get(c, "#444444"),
             edgecolor="white",
             linewidth=0.7,
             alpha=0.95,
             zorder=3,
         )
-        m = float(np.mean(vals))
-        s = sem(vals)
-        ax.errorbar(
-            [x], [m], yerr=[s],
-            fmt="o",
-            color="black",
-            markersize=4.5,
-            capsize=3.2,
-            linewidth=1.1,
-            zorder=4,
+
+        mean_val = float(np.mean(vals))
+        median_val = float(np.median(vals))
+
+        ax.scatter(
+            x, mean_val,
+            s=55, marker="o",
+            color=MEAN_COLOR,
+            edgecolor="white",
+            linewidth=0.8,
+            alpha=0.60, 
+            zorder=5,
+        )
+        ax.scatter(
+            x, median_val,
+            s=60, marker="D",
+            color=MEDIAN_COLOR,
+            edgecolor="white",
+            linewidth=0.8,
+            alpha=0.60, 
+            zorder=5,
         )
 
+    # stars (two rows)
     for x, c in zip(xs, conds):
         if c in FAM_A_TARGETS:
             st = star_from_p(famA.get(c, {}).get("p_adj", np.nan))
@@ -335,11 +352,11 @@ def plot_violin_pro(
                 ax.text(x, yB + 0.015 * yr, st, ha="center", va="bottom",
                         fontsize=12, color=STAR_COLOR_B, zorder=6)
 
+    # Δmean row (vs C1)
     delta_labels = mean_diff_labels_vs_c1(df, value_col, conds)
     y_delta = y_min - 0.11 * yr
     for x, lab in zip(xs, delta_labels):
         ax.text(x, y_delta, lab, ha="center", va="top", fontsize=8.2, color="0.35")
-
     ax.text(xs[0] - 0.75, y_delta, r"$\Delta$mean", ha="left", va="top",
             fontsize=8.2, color="0.35", clip_on=False)
 
@@ -350,8 +367,9 @@ def plot_violin_pro(
     ax.set_title(title, fontsize=13)
     ax.set_ylim(y_min - 0.17 * yr, y_max + 0.26 * yr)
 
-    fig.tight_layout()
     add_stats_header(ax)
+    add_mean_median_legend(ax)
+    fig.tight_layout()
     return fig
 
 
@@ -472,8 +490,8 @@ def main():
 
     print(f"Saved stats: {rpt}")
 
-    # 6) Plot (RAW mU/mL)
-    fig = plot_violin_pro(
+    # 6) Plot (RAW mU/mL) — updated style
+    fig = plot_violin(
         df=df,
         value_col="ALP_mU_mL",
         conds=conds,
@@ -495,6 +513,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 """

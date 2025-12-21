@@ -5,8 +5,9 @@ ars/
 extra/
 confocal/
 overlays/
-
-
+overlays_analyzed/
+qc/
+qc_images/
 
 # venv & python cache
 venv/
@@ -18,7 +19,7 @@ __pycache__/
 *.pyd
 .pytest_cache/
 .ipynb_checkpoints/
-
+s
 # OS cruft
 .DS_Store
 Thumbs.db

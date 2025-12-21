@@ -1,41 +1,24 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-DAPI nuclei segmentation + shape analysis (DAPI framework) +
-ALP-style stats + plotting (dual reference MWU+BH, gaps, stars, Δmean row).
+DAPI nuclei segmentation + shape analysis + ALP-style stats/plots.
 
-NEW (per request):
-- Smaller dots in violin plots
-- Added Integrated Intensity:
-      Integrated Intensity = Mean Intensity × Area (in pixels)
-  -> computed from regionprops mean_intensity and area (px)
+Plot (per feature):
+- violins + jittered per-nucleus points
+- mean marker (red dot) + median marker (blue diamond)
+- stars in two rows:
+    * black: C1 vs others (MWU + BH)
+    * red:   C2 vs others excluding C1 (MWU + BH)
+- separators: C2–C3 and C6–C7
+- Δmean row: mean difference vs C1 (same units as feature)
+- compact header + legend
 
-Inputs:
-- Folder of .tif/.tiff with condition prefix in filename: C1_, C2_, ... (case-insensitive)
+Segmentation:
+Gaussian blur + CLAHE -> Otsu -> fill holes -> distance transform -> peak seeds -> watershed
+Measurements use ORIGINAL DAPI intensities (not CLAHE image).
 
-Pipeline:
-1) Segment nuclei from DAPI channel (Otsu + watershed)
-2) Regionprops + derived metrics (area_um2, circ, aspect ratio, etc.)
-3) Post-filter nuclei by area (µm²) and circularity
-4) Stats on KEPT nuclei:
-   - Global Kruskal–Wallis across all present conditions
-   - Family A (black stars): C1 vs C2–C8, Mann–Whitney U (two-sided) + BH
-   - Family B (red stars):   C2 vs C3–C8, Mann–Whitney U (two-sided) + BH (excluding C1)
-5) Plot per feature:
-   - clean violins + colored points + black mean±SEM
-   - stars in two rows (black vs C1, red vs C2)
-   - separators (C1–C2 and C6–C7)
-   - Δmean row (mean difference vs C1) at bottom (in same units as feature)
-   - descriptive stats header
-
-Outputs (under --out):
-- overlays/ (red all nuclei contours)
-- overlays_analyzed/ (blue kept nuclei contours)
-- labelmaps/
-- figs_violin/ (PDF+PNG per feature)
-- nuclei_measurements_all.csv
-- nuclei_measurements_kept.csv
-- stats_report_DAPI_features.txt
+Integrated intensity:
+    integrated_intensity = mean_intensity * area_px
 """
 
 import warnings
@@ -55,6 +38,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib import rcParams
 from matplotlib.offsetbox import AnchoredOffsetbox, HPacker, TextArea
+from matplotlib.lines import Line2D
 
 from scipy import stats, ndimage
 from skimage import exposure, filters, measure, util, segmentation, morphology, feature
@@ -78,7 +62,7 @@ rcParams.update({
 })
 
 
-# ========================== CONDITIONS / LABELS (ALP style) ==========================
+# ========================== CONDITIONS / LABELS ==========================
 COND_CODE = {
     "C1": "Basal",
     "C2": "Osteo",
@@ -97,23 +81,25 @@ FAM_A_TARGETS = ["C2", "C3", "C4", "C5", "C6", "C7", "C8"]
 FAM_B_REF = "C2"
 FAM_B_TARGETS = ["C3", "C4", "C5", "C6", "C7", "C8"]
 
-# Publication-safe palette (same idea as ALP)
 COND_COLORS = {
-    "C1": "#2B2B2B",  # charcoal
-    "C2": "#0072B2",  # blue
-    "C3": "#009E73",  # green
-    "C4": "#E69F00",  # orange
-    "C5": "#CC79A7",  # purple/pink
-    "C6": "#D55E00",  # vermillion
-    "C7": "#56B4E9",  # light blue
-    "C8": "#8C6D31",  # brown/olive
+    "C1": "#6B6B5E",  # stone / warm neutral
+    "C2": "#1F5AA6",  # blue (primary osteo)
+    "C3": "#1B7F5A",  # green (biological, secondary)
+    "C4": "#C97A00",  # orange (active, controlled)
+    "C5": "#A65C8A",  # magenta (distinct, muted)
+    "C6": "#B24C1A",  # vermillion (strong contrast)
+    "C7": "#6AAED6",  # light blue (secondary to C2)
+    "C8": "#7A6A3A",  # olive-brown (earthy, distinct)
 }
+
 VIOLIN_FACE = "#E6E6E6"
 VIOLIN_EDGE = "#B3B3B3"
-STAR_COLOR_A = "#000000"   # black (vs C1)
-STAR_COLOR_B = "#B22222"   # dark red (vs C2)
+STAR_COLOR_A = "#000000"
+STAR_COLOR_B = "#B22222"
 SEPARATOR_LINE = "#F2F2F2"
 
+MEAN_COLOR   = "#B22222"   # firebrick
+MEDIAN_COLOR = "#2B2B2B"   # charcoal
 
 def two_line_label(name: str) -> str:
     m = {
@@ -129,15 +115,13 @@ def two_line_label(name: str) -> str:
     return m.get(name, name)
 
 
-# ========================== DAPI CONFIG (framework) ==========================
+# ========================== DAPI CONFIG ==========================
 DEFAULT_INPUT_DIR = Path("input_images")
 DEFAULT_OUTPUT_ROOT = Path("dapi_output")
 
-# Imaging
-DEFAULT_PIXEL_SIZE_UM = 0.21  # µm/px (set your microscope value)
+DEFAULT_PIXEL_SIZE_UM = 0.21
 DAPI_CHANNEL_INDEX = 0
 
-# Segmentation params
 MIN_NUCLEUS_SIZE_PX = 100
 CLAHE_CLIP_LIMIT = 0.02
 GAUSSIAN_BLUR_SIGMA = 3.0
@@ -155,10 +139,9 @@ FEATURES_TO_PLOT = [
     "circularity",
     "eccentricity",
     "solidity",
-    "integrated_intensity",  # NEW
+    "integrated_intensity",
 ]
 
-# Post-filter thresholds (µm² and circularity)
 DEFAULT_MIN_AREA_UM2 = 140.0
 DEFAULT_MAX_AREA_UM2 = 300.0
 DEFAULT_MIN_CIRC = 0.6
@@ -207,25 +190,21 @@ def derive_shape_metrics(df: pd.DataFrame, pixel_size_um: float) -> pd.DataFrame
     eps = 1e-12
     df = df.copy()
 
-    # Derived geometric metrics
     df["aspect_ratio"] = (df["major_axis_length"] + eps) / (df["minor_axis_length"] + eps)
     df["circularity"] = (4 * np.pi * df["area"]) / (np.maximum(df["perimeter"], eps) ** 2)
     df["equivalent_diameter_px"] = 2 * np.sqrt(df["area"] / np.pi)
 
-    # Unit conversions
     s = float(pixel_size_um)
     df["area_um2"] = df["area"] * (s ** 2)
     df["equivalent_diameter_um"] = df["equivalent_diameter_px"] * s
 
-    # NEW: integrated intensity (mean_intensity × area_px)
-    # mean_intensity from regionprops_table is average intensity inside the nucleus
-    # area is in pixels -> integrated intensity in "intensity·px"
+    # Integrated intensity in (a.u.·px): sum of raw intensities in the nucleus
     df["integrated_intensity"] = df["mean_intensity"] * df["area"]
 
     return df
 
 
-# ========================== STATS HELPERS (ALP style) ==========================
+# ========================== STATS HELPERS ==========================
 def benjamini_hochberg(pvals: List[float]) -> List[float]:
     p = np.asarray(pvals, dtype=float)
     m = p.size
@@ -250,13 +229,6 @@ def star_from_p(p: float) -> str:
     if p < 0.05:
         return "*"
     return ""
-
-def sem(x: np.ndarray) -> float:
-    x = np.asarray(x, dtype=float)
-    x = x[np.isfinite(x)]
-    if x.size <= 1:
-        return np.nan
-    return float(np.std(x, ddof=1) / np.sqrt(x.size))
 
 def kw_all_conditions(cond_to_vals: Dict[str, np.ndarray], conds_order: List[str]) -> Tuple[float, float]:
     groups = []
@@ -303,34 +275,25 @@ def pairwise_vs_ref_BH(
     return out
 
 
-# ========================== PLOT HELPERS (ALP style) ==========================
+# ========================== PLOT HELPERS ==========================
 def make_positions_with_gaps(conds: List[str]) -> Tuple[List[float], List[float]]:
     xs = []
     base = 0.0
     for c in conds:
         base += 1.0
-
         if c == "C3":
             base += 0.30   # gap between C2–C3
-
         if c == "C7":
             base += 0.35   # gap between C6–C7
-
         xs.append(base)
 
     idx = {c: i for i, c in enumerate(conds)}
     seps = []
-
-    # separator C2–C3
     if "C2" in idx and "C3" in idx:
         seps.append((xs[idx["C2"]] + xs[idx["C3"]]) / 2.0)
-
-    # separator C6–C7
     if "C6" in idx and "C7" in idx:
         seps.append((xs[idx["C6"]] + xs[idx["C7"]]) / 2.0)
-
     return xs, seps
-
 
 def mean_diff_labels_vs_c1(df: pd.DataFrame, value_col: str, conds: List[str]) -> List[str]:
     ref_mean = df.loc[df["condition"] == "C1", value_col].mean()
@@ -344,10 +307,7 @@ def mean_diff_labels_vs_c1(df: pd.DataFrame, value_col: str, conds: List[str]) -
             arrow = "↑" if d > 0 else "↓"
             if np.isfinite(d) and abs(d) < 0.0005:
                 d = 0.0
-            if np.isfinite(d):
-                out.append(f"{d:+.2g} {arrow}")
-            else:
-                out.append("")
+            out.append(f"{d:+.2g} {arrow}" if np.isfinite(d) else "")
     return out
 
 def add_stats_header(ax, fs=8.6, grey="0.35", red="#B22222"):
@@ -371,6 +331,18 @@ def add_stats_header(ax, fs=8.6, grey="0.35", red="#B22222"):
     )
     box.set_clip_on(False)
     ax.add_artist(box)
+
+def add_mean_median_legend(ax):
+    handles = [
+        Line2D([], [], marker="o", linestyle="None",
+               markerfacecolor=MEAN_COLOR, markeredgecolor="white",
+               markersize=7, label="Mean"),
+        Line2D([], [], marker="D", linestyle="None",
+               markerfacecolor=MEDIAN_COLOR, markeredgecolor="white",
+               markersize=7, label="Median"),
+    ]
+    ax.legend(handles=handles, loc="upper left", fontsize=8.5,
+              frameon=False, handletextpad=0.4, borderaxespad=0.3)
 
 def plot_violin(
     df: pd.DataFrame,
@@ -400,12 +372,8 @@ def plot_violin(
     ax.grid(axis="y", alpha=0.12)
 
     vp = ax.violinplot(
-        data,
-        positions=xs,
-        widths=0.72,
-        showmeans=False,
-        showmedians=False,
-        showextrema=False,
+        data, positions=xs, widths=0.72,
+        showmeans=False, showmedians=False, showextrema=False,
     )
     for body in vp["bodies"]:
         body.set_facecolor(VIOLIN_FACE)
@@ -417,32 +385,44 @@ def plot_violin(
         ax.axvline(s, color="white", linewidth=12, zorder=1)
         ax.axvline(s, color=SEPARATOR_LINE, linewidth=1.5, zorder=2)
 
+    # points + mean/median markers
     for x, c, vals in zip(xs, conds, data):
         if vals.size == 0:
             continue
         jitter = rng.normal(0, 0.055, size=vals.size)
         ax.scatter(
-            x + jitter,
-            vals,
-            s=22,  # <<< smaller dots (was 40)
+            x + jitter, vals,
+            s=22,
             color=COND_COLORS.get(c, "#444444"),
             edgecolor="white",
             linewidth=0.7,
             alpha=0.95,
             zorder=3,
         )
-        m = float(np.mean(vals))
-        s_ = sem(vals)
-        ax.errorbar(
-            [x], [m], yerr=[s_],
-            fmt="o",
-            color="black",
-            markersize=4.5,
-            capsize=3.2,
-            linewidth=1.1,
-            zorder=4,
+
+        mean_val = float(np.mean(vals))
+        median_val = float(np.median(vals))
+
+        ax.scatter(
+            x, mean_val,
+            s=55, marker="o",
+            color=MEAN_COLOR,
+            edgecolor="white",
+            linewidth=0.8,
+            alpha=0.60, 
+            zorder=5,
+        )
+        ax.scatter(
+            x, median_val,
+            s=60, marker="D",
+            color=MEDIAN_COLOR,
+            edgecolor="white",
+            linewidth=0.8,
+            alpha=0.60, 
+            zorder=5,
         )
 
+    # stars
     for x, c in zip(xs, conds):
         if c in FAM_A_TARGETS:
             st = star_from_p(famA.get(c, {}).get("p_adj", np.nan))
@@ -455,11 +435,11 @@ def plot_violin(
                 ax.text(x, yB + 0.015 * yr, st, ha="center", va="bottom",
                         fontsize=12, color=STAR_COLOR_B, zorder=6)
 
+    # Δmean row
     delta_labels = mean_diff_labels_vs_c1(df, value_col, conds)
     y_delta = y_min - 0.11 * yr
     for x, lab in zip(xs, delta_labels):
         ax.text(x, y_delta, lab, ha="center", va="top", fontsize=8.2, color="0.35")
-
     ax.text(xs[0] - 0.75, y_delta, r"$\Delta$mean", ha="left", va="top",
             fontsize=8.2, color="0.35", clip_on=False)
 
@@ -470,17 +450,19 @@ def plot_violin(
     ax.set_title(title, fontsize=13)
     ax.set_ylim(y_min - 0.17 * yr, y_max + 0.26 * yr)
 
-    fig.tight_layout()
     add_stats_header(ax)
+    add_mean_median_legend(ax)
+    fig.tight_layout()
     return fig
 
 
-# ========================== SEGMENTATION (DAPI framework) ==========================
+# ========================== SEGMENTATION ==========================
 def segment_and_measure_one(image_path: Path, out_dirs: Dict[str, Path]) -> pd.DataFrame | None:
     try:
         dapi_original = load_dapi_channel(image_path)
         dapi_float = util.img_as_float(dapi_original)
 
+        # preprocess for segmentation
         dapi_blurred = filters.gaussian(dapi_float, sigma=GAUSSIAN_BLUR_SIGMA)
         dapi_eq = exposure.equalize_adapthist(dapi_blurred, clip_limit=CLAHE_CLIP_LIMIT)
 
@@ -513,6 +495,7 @@ def segment_and_measure_one(image_path: Path, out_dirs: Dict[str, Path]) -> pd.D
         label_path = out_dirs["labelmaps"] / f"{image_path.stem}_labels.tif"
         tf.imwrite(label_path, labeled_final.astype(np.uint16), photometric="minisblack")
 
+        # Measure features using ORIGINAL intensities
         props = measure.regionprops_table(
             labeled_final,
             intensity_image=dapi_original,
@@ -541,12 +524,11 @@ def segment_and_measure_one(image_path: Path, out_dirs: Dict[str, Path]) -> pd.D
 
 # ========================== MAIN ==========================
 def parse_args():
-    p = argparse.ArgumentParser(description="DAPI nuclei shape analysis (DAPI seg + ALP-style stats/plots).")
+    p = argparse.ArgumentParser(description="DAPI nuclei shape analysis (seg + ALP-style stats/plots).")
     p.add_argument("-i", "--input", type=Path, default=DEFAULT_INPUT_DIR, help="Folder with .tif/.tiff images")
     p.add_argument("-o", "--out", type=Path, default=DEFAULT_OUTPUT_ROOT, help="Output root folder")
     p.add_argument("--pixel_um", type=float, default=DEFAULT_PIXEL_SIZE_UM, help="Pixel size (µm/px)")
 
-    # post-filter thresholds
     p.add_argument("--min_area_um2", type=float, default=DEFAULT_MIN_AREA_UM2)
     p.add_argument("--max_area_um2", type=float, default=DEFAULT_MAX_AREA_UM2)
     p.add_argument("--min_circ", type=float, default=DEFAULT_MIN_CIRC)
@@ -636,7 +618,6 @@ def main():
     conds_present = [c for c in CONDITIONS if (df_kept["condition"] == c).any()]
     if not conds_present:
         raise RuntimeError("No recognized conditions (C1–C8) found after filtering.")
-
     if "C1" not in conds_present:
         raise RuntimeError("Missing C1 (Basal) after filtering.")
     if "C2" not in conds_present:
@@ -645,7 +626,7 @@ def main():
     # ---------- Stats + plots per feature ----------
     with open(out_dirs["stats_txt"], "w", encoding="utf-8") as f:
         f.write("DAPI nuclei shape metrics — KEPT nuclei only\n")
-        f.write("Segmentation: Otsu + watershed; clear_border; remove_small_objects\n")
+        f.write("Segmentation: Gaussian+CLAHE -> Otsu -> watershed; clear_border; remove_small_objects\n")
         f.write(f"Pixel size: {args.pixel_um} µm/px\n")
         f.write(
             f"Filters: area {args.min_area_um2}-{args.max_area_um2} µm²; "
@@ -653,7 +634,7 @@ def main():
         )
         f.write("Stats: MWU (two-sided) + BH within each family\n")
         f.write(f"Alpha: {args.alpha}\n")
-        f.write("Integrated intensity: mean_intensity × area_px\n\n")
+        f.write("Integrated intensity: mean_intensity × area_px (=sum of raw intensities in nucleus)\n\n")
 
         for feat in FEATURES_TO_PLOT:
             if feat not in df_kept.columns:
@@ -704,7 +685,7 @@ def main():
             ylab = ylab_map.get(feat, feat.replace("_", " "))
 
             title_map = {
-                "area_um2": "DAPI nuclei — area um2",
+                "area_um2": "DAPI nuclei — area",
                 "integrated_intensity": "DAPI nuclei — integrated intensity",
             }
             title = title_map.get(feat, f"DAPI nuclei — {feat.replace('_', ' ')}")
@@ -737,6 +718,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 """
