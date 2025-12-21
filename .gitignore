@@ -8,6 +8,7 @@ overlays/
 overlays_analyzed/
 qc/
 qc_images/
+mono_channels/
 
 # venv & python cache
 venv/
