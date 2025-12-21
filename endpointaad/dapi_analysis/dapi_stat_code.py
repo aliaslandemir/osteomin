@@ -32,7 +32,7 @@ Outputs (under --out):
 - overlays/ (red all nuclei contours)
 - overlays_analyzed/ (blue kept nuclei contours)
 - labelmaps/
-- figs_violin_pro/ (PDF+PNG per feature)
+- figs_violin/ (PDF+PNG per feature)
 - nuclei_measurements_all.csv
 - nuclei_measurements_kept.csv
 - stats_report_DAPI_features.txt
@@ -131,7 +131,7 @@ def two_line_label(name: str) -> str:
 
 # ========================== DAPI CONFIG (framework) ==========================
 DEFAULT_INPUT_DIR = Path("input_images")
-DEFAULT_OUTPUT_ROOT = Path("dapi_output_pro")
+DEFAULT_OUTPUT_ROOT = Path("dapi_output")
 
 # Imaging
 DEFAULT_PIXEL_SIZE_UM = 0.21  # µm/px (set your microscope value)
@@ -173,7 +173,7 @@ def setup_output_dirs(out_root: Path) -> Dict[str, Path]:
         "overlays_all": out_root / "overlays",
         "overlays_kept": out_root / "overlays_analyzed",
         "labelmaps": out_root / "labelmaps",
-        "figs": out_root / "figs_violin_pro",
+        "figs": out_root / "figs_violin",
         "csv_all": out_root / "nuclei_measurements_all.csv",
         "csv_kept": out_root / "nuclei_measurements_kept.csv",
         "stats_txt": out_root / "stats_report_DAPI_features.txt",
@@ -309,19 +309,28 @@ def make_positions_with_gaps(conds: List[str]) -> Tuple[List[float], List[float]
     base = 0.0
     for c in conds:
         base += 1.0
-        if c == "C2":
-            base += 0.30  # gap after C1
+
+        if c == "C3":
+            base += 0.30   # gap between C2–C3
+
         if c == "C7":
-            base += 0.35  # gap after C6
+            base += 0.35   # gap between C6–C7
+
         xs.append(base)
 
     idx = {c: i for i, c in enumerate(conds)}
     seps = []
-    if "C1" in idx and "C2" in idx:
-        seps.append((xs[idx["C1"]] + xs[idx["C2"]]) / 2.0)
+
+    # separator C2–C3
+    if "C2" in idx and "C3" in idx:
+        seps.append((xs[idx["C2"]] + xs[idx["C3"]]) / 2.0)
+
+    # separator C6–C7
     if "C6" in idx and "C7" in idx:
         seps.append((xs[idx["C6"]] + xs[idx["C7"]]) / 2.0)
+
     return xs, seps
+
 
 def mean_diff_labels_vs_c1(df: pd.DataFrame, value_col: str, conds: List[str]) -> List[str]:
     ref_mean = df.loc[df["condition"] == "C1", value_col].mean()
@@ -363,7 +372,7 @@ def add_stats_header(ax, fs=8.6, grey="0.35", red="#B22222"):
     box.set_clip_on(False)
     ax.add_artist(box)
 
-def plot_violin_pro(
+def plot_violin(
     df: pd.DataFrame,
     value_col: str,
     conds: List[str],
@@ -520,7 +529,7 @@ def segment_and_measure_one(image_path: Path, out_dirs: Dict[str, Path]) -> pd.D
         ax.contour(labeled_final > 0, levels=[0.5], colors="red", linewidths=0.9)
         ax.set_axis_off()
         fig.savefig(out_dirs["overlays_all"] / f"{image_path.stem}_overlay.png",
-                    dpi=150, bbox_inches="tight", pad_inches=0)
+                    dpi=80, bbox_inches="tight", pad_inches=0)
         plt.close(fig)
 
         return df
@@ -700,7 +709,7 @@ def main():
             }
             title = title_map.get(feat, f"DAPI nuclei — {feat.replace('_', ' ')}")
 
-            fig = plot_violin_pro(
+            fig = plot_violin(
                 df=df_kept,
                 value_col=feat,
                 conds=conds_present,
@@ -711,8 +720,8 @@ def main():
                 seed=int(args.seed),
             )
 
-            pdf = out_dirs["figs"] / f"dapi_{feat}_pro.pdf"
-            png = out_dirs["figs"] / f"dapi_{feat}_pro.png"
+            pdf = out_dirs["figs"] / f"dapi_{feat}.pdf"
+            png = out_dirs["figs"] / f"dapi_{feat}.png"
             fig.savefig(pdf, dpi=300, bbox_inches="tight")
             fig.savefig(png, dpi=300, bbox_inches="tight")
             plt.close(fig)
@@ -735,7 +744,7 @@ To Run:
 
 python dapi_stat_code.py \
   --input ../confocal \
-  --out dapi_analysis_output_pro \
+  --out dapi_analysis_output \
   --pixel_um 0.21 \
   --alpha 0.05 \
   --seed 0

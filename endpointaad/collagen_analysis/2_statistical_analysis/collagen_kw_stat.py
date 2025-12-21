@@ -256,19 +256,28 @@ def make_positions_with_gaps(conds: List[str]) -> Tuple[List[float], List[float]
     base = 0.0
     for c in conds:
         base += 1.0
-        if c == "C2":
-            base += 0.30  # gap after C1
+
+        if c == "C3":
+            base += 0.30   # gap between C2–C3
+
         if c == "C7":
-            base += 0.35  # gap after C6
+            base += 0.35   # gap between C6–C7
+
         xs.append(base)
 
     idx = {c: i for i, c in enumerate(conds)}
     seps = []
-    if "C1" in idx and "C2" in idx:
-        seps.append((xs[idx["C1"]] + xs[idx["C2"]]) / 2.0)
+
+    # separator C2–C3
+    if "C2" in idx and "C3" in idx:
+        seps.append((xs[idx["C2"]] + xs[idx["C3"]]) / 2.0)
+
+    # separator C6–C7
     if "C6" in idx and "C7" in idx:
         seps.append((xs[idx["C6"]] + xs[idx["C7"]]) / 2.0)
+
     return xs, seps
+
 
 
 def mean_diff_labels_vs_c1(df: pd.DataFrame, value_col: str, conds: List[str]) -> List[str]:
@@ -559,7 +568,7 @@ if __name__ == "__main__":
 Run:
 
 python collagen_kw_stat.py \
-  -input ../../../confocal \
+  -input ../../confocal \
   --alpha 0.05 \
   --out_prefix collagen_raw \
   --out_dir collagen_output
