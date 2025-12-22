@@ -6,6 +6,7 @@ __all__ = ["ABMConfig", "FieldConfig"]
 
 @dataclass(slots=True)
 class ABMConfig:
+    # Timebase: parameters below are per hour unless explicitly stated otherwise.
     width: int = 33
     height: int = 33
     boundary_mode: str = "periodic"
@@ -14,19 +15,19 @@ class ABMConfig:
     enable_apoptosis: bool = True
     enable_proliferation: bool = True
     enable_secretion: bool = True
-    base_commit_prob: float = 0.0001 / 24  # per hour
-    commit_prob_growth: float = 0.01 / (24 * 24)  # per hour increment (matches legacy 0.01/day slope)
-    commit_delay: int = 72  # hours (3 days legacy)
+
+    base_commit_prob: float = 0.0005    # per hour (~0.012/day), low baseline for early pre-OB commitment
+    commit_prob_growth: float = 0.00003 # per hour (~0.7/day slope) toward higher commitment over ~10 days
+
+    commit_delay: int = 72  # hours (legacy 3 days)
     apoptosis_prob: float = 0.01 / 24  # per hour
     ob_apoptosis_prob: float = 0.001 / 24  # per hour
-    min_div_days: int = 48  # hours (legacy name)
-    max_div_days: int = 96  # hours (legacy name)
-    dex_dose: float = 0.0  # CLI-provided dexamethasone dose (0–1); multiplier applied in commitment
-    dex_k: float = 1.0  # slope for dex effect (F_dex = 1 + k * D)
+    min_div_days: int = 36  # hours between divisions 
+    max_div_days: int = 52  # hours between divisions 
     collagen_per_ob: float = 1.5
     alp_per_ob: float = 1.2
     move_prob: float = 1.0  # per hour
-    max_moves_per_day: int = 1  # interpreted hourly
+    max_moves_per_day: int = 1  # max moves per hour 
     ob_division_prob: float = 0.0  # per hour
     proliferation_chance: float = 1.0  # per hour
 

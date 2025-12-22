@@ -43,15 +43,6 @@ These are passed via `python main.py ...` and wired into the runtime configs and
 - `--bgp` (default: 1.0)
   - **Used in**: `supplements` dict -> `FieldManager` BGP pool.
   - **Effect**: Beta-glycerophosphate supply; limits Pi generation.
-- `--mk4` (default: 0.0)
-  - **Used in**: `FieldManager` MK-4 effect.
-  - **Effect**: Boosts collagen output and nucleation/maturation rates.
-- `--dex` (default: None)
-  - **Used in**: `ABMConfig.dex_dose`, `ABMManager` commitment/apoptosis scaling.
-  - **Effect**: Dex dose (0-1). If absent, no Dex effect.
-- `--dex-k` (default: 1.0)
-  - **Used in**: `ABMConfig.dex_k`.
-  - **Effect**: Strength of Dex effect on commitment probability.
 
 ### 🧬 Cell-Level Behavior
 - `--random-move` / `--no-random-move` (default: enabled)
@@ -189,14 +180,10 @@ These are in `src/config.py` and define defaults or parameters not surfaced in t
 
 These are fixed in code unless you edit the class directly.
 
-- `ABMManager._stay_prob` = 0.5
+- `ABMManager._move_prob` = 0.67
   - **Used in**: `ABMManager._movement_target()`.
 - Movement direction weights (axial vs diagonal)
   - **Used in**: Random walk probabilities.
-- MK-4 piecewise multipliers (1.0 / 1.3 / 1.6)
-  - **Used in**: `FieldManager._apply_collagen_secretion()` and nucleation/maturation scaling.
-- Dex piecewise apoptosis scaling
-  - **Used in**: `ABMManager._apoptosis_step()`.
 
 ---
 

@@ -78,19 +78,6 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--bgp", type=float, default=1.0, help="beta-glycerophosphate scaling"
     )
-    p.add_argument("--mk4", type=float, default=0.0, help="MK-4 dose (0–1); boosts collagen/ECM build-up")
-    p.add_argument(
-        "--dex",
-        type=float,
-        default=None,
-        help="dexamethasone dose for commitment boost (0–1); absent = no Dex effect",
-    )
-    p.add_argument(
-        "--dex-k",
-        type=float,
-        default=1.0,
-        help="strength of dexamethasone effect on commitment (F_dex = 1 + k * D)",
-    )
 
     p.add_argument(
         "--random-move",
@@ -347,10 +334,6 @@ def main() -> None:
     args.apoptosis_prob = max(0.0, min(1.0, args.apoptosis_prob))
     args.ob_apoptosis_prob = max(0.0, min(1.0, args.ob_apoptosis_prob))
     args.commit_delay = max(0, args.commit_delay)
-    dex_dose = args.dex if args.dex is not None else 0.0
-    dex_dose = max(0.0, min(1.0, dex_dose))
-    dex_k = max(0.0, args.dex_k)
-
     abm_cfg = ABMConfig(
         width=args.w,
         height=args.h,
@@ -368,8 +351,6 @@ def main() -> None:
         proliferation_chance=args.proliferation_chance,
         commit_prob_growth=args.commit_growth,
         commit_delay=args.commit_delay,
-        dex_dose=dex_dose,
-        dex_k=dex_k,
     )
     field_cfg = FieldConfig(
         width=args.w,
@@ -383,7 +364,7 @@ def main() -> None:
         nodule_window=max(1, int(args.nodule_window)),
     )
 
-    supplements = dict(aa=args.aa, bgp=args.bgp, mk4=max(0.0, min(1.0, args.mk4)))
+    supplements = dict(aa=args.aa, bgp=args.bgp)
 
     spatial_days = [int(x) for x in args.spatial_days.split(",") if x.strip()]
 
@@ -472,7 +453,9 @@ python main.py \
   --random-move --move-prob 1.0 --max-moves 1 \
   --proliferation --ob-div-prob 0.0 \
   --apoptosis --apoptosis-prob 0.00042 --apoptosis-osteo 0.000042 \
-  --osteogenic-commitment --commit-growth 0.00001736 --commit-delay 72 \
+  --osteogenic-commitment \
+  --commit-growth 0.00003 \
+  --commit-delay 72 \
   --secretion --nucleation --enable-nodules \
   --spatial-every 1 --out out \
   --nodule-window 4 --k-ha 0.0025 --k-nuc 0.0010417 \

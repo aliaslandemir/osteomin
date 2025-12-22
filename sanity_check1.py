@@ -55,15 +55,15 @@ TOGGLES = [
     },
     {
         "name": "commit_delay",
-        "desc": "Delay (days) before commit probability turns on.",
+        "desc": "Delay (hours) before commit probability turns on.",
         "negative": ["--commit-delay", "0"],
     },
 ]
 
 BASE_ARGS = [
     "main.py",
-    "--days",
-    "30",
+    "--hours",
+    "720",
     "--cells",
     "72",
     "--w",
@@ -73,7 +73,7 @@ BASE_ARGS = [
     "--boundary-mode",
     "periodic",
     "--media-interval",
-    "2",
+    "48",
     "--aa",
     "1.0",
     "--bgp",
@@ -88,14 +88,14 @@ BASE_ARGS = [
     "0.0",
     "--apoptosis",
     "--apoptosis-prob",
-    "0.01",
+    "0.00042",
     "--apoptosis-osteo",
-    "0.001",
+    "0.000042",
     "--osteogenic-commitment",
     "--commit-growth",
-    "0.01",
+    "0.00003",
     "--commit-delay",
-    "3",
+    "72",
     "--secretion",
     "--nucleation",
     "--enable-nodules",
@@ -104,9 +104,10 @@ BASE_ARGS = [
     "--nodule-window",
     "4",
     "--k-ha",
-    "0.06",
+    "0.0025",
     "--k-nuc",
-    "0.025",
+    "0.0010417",
+    "--no-hourly-exports",
 ]
 
 
@@ -251,3 +252,12 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+"""
+
+To run
+
+python sanity_check1.py
+
+"""

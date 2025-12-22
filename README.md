@@ -52,7 +52,6 @@ python main.py
 |------|---------|
 | `--aa` | 1.0 |
 | `--bgp` | 1.0 |
-| `--mk4` | 0.0 (none) |
 
 ### Cell behaviors
 | Behavior | Default |
@@ -62,7 +61,6 @@ python main.py
 | Apoptosis | enabled (`--apoptosis`), `--apoptosis-prob 0.01`, `--apoptosis-osteo 0.001` |
 | Osteogenic commitment | enabled, `--commit-growth 0.01`, `--commit-delay 3` |
 | Secretion | enabled (`--secretion`) |
-| Dex effects | off by default (omit `--dex`; strength via `--dex-k`, default 1.0) |
 
 ### Field / chemistry
 | Parameter | Default |
@@ -115,7 +113,7 @@ This command matches the configuration used in the paper; feel free to omit flag
 ## Key CLI Controls
 
 - **Geometry & time:** `--days`, `--cells`, `--w`, `--h`, `--boundary-mode`, `--media-interval`, `--seed`.
-- **Supplements:** `--aa`, `--bgp`, optional `--mk4` (0–1) seed the media pools; MK-4 scales collagen rate and boosts `K_NUC`/`K_HA`. Dex is separate (`--dex`, `--dex-k`) and affects commitment/apoptosis only.
+- **Supplements:** `--aa` and `--bgp` seed the media pools that limit collagen/ALP production (MK-4/Dex flags have been removed).
 - **Cell events:** toggles for movement, proliferation, apoptosis, secretion, and commitment determine whether the ABM executes the corresponding steps each day. Per-process probabilities are adjustable via the associated flags.
 - **Nucleation & nodules:** `--s-thresh`, `--k-nuc`, `--k-ha`, `--nodule-window`, and `--enable-nodules` control ACP/HA kinetics and how nodules are detected. A nodule is counted if every site in the window is an osteoblast with HA ≥ `ACP_TO_HA_THRESHOLD`.
 -- All per-day flags listed above are internally scaled to hourly values so the CLI stays familiar even though the solver now runs on 1-hour ticks.

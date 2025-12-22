@@ -315,7 +315,6 @@ def plot_summary(df: pd.DataFrame, outdir: str | Path) -> None:
     supp_cols = [
         ("supp_aa", "Ascorbic acid (AA)", "#0d9488"),
         ("supp_bgp", "β-GP", "#f97316"),
-        ("supp_mk4", "MK-4", "#6366f1"),
     ]
     if all(col in df.columns for col, _, _ in supp_cols):
         fig, ax = plt.subplots(figsize=(6, 3.5))

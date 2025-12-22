@@ -30,7 +30,7 @@ class ABMManager:
         self.track_cells = bool(track_cells)
         self._next_cell_id = 0
         self._death_rows: List[Dict[str, Any]] = []
-        self._stay_prob = 0.5
+        self._move_prob = 0.67  # ~20 µm/h on a 30 µm lattice, matching MC3T3-E1 controls
 
         self._direction_offsets = [
             (-1, 0),
@@ -117,8 +117,7 @@ class ABMManager:
                 0.0,
                 float(self.cfg.base_commit_prob + hour * self._commit_growth_per_hour),
             )
-            dex_factor = 1.0 + float(self.cfg.dex_k) * float(self.cfg.dex_dose)
-            commit_prob = min(1.0, base_prob * dex_factor)
+            commit_prob = min(1.0, base_prob)
             for c in self.cells:
                 if (
                     c.state == CellState.PRE_OB
@@ -173,7 +172,7 @@ class ABMManager:
         return None
 
     def _movement_target(self, x: int, y: int) -> Tuple[int, int] | None:
-        if self.rng.random() < self._stay_prob:
+        if self.rng.random() >= self._move_prob:
             return None
 
         idx = self.rng.choice(len(self._direction_offsets), p=self._direction_probs)
@@ -201,15 +200,8 @@ class ABMManager:
                     break
 
     def _apoptosis_step(self, hour: int) -> None:
-        dex = float(self.cfg.dex_dose)
-        if dex <= 0.0:
-            f_pre, f_ob = 1.0, 1.0
-        elif dex < 1.0:
-            f_pre, f_ob = 1.2, 1.5
-        else:
-            f_pre, f_ob = 1.5, 3.0
-        prob_pre = min(1.0, self._apoptosis_prob_preob * f_pre)
-        prob_ob = min(1.0, self._apoptosis_prob_ob * f_ob)
+        prob_pre = min(1.0, self._apoptosis_prob_preob)
+        prob_ob = min(1.0, self._apoptosis_prob_ob)
 
         died_indices = []
         for idx, c in enumerate(self.cells):

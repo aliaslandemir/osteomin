@@ -341,7 +341,6 @@ class OsteoModel:
 
         supp_aa = float(getattr(self.field, "aa_pool", 0.0))
         supp_bgp = float(getattr(self.field, "bgp_pool", 0.0))
-        supp_mk4 = float(getattr(self.field, "mk4_level", 0.0))
         if day == 0:
             row = {
                 "day": int(day),
@@ -369,7 +368,6 @@ class OsteoModel:
                 "pi_free_total": float(self.field.pi.sum()),
                 "supp_aa": supp_aa,
                 "supp_bgp": supp_bgp,
-                "supp_mk4": supp_mk4,
             }
             row["nodule_count"] = int(
                 self.field.nodule_data_for_day(day)[0]
@@ -404,7 +402,6 @@ class OsteoModel:
             "pi_free_total": float(scalars.get("pi_free_total", 0.0)),
             "supp_aa": supp_aa,
             "supp_bgp": supp_bgp,
-            "supp_mk4": supp_mk4,
         }
         row["nodule_count"] = int(
             self.field.nodule_data_for_day(day)[0]

@@ -11,7 +11,6 @@ __all__ = ["FieldManager"]
 class _Supplements:
     aa: float = 1.0
     bgp: float = 1.0
-    mk4: float = 0.0
 
 
 class FieldManager:
@@ -74,12 +73,11 @@ class FieldManager:
         self.pi_generated_total = 0.0
         self.bgp_consumed_total = 0.0
 
-        supp_kwargs = {k: float(v) for k, v in dict(supplements).items() if k in ("aa", "bgp", "mk4")}
+        supp_kwargs = {k: float(v) for k, v in dict(supplements).items() if k in ("aa", "bgp")}
         s = _Supplements(**supp_kwargs)
         self.supp = s
         self.aa_pool = max(0.0, s.aa)
         self.bgp_pool = max(0.0, s.bgp)
-        self.mk4_level = max(0.0, s.mk4)
         self.CA0 = float(ca0)
         self.PI0 = float(pi0)
         self.ALP_TO_PI_RATE = float(alp_to_pi_rate)
@@ -192,13 +190,7 @@ class FieldManager:
         f_aa = self.aa_pool / denom
         if f_aa <= 0.0:
             return
-        if self.mk4_level <= 0.0:
-            f_mk4 = 1.0
-        elif self.mk4_level < 1.0:
-            f_mk4 = 1.3
-        else:
-            f_mk4 = 1.6
-        amount = count * self.BASE_COLLAGEN_RATE * f_mk4 * f_aa
+        amount = count * self.BASE_COLLAGEN_RATE * f_aa
         if amount <= 0.0:
             return
         if self._ob_mask is not None and self._ob_mask.any():
@@ -336,14 +328,8 @@ class FieldManager:
         self._apply_collagen_secretion()
 
         if self.enable_nucleation:
-            if self.mk4_level <= 0.0:
-                f_mk4 = 1.0
-            elif self.mk4_level < 1.0:
-                f_mk4 = 1.3
-            else:
-                f_mk4 = 1.6
-            k_nuc_eff = self.K_NUC * f_mk4
-            k_ha_eff = self.K_HA * f_mk4
+            k_nuc_eff = self.K_NUC
+            k_ha_eff = self.K_HA
 
             supersat = self.ca * self.pi
             if self._ob_mask is not None:
@@ -407,7 +393,6 @@ class FieldManager:
         return {
             "cell_ca": float(self.cell_ca),
             "cell_pi": float(self.cell_pi),
-            "mk4_level": float(getattr(self, "mk4_level", 0.0)),
             "ca_media": float(self.ca.mean()),
             "bgp_pool": float(self.bgp_pool),
             "ca_free_total": float(self.ca.sum()),
