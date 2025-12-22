@@ -1,15 +1,17 @@
 from __future__ import annotations
 from typing import Any, Dict, List, Tuple
+
 import numpy as np
 
 from .agent import Cell, CellState
 from .config import ABMConfig
+from .time_utils import HOURS_PER_DAY
 
 __all__ = ["ABMManager"]
 
 
 class ABMManager:
-    """On-lattice ABM with event tracking lists per day."""
+    """On-lattice ABM with hourly stepping and event tracking lists."""
 
     def __init__(
         self, cfg: ABMConfig, rng: np.random.Generator, track_cells: bool = False
@@ -23,47 +25,50 @@ class ABMManager:
             raise ValueError(f"unsupported boundary_mode '{cfg.boundary_mode}'")
         self.boundary_mode = mode
 
-        # state
         self.cells: List[Cell] = []
         self.occupancy = np.full((self.height, self.width), -1, dtype=np.int32)
         self.track_cells = bool(track_cells)
         self._next_cell_id = 0
         self._death_rows: List[Dict[str, Any]] = []
-        # random motility parameters
-        # stay probability
-        self._stay_prob = 0.5  # change this freely (e.g., 0.6)
+        self._stay_prob = 0.5
 
-        # 8-neighborhood offsets
         self._direction_offsets = [
             (-1, 0),
             (1, 0),
             (0, -1),
-            (0, 1),  # axial
+            (0, 1),
             (-1, -1),
             (1, -1),
             (-1, 1),
-            (1, 1),  # diagonal
+            (1, 1),
         ]
 
-        # base movement weights
         base_axial = 1.0
-        base_diag = 1.0 / np.sqrt(2)  # ≈ 0.707
+        base_diag = 1.0 / np.sqrt(2)
 
         direction_weights = [base_axial] * 4 + [base_diag] * 4
         total = sum(direction_weights)
 
-        # normalized movement probabilities (sum to 1.0)
         self._direction_probs = [w / total for w in direction_weights]
 
-        # daily event logs
         self.dead_cells: List[Tuple[int, int]] = []  # (row, col)
         self.dead_preob_coords: List[Tuple[int, int]] = []  # died while preOB
         self.dead_ob_coords: List[Tuple[int, int]] = []  # died while OB
         self.committed_today: int = 0
+        self._move_prob_hourly = min(1.0, max(0.0, float(self.cfg.move_prob)))
+        self._max_moves_per_step = max(0, int(self.cfg.max_moves_per_day))
+        self._apoptosis_prob_preob = min(1.0, max(0.0, float(self.cfg.apoptosis_prob)))
+        self._apoptosis_prob_ob = min(1.0, max(0.0, float(self.cfg.ob_apoptosis_prob)))
+        self._proliferation_chance_hourly = min(
+            1.0, max(0.0, float(self.cfg.proliferation_chance))
+        )
+        self._commit_growth_per_hour = max(0.0, float(self.cfg.commit_prob_growth))
+        self._commit_delay_hours = max(0, int(self.cfg.commit_delay))
+        self._min_div_interval = max(1, int(self.cfg.min_div_days))
+        self._max_div_interval = max(self._min_div_interval, int(self.cfg.max_div_days))
 
         self.field = None
 
-    # ----- seeding -----
     def seed_from_coords(self, coords: List[Tuple[int, int]], day0: int = 0) -> None:
         for x, y in coords:
             if (
@@ -86,73 +91,59 @@ class ABMManager:
             last_div_day=day,
             birth_day=day,
         )
-        if self.cfg.min_div_days <= self.cfg.max_div_days:
+        if self._min_div_interval <= self._max_div_interval:
             c.division_interval = int(
-                self.rng.integers(self.cfg.min_div_days, self.cfg.max_div_days + 1)
+                self.rng.integers(self._min_div_interval, self._max_div_interval + 1)
             )
         return c
 
     def attach_field(self, field) -> None:
         self.field = field
 
-    # ----- step -----
-    def step_day(self, day: int) -> None:
-        # reset daily trackers
+    def step_hour(self, hour: int) -> None:
         self.dead_cells = []
         self.dead_preob_coords = []
         self.dead_ob_coords = []
         self.committed_today = 0
 
-        # 1) random_move – small motility before division/commitment
         if self.cfg.enable_random_move:
             self._random_move_step()
 
-        # 2) proliferation – cell cycle events and daughter placement
         if self.cfg.enable_proliferation:
-            self._proliferation_step(day)
+            self._proliferation_step(hour)
 
-        # 3) commitment – differentiate some preOB to OB
-        if self.cfg.enable_commitment and day >= self.cfg.commit_delay:
-            base_prob = min(
-                1.0,
-                float(self.cfg.base_commit_prob + day * self.cfg.commit_prob_growth),
+        if self.cfg.enable_commitment and hour >= self._commit_delay_hours:
+            base_prob = max(
+                0.0,
+                float(self.cfg.base_commit_prob + hour * self._commit_growth_per_hour),
             )
             dex_factor = 1.0 + float(self.cfg.dex_k) * float(self.cfg.dex_dose)
             commit_prob = min(1.0, base_prob * dex_factor)
             for c in self.cells:
                 if (
                     c.state == CellState.PRE_OB
-                    and (day - c.last_div_day) >= 1
+                    and (hour - c.last_div_day) >= HOURS_PER_DAY
                     and self.rng.random() < commit_prob
                 ):
-                    c.mark_committed(day)
+                    c.mark_committed(hour)
                     self.committed_today += 1
 
-        # 4) secretion – OBs deposit collagen & ALP before any deaths
         if self.cfg.enable_secretion:
             self._secretion_step()
 
-        # 5) apoptosis – remove cells after they have acted biologically
         if self.cfg.enable_apoptosis:
-            self._apoptosis_step(day)
+            self._apoptosis_step(hour)
 
-        # 6) chemistry update – send OB mask, then field tick / media refresh
         if self.field is not None:
-            # build boolean mask of alive osteoblast positions (H×W)
             ob_mask = np.zeros((self.height, self.width), dtype=bool)
             for c in self.cells:
-                if (
-                    c.state == CellState.OSTEOBLAST
-                ):  # only alive cells remain in self.cells
+                if c.state == CellState.OSTEOBLAST:
                     ob_mask[c.y, c.x] = True
-            # provide mask to field (enables localized secretion & nucleation)
             if hasattr(self.field, "set_ob_mask"):
                 self.field.set_ob_mask(ob_mask)
-            self.field.step_day()
+            self.field.step_hour()
 
-    # ---- internals ----
     def _neighbors4(self, x: int, y: int):
-        # returns 4-neighbors; periodic mode wraps, otherwise ignore out-of-bounds
         offsets = [(-1, 0), (1, 0), (0, -1), (0, 1)]
         if self.boundary_mode == "periodic":
             return [
@@ -182,11 +173,9 @@ class ABMManager:
         return None
 
     def _movement_target(self, x: int, y: int) -> Tuple[int, int] | None:
-        # decide stay vs move
         if self.rng.random() < self._stay_prob:
             return None
 
-        # decide direction, probs must sum to 1
         idx = self.rng.choice(len(self._direction_offsets), p=self._direction_probs)
         dx, dy = self._direction_offsets[idx]
         return self._resolve_offset(x, y, dx, dy)
@@ -195,11 +184,11 @@ class ABMManager:
         for idx, c in enumerate(self.cells):
             if c.state != CellState.PRE_OB:
                 continue
-            if self.rng.random() >= self.cfg.move_prob:
+            if self.rng.random() >= self._move_prob_hourly:
                 continue
 
             steps = 0
-            while steps < self.cfg.max_moves_per_day:
+            while steps < self._max_moves_per_step:
                 target = self._movement_target(c.x, c.y)
                 steps += 1
                 if target is None:
@@ -211,8 +200,7 @@ class ABMManager:
                     c.record_move(nx, ny)
                     break
 
-    def _apoptosis_step(self, day: int) -> None:
-        # Dex-dependent apoptosis scaling (piecewise on dose 0–1)
+    def _apoptosis_step(self, hour: int) -> None:
         dex = float(self.cfg.dex_dose)
         if dex <= 0.0:
             f_pre, f_ob = 1.0, 1.0
@@ -220,36 +208,34 @@ class ABMManager:
             f_pre, f_ob = 1.2, 1.5
         else:
             f_pre, f_ob = 1.5, 3.0
-        prob_pre = min(1.0, float(self.cfg.apoptosis_prob) * f_pre)
-        prob_ob = min(1.0, float(self.cfg.ob_apoptosis_prob) * f_ob)
+        prob_pre = min(1.0, self._apoptosis_prob_preob * f_pre)
+        prob_ob = min(1.0, self._apoptosis_prob_ob * f_ob)
 
         died_indices = []
         for idx, c in enumerate(self.cells):
             prob = prob_ob if c.state == CellState.OSTEOBLAST else prob_pre
             if self.rng.random() < prob:
                 state_before = c.state
-                # classify by state at time of death
                 if state_before == CellState.PRE_OB:
                     self.dead_preob_coords.append((c.y, c.x))
                 elif state_before == CellState.OSTEOBLAST:
                     self.dead_ob_coords.append((c.y, c.x))
                 self.dead_cells.append((c.y, c.x))
-                c.mark_apoptotic(day)
+                c.mark_apoptotic(hour)
                 if self.track_cells:
-                    self._record_death_row(c, day, state_before)
+                    self._record_death_row(c, hour, state_before)
                 died_indices.append(idx)
 
         if not died_indices:
             return
 
-        # remove dead cells and rebuild occupancy
         keep = [i for i in range(len(self.cells)) if i not in died_indices]
         self.cells = [self.cells[i] for i in keep]
         self.occupancy[:] = -1
         for i, c in enumerate(self.cells):
             self.occupancy[c.y, c.x] = i
 
-    def _proliferation_step(self, day: int) -> None:
+    def _proliferation_step(self, hour: int) -> None:
         newborns: List[Cell] = []
         for idx, c in enumerate(self.cells):
             if c.state == CellState.APOPTOTIC:
@@ -259,9 +245,9 @@ class ABMManager:
                 and self.rng.random() >= self.cfg.ob_division_prob
             ):
                 continue
-            if (day - c.last_div_day) < c.division_interval:
+            if (hour - c.last_div_day) < c.division_interval:
                 continue
-            if self.rng.random() >= self.cfg.proliferation_chance:
+            if self.rng.random() >= self._proliferation_chance_hourly:
                 continue
 
             placed = False
@@ -271,10 +257,10 @@ class ABMManager:
                     continue
                 nx, ny = target
                 if self.occupancy[ny, nx] == -1:
-                    child = self._spawn_cell(nx, ny, day)
+                    child = self._spawn_cell(nx, ny, hour)
                     newborns.append(child)
                     self.occupancy[ny, nx] = len(self.cells) + len(newborns) - 1
-                    c.last_div_day = day
+                    c.last_div_day = hour
                     placed = True
                     break
 

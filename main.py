@@ -1,6 +1,8 @@
 """
 main.py — Entry point for OsteoMin ABM–field bone remodeling simulator.
 
+ The model now accepts hourly inputs and still exports daily summaries plus optional hourly snapshots.
+
 Run with:
     python main.py --days 30 --cells 400 --w 33 --h 33 --xlsx --snapshots
 """
@@ -14,6 +16,7 @@ import numpy as np
 
 from src.model import OsteoModel
 from src.config import FieldConfig, ABMConfig
+from src.time_utils import HOURS_PER_DAY
 from src.viz import plot_summary, export_overlay_collagen_ha_from_npy
 
 
@@ -31,28 +34,37 @@ def _global_field_max(grids_dir: Path, field_prefix: str, days: Iterable[int]) -
     return max(max_val, 1e-9)
 
 
-# ----------------------------------------------------------------------
-# Argument parser
-# ----------------------------------------------------------------------
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description="OsteoMin: MC3T3-E1 ABM/field bone remodeling simulator",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
-    # --- core simulation ---
-    p.add_argument("--days", type=int, default=30, help="number of days to simulate")
+    p.add_argument(
+        "--hours",
+        type=int,
+        default=None,
+        help="total hours to simulate (24 hours per day is assumed)",
+    )
+    p.add_argument(
+        "--days",
+        type=int,
+        default=30,
+        help="legacy alias; multiplied by 24 if --hours is omitted",
+    )
     p.add_argument(
         "--cells", type=int, default=72, help="initial number of seeded cells"
     )
     p.add_argument(
-        "--media-interval", type=int, default=2, help="days between media changes"
+        "--media-interval",
+        type=int,
+        default=48,
+        help="hours between media changes (legacy 2 days = 48 hours)",
     )
     p.add_argument(
         "--seed", type=int, default=None, help="random seed for reproducibility"
     )
 
-    # --- lattice size ---
     p.add_argument("--w", type=int, default=33, help="grid width")
     p.add_argument("--h", type=int, default=33, help="grid height")
     p.add_argument(
@@ -62,7 +74,6 @@ def parse_args() -> argparse.Namespace:
         help="treat edges as hard boundaries (clamp) or wrap around (periodic)",
     )
 
-    # --- supplements (scalars) ---
     p.add_argument("--aa", type=float, default=1.0, help="ascorbic acid scaling")
     p.add_argument(
         "--bgp", type=float, default=1.0, help="beta-glycerophosphate scaling"
@@ -81,7 +92,6 @@ def parse_args() -> argparse.Namespace:
         help="strength of dexamethasone effect on commitment (F_dex = 1 + k * D)",
     )
 
-    # --- cell-level switches ---
     p.add_argument(
         "--random-move",
         "--cell-movement",
@@ -102,13 +112,13 @@ def parse_args() -> argparse.Namespace:
         "--move-prob",
         type=float,
         default=1.0,
-        help="probability a preOB cell attempts a move per day",
+        help="probability a preOB cell attempts a move per hour",
     )
     p.add_argument(
         "--max-moves",
         type=int,
         default=1,
-        help="max random-walk steps per preOB cell per day",
+        help="max random-walk steps per preOB cell per hour",
     )
 
     p.add_argument(
@@ -135,15 +145,15 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--commit-growth",
         type=float,
-        default=0.01,
-        help="per-day increase in osteogenic commitment probability",
+        default=0.01 / (24 * 24),
+        help="per-hour increase in osteogenic commitment probability (legacy 0.01/day slope)",
     )
 
     p.add_argument(
         "--commit-delay",
         type=int,
-        default=3,
-        help="days before preOB cells can start committing to osteoblasts",
+        default=72,
+        help="hours before preOB cells can start committing to osteoblasts (legacy 3 days)",
     )
 
     p.add_argument(
@@ -160,16 +170,16 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--apoptosis-prob",
         type=float,
-        default=0.01,
-        help="per-cell apoptosis probability each day",
+        default=0.01 / 24,
+        help="per-cell apoptosis probability each hour (legacy 0.01/day)",
     )
 
     p.add_argument(
         "--apoptosis-osteo",
         dest="ob_apoptosis_prob",
         type=float,
-        default=0.001,
-        help="per-osteoblast apoptosis probability each day",
+        default=0.001 / 24,
+        help="per-osteoblast apoptosis probability each hour (legacy 0.001/day)",
     )
 
     p.add_argument(
@@ -190,7 +200,7 @@ def parse_args() -> argparse.Namespace:
         "--proliferation-chance",
         type=float,
         default=1.0,
-        help="per-cell chance to attempt division once the interval passes",
+        help="per-cell chance to attempt division per hour once the interval passes",
     )
 
     p.add_argument(
@@ -207,7 +217,6 @@ def parse_args() -> argparse.Namespace:
     )
     p.set_defaults(secretion=True)
 
-    # --- mineralization parameters (new) ---
     p.add_argument(
         "--s-thresh",
         type=float,
@@ -215,10 +224,16 @@ def parse_args() -> argparse.Namespace:
         help="supersaturation threshold for ACP nucleation",
     )
     p.add_argument(
-        "--k-nuc", type=float, default=0.025, help="ACP nucleation rate per day"
+        "--k-nuc",
+        type=float,
+        default=0.025 / 24,
+        help="ACP nucleation rate per hour (legacy 0.025/day)",
     )
     p.add_argument(
-        "--k-ha", type=float, default=0.06, help="ACP → HA maturation rate per day"
+        "--k-ha",
+        type=float,
+        default=0.06 / 24,
+        help="ACP → HA maturation rate per hour (legacy 0.06/day)",
     )
     p.add_argument(
         "--enable-nodules",
@@ -253,7 +268,6 @@ def parse_args() -> argparse.Namespace:
     )
     p.set_defaults(nucleation=True)
 
-    # --- export control ---
     p.add_argument(
         "--spatial-every",
         type=int,
@@ -305,19 +319,28 @@ def parse_args() -> argparse.Namespace:
         help="disable raw .npy grid dumps",
     )
     p.set_defaults(snapshots=True)
+    p.add_argument(
+        "--hourly-exports",
+        dest="hourly_exports",
+        action="store_true",
+        help="write hourly spatial/collagen snapshots",
+    )
+    p.add_argument(
+        "--no-hourly-exports",
+        dest="hourly_exports",
+        action="store_false",
+        help="skip hourly snapshot exports",
+    )
+    p.set_defaults(hourly_exports=False)
 
     return p.parse_args()
 
 
-# ----------------------------------------------------------------------
-# Main entry point
-# ----------------------------------------------------------------------
 def main() -> None:
     args = parse_args()
     outdir = Path(args.out)
     outdir.mkdir(parents=True, exist_ok=True)
 
-    # clamp probabilities for safety
     args.move_prob = max(0.0, min(1.0, args.move_prob))
     args.ob_div_prob = max(0.0, min(1.0, args.ob_div_prob))
     args.proliferation_chance = max(0.0, min(1.0, args.proliferation_chance))
@@ -328,7 +351,6 @@ def main() -> None:
     dex_dose = max(0.0, min(1.0, dex_dose))
     dex_k = max(0.0, args.dex_k)
 
-    # configs
     abm_cfg = ABMConfig(
         width=args.w,
         height=args.h,
@@ -361,16 +383,20 @@ def main() -> None:
         nodule_window=max(1, int(args.nodule_window)),
     )
 
-    # supplements
     supplements = dict(aa=args.aa, bgp=args.bgp, mk4=max(0.0, min(1.0, args.mk4)))
 
-    # explicit spatial export days
     spatial_days = [int(x) for x in args.spatial_days.split(",") if x.strip()]
 
-    # build model
+    if args.hours is not None:
+        total_hours = max(0, int(args.hours))
+    else:
+        total_hours = max(0, int(args.days) * HOURS_PER_DAY)
+    if total_hours <= 0:
+        raise SystemExit("specify a positive --hours or --days value")
+
     model = OsteoModel(
         outdir=outdir,
-        days=args.days,
+        total_hours=total_hours,
         abm_cfg=abm_cfg,
         field_cfg=field_cfg,
         supplements=supplements,
@@ -379,20 +405,17 @@ def main() -> None:
         spatial_days=spatial_days,
         snapshots_enabled=args.snapshots,
         unique_id_tracking=args.unique_id,
+        hourly_exports=args.hourly_exports,
     )
 
-    # inject mineralization params into the field manager
-    # seed and run
     model.seed_random(args.cells, abm_cfg.width, abm_cfg.height)
     df = model.run()
 
-    # enrich DF with cumulative series for plots
     df["dead_total_today"] = df["dead_preob_today"] + df["dead_ob_today"]
     df["dead_preob_cum"] = df["dead_preob_today"].cumsum()
     df["dead_ob_cum"] = df["dead_ob_today"].cumsum()
     df["dead_total_cum"] = df["dead_total_today"].cumsum()
 
-    # save timeseries
     if args.xlsx:
         model.save_timeseries_excel(df, "timeseries")
     if args.csv:
@@ -400,19 +423,21 @@ def main() -> None:
     if args.unique_id:
         model.save_cell_history_excel("cell_history")
 
-    # plots
     plot_summary(df, outdir)
 
-    # overlays driven by spatial export policy (frequency + explicit days)
-    overlay_days = sorted({d for d in model.spatial_days if 0 <= d < args.days})
+    total_days = model.days
+    overlay_days = sorted({d for d in model.spatial_days if 0 <= d < total_days})
     if args.spatial_every > 0:
         overlay_days = sorted(
-            {*overlay_days, *{day for day in range(0, args.days, args.spatial_every)}}
+            {
+                *overlay_days,
+                *{day for day in range(0, total_days, args.spatial_every)},
+            }
         )
     if not args.snapshots:
         print("snapshots disabled; skipping collagen/HA overlays")
     else:
-        all_days = range(args.days)
+        all_days = range(total_days)
         collagen_vmax = _global_field_max(model.grids_dir, "collagen", all_days)
         ha_vmax = _global_field_max(model.grids_dir, "ha", all_days)
         for day in overlay_days:
@@ -424,9 +449,35 @@ def main() -> None:
                 global_vmax_ha=ha_vmax,
             )
 
-    # log tail to console
     print(df.tail(5))
 
 
 if __name__ == "__main__":
     main()
+
+
+
+"""
+
+To Run:
+
+python main.py \
+  --hours 720 \
+  --cells 72 \
+  --w 33 --h 33 \
+  --boundary-mode periodic \
+  --seed $(shuf -i 1-999999 -n 1) \
+  --media-interval 48 \
+  --aa 1.0 --bgp 1.0 \
+  --random-move --move-prob 1.0 --max-moves 1 \
+  --proliferation --ob-div-prob 0.0 \
+  --apoptosis --apoptosis-prob 0.00042 --apoptosis-osteo 0.000042 \
+  --osteogenic-commitment --commit-growth 0.00001736 --commit-delay 72 \
+  --secretion --nucleation --enable-nodules \
+  --spatial-every 1 --out out \
+  --nodule-window 4 --k-ha 0.0025 --k-nuc 0.0010417 \
+  --no-hourly-exports
+
+
+
+"""

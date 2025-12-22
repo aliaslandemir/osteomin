@@ -72,7 +72,7 @@ FAM_B_TARGETS = ["C3", "C4", "C5", "C6", "C7", "C8"]        # vs C2 (exclude C1)
 
 # Palette
 COND_COLORS = {
-    "C1": "#2B2B2B",
+    "C1": "#BDCC16",
     "C2": "#0072B2",
     "C3": "#009E73",
     "C4": "#E69F00",
@@ -687,6 +687,6 @@ if __name__ == "__main__":
 
 """
 
-python ars_code2.py -input ../ars --mode ratio_fixed --ratio_thresh 0.55   --metric fraction_percent --out_prefix ars_ratio1 --out_dir ars_output --overlay
+python ars_code2.py -input ../ars --mode ratio_fixed --ratio_thresh 0.55   --metric fraction_percent --out_prefix ars_ratio1 --out_dir ars_output_2 --overlay
 
 """

@@ -91,20 +91,21 @@ python main.py
 ## Recommended Run (example)
 ```bash
 python main.py \
-  --days 30 \
+  --hours 720 \
   --cells 72 \
   --w 33 --h 33 \
   --boundary-mode periodic \
   --seed $(shuf -i 1-999999 -n 1) \
-  --media-interval 2 \
+  --media-interval 48 \
   --aa 1.0 --bgp 1.0 \
   --random-move --move-prob 1.0 --max-moves 1 \
   --proliferation --ob-div-prob 0.0 \
-  --apoptosis --apoptosis-prob 0.01 --apoptosis-osteo 0.001 \
-  --osteogenic-commitment --commit-growth 0.01 --commit-delay 3 \
+  --apoptosis --apoptosis-prob 0.00042 --apoptosis-osteo 0.000042 \
+  --osteogenic-commitment --commit-growth 0.00001736 --commit-delay 72 \
   --secretion --nucleation --enable-nodules \
   --spatial-every 1 --out out \
-  --nodule-window 4 --k-ha 0.06 --k-nuc 0.025
+  --nodule-window 4 --k-ha 0.0025 --k-nuc 0.0010417 \
+  --no-hourly-exports
 ```
 
 This command matches the configuration used in the paper; feel free to omit flags you are not changing. Snapshots, Excel, and unique-cell history exports still run by default, so add the `--no-*` variants only when you want to turn them off.
@@ -117,9 +118,16 @@ This command matches the configuration used in the paper; feel free to omit flag
 - **Supplements:** `--aa`, `--bgp`, optional `--mk4` (0–1) seed the media pools; MK-4 scales collagen rate and boosts `K_NUC`/`K_HA`. Dex is separate (`--dex`, `--dex-k`) and affects commitment/apoptosis only.
 - **Cell events:** toggles for movement, proliferation, apoptosis, secretion, and commitment determine whether the ABM executes the corresponding steps each day. Per-process probabilities are adjustable via the associated flags.
 - **Nucleation & nodules:** `--s-thresh`, `--k-nuc`, `--k-ha`, `--nodule-window`, and `--enable-nodules` control ACP/HA kinetics and how nodules are detected. A nodule is counted if every site in the window is an osteoblast with HA ≥ `ACP_TO_HA_THRESHOLD`.
-- **Exports:** `--spatial-every`, `--spatial-days`, `--snapshots`, `--xlsx`, `--csv`, and `--out` cover visualization, raw grid dumps, and timeseries formats.
+-- All per-day flags listed above are internally scaled to hourly values so the CLI stays familiar even though the solver now runs on 1-hour ticks.
 
 ---
+
+## Time resolution
+
+- Simulation now executes 24 hourly updates for each reported day so that the ABM and chemistry layers evolve continuously while snapshots and exports remain keyed to day indices `0..N-1`.
+- The CLI still describes parameters in day-based units, but they are converted to internal hourly rates before each solver tick (commitment growth, per-day probabilities, media interval, `k_nuc`, `k_ha`, etc.).
+- Hourly spatial snapshots are saved inside `out/day_hor/dayX/` (e.g., `day_hor/day1/spatial_cells/hour_00.png` and `day_hor/day1/collagen_ha/hour_00.png`), giving per-hour visualizations in addition to the daily overlays and grids.
+- Enable hourly exports with `--hourly-exports` (and disable them with `--no-hourly-exports`) if you want those per-hour PNGs; the default is off to keep output size manageable.
 
 ## Notes
 - The entire chemistry configuration is centralized in `FieldConfig` (`src/config.py`), so any parameter you expose via CLI will propagate through `main.py` → `FieldConfig` → `FieldManager` without local edits.

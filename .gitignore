@@ -5,11 +5,17 @@ ars/
 extra/
 confocal/
 overlays/
-overlays_analyzed
-endpointaad/dapi_analysis/dapi_analysis_output/overlays_analyzed/
+overlays_analyzed/
 qc/
 qc_images/
 mono_channels/
+out/
+collagen_ha/
+day_hor/
+grids/
+spatial_cells/
+
+
 
 # venv & python cache
 venv/

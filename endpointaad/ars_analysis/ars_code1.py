@@ -81,7 +81,7 @@ FAM_B_TARGETS = ["C3", "C4", "C5", "C6", "C7", "C8"]        # vs C2 (exclude C1)
 
 # ---- Palette (match alp_stat_code.py) ----
 COND_COLORS = {
-    "C1": "#2B2B2B",  # Basal: charcoal
+    "C1": "#BDCC16",   # yellow-green (baseline)
     "C2": "#0072B2",  # Osteo ref: blue
     "C3": "#009E73",  # green
     "C4": "#E69F00",  # orange
@@ -663,8 +663,8 @@ if __name__ == "__main__":
 
 """
 
-python ars_code.py -input ../ars --percentile 98 --metric fraction_percent \
-  --out_prefix ars_abs --out_dir ars_output --overlay
+python ars_code1.py -input ../ars --percentile 98 --metric fraction_percent \
+  --out_prefix ars_abs --out_dir ars_output_1 --overlay
 
 
 """

@@ -1,1 +1,0 @@
-# osteomin src package

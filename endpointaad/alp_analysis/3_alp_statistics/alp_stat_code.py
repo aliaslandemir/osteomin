@@ -75,7 +75,7 @@ FAM_B_TARGETS = ["C3", "C4", "C5", "C6", "C7", "C8"]        # vs C2 (exclude C1)
 
 # ---- Publication-safe palette (Okabe–Ito-ish; distinct) ----
 COND_COLORS = {
-    "C1": "#2B2B2B",  # Basal: charcoal
+    "C1": "#BDCC16",   # yellow-green (baseline)
     "C2": "#0072B2",  # Osteo ref: blue
     "C3": "#009E73",  # green
     "C4": "#E69F00",  # orange

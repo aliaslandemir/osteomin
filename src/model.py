@@ -16,7 +16,12 @@ from .io_utils import (
     save_timeseries_csv,
     save_timeseries_excel,
 )
-from .viz import export_spatial_for_day
+from .time_utils import HOURS_PER_DAY
+from .viz import (
+    export_spatial_for_day,
+    export_spatial_hourly,
+    export_collagen_ha_snapshot,
+)
 
 
 __all__ = ["OsteoModel"]
@@ -25,7 +30,7 @@ class OsteoModel:
     def __init__(
         self,
         outdir: str | Path,
-        days: int,
+        total_hours: int,
         abm_cfg: ABMConfig,
         field_cfg: FieldConfig,
         supplements: dict,
@@ -34,10 +39,18 @@ class OsteoModel:
         spatial_days: Optional[Iterable[int]] = None,
         snapshots_enabled: bool = False,
         unique_id_tracking: bool = False,
+        hourly_exports: bool = False,
     ):
         self.outdir = Path(outdir)
         self.outdir.mkdir(parents=True, exist_ok=True)
-        self.days = int(days)
+        self.total_hours = max(0, int(total_hours))
+        self.hours_per_day = HOURS_PER_DAY
+        self.day_blocks = (
+            (self.total_hours + self.hours_per_day - 1) // self.hours_per_day
+            if self.total_hours > 0
+            else 0
+        )
+        self.days = 1 + self.day_blocks
         self.grids_dir = self.outdir / "grids"
         self.grids_dir.mkdir(parents=True, exist_ok=True)
 
@@ -81,15 +94,22 @@ class OsteoModel:
         self._rows: List[Dict] = []
         self._nodule_history: dict[int, dict] = {}
         self._cell_history: List[Dict[str, Any]] = []
+        self._daily_dead_preob = 0
+        self._daily_dead_ob = 0
+        self._daily_committed = 0
+        self._daily_dead_cells: List[Tuple[int, int]] = []
+        self._daily_dead_preob_coords: List[Tuple[int, int]] = []
+        self._daily_dead_ob_coords: List[Tuple[int, int]] = []
+        self.hourly_exports = bool(hourly_exports)
 
-        # Spatial export policy
         self.spatial_every = max(0, int(spatial_every))
         base_days = set((spatial_days or []))
-        base_days.add(self.days - 1)  # always export last day
+        base_days.add(self.days - 1)  # always export the latest day index
         self.spatial_days = {d for d in base_days if 0 <= d < self.days}
 
-        # Metadata
         meta = {
+            "total_hours": self.total_hours,
+            "hours_per_day": self.hours_per_day,
             "days": self.days,
             "seed": seed,
             "abm_cfg": __import__("dataclasses").asdict(abm_cfg),
@@ -101,7 +121,6 @@ class OsteoModel:
         }
         (self.outdir / "run.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
-    # ---- seeding ----
     def seed_random(self, n: int, w: int, h: int) -> None:
         sites = [(x, y) for y in range(h) for x in range(w)]
         n = min(int(n), len(sites))
@@ -109,7 +128,6 @@ class OsteoModel:
         coords = [sites[i] for i in idx]
         self.abm.seed_from_coords(coords, day0=0)
 
-    # ---- export policy ----
     def _should_export_spatial(self, day: int) -> bool:
         if day in self.spatial_days:
             return True
@@ -117,14 +135,11 @@ class OsteoModel:
             return True
         return False
 
-    # ---- main run ----
     def run(self) -> pd.DataFrame:
-        # ---------- DAY 0 ----------
         deaths_mask = np.zeros((self.abm.height, self.abm.width), dtype=np.uint8)
         deaths_preob_mask = deaths_mask.copy()
         deaths_ob_mask = deaths_mask.copy()
 
-        # ---------- DAY 0 ----------
         dens, state = cell_grids(self.abm.height, self.abm.width, self.abm.cells)
         self._record_cell_snapshot(0)
         if self.snapshots_enabled:
@@ -133,7 +148,6 @@ class OsteoModel:
             np.save(self.grids_dir / f"deaths_day_000.npy",  deaths_mask)
             np.save(self.grids_dir / f"deaths_preob_day_000.npy", deaths_preob_mask)
             np.save(self.grids_dir / f"deaths_ob_day_000.npy",     deaths_ob_mask)
-            # NEW: chemistry snapshots
             np.save(self.grids_dir / f"collagen_day_000.npy", self.field.collagen.astype(np.float32))
             np.save(self.grids_dir / f"ha_day_000.npy",       self.field.ha.astype(np.float32))
 
@@ -150,44 +164,123 @@ class OsteoModel:
                 dead_total_cum=dead_total_cum,
             )
 
-        # ---------- DAYS 1..N-1 ----------
-        for day in range(1, self.days):
-            self.abm.step_day(day)
-            self._record_dead_cell_rows(day)
+        if self.total_hours == 0:
+            return pd.DataFrame(self._rows)
 
-            deaths_mask = coords_to_mask(self.abm.height, self.abm.width, self.abm.dead_cells)
-            deaths_preob_mask = coords_to_mask(
+        final_dens: np.ndarray | None = None
+        final_state: np.ndarray | None = None
+        for hour in range(1, self.total_hours + 1):
+            hour_in_day = (hour - 1) % self.hours_per_day
+            day_index = (hour - 1) // self.hours_per_day + 1
+            if hour_in_day == 0:
+                self._reset_daily_accumulators()
+
+            self.abm.step_hour(hour)
+            self._record_dead_cell_rows(hour)
+
+            dens_hour, state_hour = cell_grids(
+                self.abm.height, self.abm.width, self.abm.cells
+            )
+            deaths_preob_mask_hour = coords_to_mask(
                 self.abm.height, self.abm.width, self.abm.dead_preob_coords
             )
-            deaths_ob_mask = coords_to_mask(self.abm.height, self.abm.width, self.abm.dead_ob_coords)
-            dens, state = cell_grids(self.abm.height, self.abm.width, self.abm.cells)
-            self._record_cell_snapshot(day)
-            if self.snapshots_enabled:
-                np.save(self.grids_dir / f"density_day_{day:03d}.npy", dens.astype(np.uint16))
-                np.save(self.grids_dir / f"state_day_{day:03d}.npy",   state.astype(np.uint8))
-                np.save(self.grids_dir / f"deaths_day_{day:03d}.npy",  deaths_mask)
-                np.save(
-                    self.grids_dir / f"deaths_preob_day_{day:03d}.npy",
-                    deaths_preob_mask.astype(np.uint8),
+            deaths_ob_mask_hour = coords_to_mask(
+                self.abm.height, self.abm.width, self.abm.dead_ob_coords
+            )
+            self._daily_dead_preob += len(self.abm.dead_preob_coords)
+            self._daily_dead_ob += len(self.abm.dead_ob_coords)
+            self._daily_committed += self.abm.committed_today
+            self._daily_dead_cells.extend(self.abm.dead_cells)
+            self._daily_dead_preob_coords.extend(self.abm.dead_preob_coords)
+            self._daily_dead_ob_coords.extend(self.abm.dead_ob_coords)
+
+            dead_total_day = self._daily_dead_preob + self._daily_dead_ob
+            if self.hourly_exports:
+                export_spatial_hourly(
+                    self.outdir,
+                    day_index,
+                    hour_in_day,
+                    state_hour,
+                    deaths_preob_mask_hour,
+                    deaths_ob_mask_hour,
+                    dead_total_cum=dead_total_day,
                 )
-                np.save(self.grids_dir / f"deaths_ob_day_{day:03d}.npy",     deaths_ob_mask.astype(np.uint8))
-                # NEW: chemistry snapshots
-                np.save(self.grids_dir / f"collagen_day_{day:03d}.npy", self.field.collagen.astype(np.float32))
-                np.save(self.grids_dir / f"ha_day_{day:03d}.npy",       self.field.ha.astype(np.float32))
+                export_collagen_ha_snapshot(
+                    self.outdir,
+                    day_index,
+                    hour_in_day,
+                    self.field.collagen.copy(),
+                    self.field.ha.copy(),
+                    state_hour,
+                    deaths_preob_mask_hour,
+                    deaths_ob_mask_hour,
+                )
 
+            final_dens, final_state = dens_hour, state_hour
 
-            self._handle_nodules(day, state)
-            self._append_row(day)
+            is_day_end = (
+                hour_in_day == self.hours_per_day - 1 or hour == self.total_hours
+            )
+            if not is_day_end:
+                continue
 
-            dead_total_cum += int(
-                self._rows[-1]["dead_preob_today"] + self._rows[-1]["dead_ob_today"]
+            deaths_mask = coords_to_mask(
+                self.abm.height, self.abm.width, self._daily_dead_cells
+            )
+            deaths_preob_mask = coords_to_mask(
+                self.abm.height, self.abm.width, self._daily_dead_preob_coords
+            )
+            deaths_ob_mask = coords_to_mask(
+                self.abm.height, self.abm.width, self._daily_dead_ob_coords
             )
 
-            if self._should_export_spatial(day):
+            daily_dead_total = self._daily_dead_preob + self._daily_dead_ob
+            self._record_cell_snapshot(day_index)
+            if self.snapshots_enabled:
+                np.save(
+                    self.grids_dir / f"density_day_{day_index:03d}.npy",
+                    final_dens.astype(np.uint16),
+                )
+                np.save(
+                    self.grids_dir / f"state_day_{day_index:03d}.npy",
+                    final_state.astype(np.uint8),
+                )
+                np.save(
+                    self.grids_dir / f"deaths_day_{day_index:03d}.npy",
+                    deaths_mask,
+                )
+                np.save(
+                    self.grids_dir / f"deaths_preob_day_{day_index:03d}.npy",
+                    deaths_preob_mask.astype(np.uint8),
+                )
+                np.save(
+                    self.grids_dir / f"deaths_ob_day_{day_index:03d}.npy",
+                    deaths_ob_mask.astype(np.uint8),
+                )
+                np.save(
+                    self.grids_dir / f"collagen_day_{day_index:03d}.npy",
+                    self.field.collagen.astype(np.float32),
+                )
+                np.save(
+                    self.grids_dir / f"ha_day_{day_index:03d}.npy",
+                    self.field.ha.astype(np.float32),
+                )
+
+            self._handle_nodules(day_index, final_state)
+            self._append_row(
+                day_index,
+                dead_preob_today=self._daily_dead_preob,
+                dead_ob_today=self._daily_dead_ob,
+                committed_today=self._daily_committed,
+            )
+
+            dead_total_cum += daily_dead_total
+
+            if self._should_export_spatial(day_index):
                 export_spatial_for_day(
                     self.outdir,
-                    day,
-                    state,
+                    day_index,
+                    final_state,
                     deaths_preob_mask,
                     deaths_ob_mask,
                     dead_total_cum=dead_total_cum,
@@ -227,7 +320,22 @@ class OsteoModel:
             return
         self._cell_history.extend(rows)
 
-    def _append_row(self, day: int) -> None:
+    def _reset_daily_accumulators(self) -> None:
+        self._daily_dead_preob = 0
+        self._daily_dead_ob = 0
+        self._daily_committed = 0
+        self._daily_dead_cells = []
+        self._daily_dead_preob_coords = []
+        self._daily_dead_ob_coords = []
+
+    def _append_row(
+        self,
+        day: int,
+        *,
+        dead_preob_today: int = 0,
+        dead_ob_today: int = 0,
+        committed_today: int = 0,
+    ) -> None:
         n_preob = sum(1 for c in self.abm.cells if c.state == CellState.PRE_OB)
         n_ob = sum(1 for c in self.abm.cells if c.state == CellState.OSTEOBLAST)
 
@@ -235,7 +343,6 @@ class OsteoModel:
         supp_bgp = float(getattr(self.field, "bgp_pool", 0.0))
         supp_mk4 = float(getattr(self.field, "mk4_level", 0.0))
         if day == 0:
-            # use current field scalars at t0
             row = {
                 "day": int(day),
                 "n_preob": int(n_preob),
@@ -276,9 +383,9 @@ class OsteoModel:
             "n_preob": int(n_preob),
             "n_osteoblast": int(n_ob),
             "n_total": int(n_preob + n_ob),
-            "dead_preob_today": int(len(self.abm.dead_preob_coords)),
-            "dead_ob_today": int(len(self.abm.dead_ob_coords)),
-            "committed_today": int(self.abm.committed_today),
+            "dead_preob_today": int(dead_preob_today),
+            "dead_ob_today": int(dead_ob_today),
+            "committed_today": int(committed_today),
             "cell_ca": float(scalars["cell_ca"]),
             "cell_pi": float(scalars["cell_pi"]),
             "ca_media": float(scalars["ca_media"]),

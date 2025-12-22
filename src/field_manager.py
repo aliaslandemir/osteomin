@@ -65,16 +65,15 @@ class FieldManager:
         self.width = int(width)
         self.height = int(height)
         self.area = float(self.width * self.height)
-        self._day = 0
-        self.media_interval = int(media_interval)
-        self.days_since_media = 0
+        self._hour = 0
+        self.media_interval_hours = max(0, int(media_interval))
+        self.hours_since_media = 0
         self.enable_nucleation = bool(enable_nucleation)
         self.ca_supplied_total = 0.0
         self.pi_supplied_total = 0.0
         self.pi_generated_total = 0.0
         self.bgp_consumed_total = 0.0
 
-        # Supplements (clamped to non-negative)
         supp_kwargs = {k: float(v) for k, v in dict(supplements).items() if k in ("aa", "bgp", "mk4")}
         s = _Supplements(**supp_kwargs)
         self.supp = s
@@ -85,8 +84,8 @@ class FieldManager:
         self.PI0 = float(pi0)
         self.ALP_TO_PI_RATE = float(alp_to_pi_rate)
         self.S_THRESH = float(s_thresh)
-        self.K_NUC = float(k_nuc)
-        self.K_HA = float(k_ha)
+        self.K_NUC = float(k_nuc)  # per hour
+        self.K_HA = float(k_ha)  # per hour
         self.CA_PER_ACP = float(ca_per_acp)
         self.PI_PER_ACP = float(pi_per_acp)
         self.ACP_TO_HA_THRESHOLD = float(acp_to_ha_threshold)
@@ -103,7 +102,6 @@ class FieldManager:
         self.BASE_COLLAGEN_RATE = float(base_collagen_rate)
         self.K_AA = float(k_aa)
 
-        # Spatial fields
         self.ca = np.zeros((self.height, self.width), dtype=float)
         self.pi = np.zeros((self.height, self.width), dtype=float)
         self.collagen = np.zeros((self.height, self.width), dtype=float)
@@ -113,7 +111,6 @@ class FieldManager:
         self.h_plus = np.full((self.height, self.width), self.H_BASE, dtype=float)
         self.oh_minus = np.full((self.height, self.width), self.OH_BASE, dtype=float)
 
-        # Legacy scalars (for outputs/back-compat)
         self.cell_ca = 0.0
         self.cell_pi = 0.0
         self.total_collagen = 0.0
@@ -121,38 +118,31 @@ class FieldManager:
         self.ca_consumed_total = 0.0
         self.pi_consumed_total = 0.0
 
-        # Last-day OB mask (RAW, optional)
         self._ob_mask: Optional[np.ndarray] = None
 
-        # pending secretion request (set by ABM prior to chemistry update)
         self._pending_secretion_ob_count: int = 0
 
-        # nodule detection settings
         self.enable_nodules = bool(enable_nodules)
         self.nodule_window = int(max(1, nodule_window))
         self._nodule_counts: dict[int, int] = {}
         self._nodule_positions: dict[int, List[Tuple[float, float]]] = {}
         self._latest_nodule_count: int = 0
 
-        # initialize baseline media so day 0 snapshots show CA0 / PI0
         self.refresh_media()
 
-    # ---------- helpers ----------
-    # ---------- public API ----------
     def refresh_media(self) -> None:
         """Reset ionic fields to baseline; keep matrix/minerals."""
         self.ca.fill(self.CA0)
         self.pi.fill(self.PI0)
         self.ca_supplied_total += float(self.ca.sum())
         self.pi_supplied_total += float(self.pi.sum())
-        # legacy scalars
         self.cell_ca = 0.0
         self.cell_pi = 0.0
         self.h_plus.fill(self.H_BASE)
         self.oh_minus.fill(self.OH_BASE)
         self.aa_pool = max(0.0, self.supp.aa)
         self.bgp_pool = max(0.0, self.supp.bgp)
-        self.days_since_media = 0
+        self.hours_since_media = 0
 
     def _consume_aa(self, collagen_added: float) -> None:
         if collagen_added <= 0.0:
@@ -202,7 +192,6 @@ class FieldManager:
         f_aa = self.aa_pool / denom
         if f_aa <= 0.0:
             return
-        # MK-4 scales baseline collagen output (piecewise dose response)
         if self.mk4_level <= 0.0:
             f_mk4 = 1.0
         elif self.mk4_level < 1.0:
@@ -242,9 +231,8 @@ class FieldManager:
             raise ValueError(
                 f"ob_mask has shape {m.shape}, expected {(self.height, self.width)}"
             )
-        self._ob_mask = m  # store RAW (no dilation here)
+        self._ob_mask = m
 
-    # ---------- nodule detection ----------
     def detect_nodules(
         self, day: int, ob_mask: np.ndarray
     ) -> Tuple[int, List[Tuple[float, float]]]:
@@ -334,24 +322,20 @@ class FieldManager:
         positions = self._nodule_positions.get(day, [])
         return count, positions
 
-    # ---------- daily chemistry ----------
-    def step_day(self) -> None:
+    def step_hour(self) -> None:
         """
         Update ions from secreted ALP/collagen and perform nucleation/maturation.
-        Media changes occur at the start of a day once the interval elapses so the
-        previous day's snapshot captures the depleted state.
+        Media changes occur once the configured hour interval has elapsed, so
+        snapshots capture the depleted state at the end of each day (24 hours).
         """
-        if self.media_interval > 0 and self.days_since_media >= self.media_interval:
+        if self.media_interval_hours > 0 and self.hours_since_media >= self.media_interval_hours:
             self.refresh_media()
 
-        # 1) ALP raises Pi (limited by β-GP)
         self._produce_pi_from_alp()
 
-        # 2) Collagen deposition from osteoblasts (AA-limited)
         self._apply_collagen_secretion()
 
         if self.enable_nucleation:
-            # MK-4 boosts nucleation/maturation rates in a piecewise manner
             if self.mk4_level <= 0.0:
                 f_mk4 = 1.0
             elif self.mk4_level < 1.0:
@@ -361,13 +345,10 @@ class FieldManager:
             k_nuc_eff = self.K_NUC * f_mk4
             k_ha_eff = self.K_HA * f_mk4
 
-            # 4) ACP nucleation where collagen & supersaturation thresholds met
             supersat = self.ca * self.pi
             if self._ob_mask is not None:
-                # nucleation limited to osteoblast positions (no dilation)
                 region = self._ob_mask
             else:
-                # fallback: full grid
                 region = np.ones_like(self.ca, dtype=bool)
 
             eligible = region & (supersat >= self.S_THRESH)
@@ -391,7 +372,6 @@ class FieldManager:
                 self.ca_consumed_total += float(ca_needed.sum())
                 self.pi_consumed_total += float(pi_needed.sum())
 
-            # 4) ACP -> HA maturation once enough ACP is present and Ca is available
             ha_candidates = self.acp >= self.ACP_TO_HA_THRESHOLD
             if self.COLLAGEN_NUCLEATION_THRESHOLD > 0.0:
                 ha_candidates &= self.collagen >= self.COLLAGEN_NUCLEATION_THRESHOLD
@@ -413,18 +393,15 @@ class FieldManager:
                     self.h_plus[ha_idx] += ha_created * self.H_PLUS_PER_HA
                     self.ca_consumed_total += float(ca_consumed.sum())
 
-        # 5) maintain simple OH/H+ equilibrium
         self.oh_minus = np.clip(self.KW / (self.h_plus + 1e-12), 0.0, None)
 
-        # 6) legacy scalars and scheduling
         self.cell_ca = float(self.ca_consumed_total) / max(1.0, self.area)
         self.cell_pi = float(self.pi.mean())
 
-        self._day += 1
-        if self.media_interval > 0:
-            self.days_since_media += 1
+        self._hour += 1
+        if self.media_interval_hours > 0:
+            self.hours_since_media += 1
 
-    # ---------- reporting ----------
     def snapshot_scalars(self) -> dict:
         """Return scalars used by the timeseries writer (back-compat keys kept)."""
         return {
@@ -441,7 +418,6 @@ class FieldManager:
             "bgp_consumed_total": float(self.bgp_consumed_total),
             "collagen_total": float(self.total_collagen),
             "alp_total": float(self.total_alp),
-            # new mineral outputs
             "acp_total": float(self.acp.sum()),
             "ha_total": float(self.ha.sum()),
             "h_plus_total": float(self.h_plus.sum()),
