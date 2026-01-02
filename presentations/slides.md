@@ -115,7 +115,7 @@ class: grid-cols-[2fr_1fr] items-start
 ---
 
 # Random Movement
-- When `enable_random_move` (the `random_move` toggle) is true, ACTIVE cells can attempt up to `max_moves_per_day` hops.
+- When `enable_random_move` (the `random_move` toggle) is true, ACTIVE cells can attempt up to `max_moves_per_hour` hops.
 - `_movement_target` biases a stay-put probability (0.6) and samples 8-neighbor offsets with axial vs diagonal weights.
 - `boundary_mode` controls wrapping: `periodic` wraps coordinates; `clamp` aborts moves that leave the lattice.
 - Moves swap occupancy only if the destination is empty.
@@ -139,7 +139,7 @@ class: grid-cols-[2fr_1fr] items-start
 
 
 # Proliferation
-- `_proliferation_step` enforces per-cell `division_interval` drawn between `min_div_days` and `max_div_days`.
+- `_proliferation_step` enforces per-cell `division_interval` drawn between `min_div_hours` and `max_div_hours`.
 - Cells must also pass `proliferation_chance`; osteoblast division is further throttled by `ob_division_prob`.
 - Daughter cells spawn in the first free neighbor sampled; failure to place bumps `last_div_day` so the parent retries later.
 - After division, the occupancy grid is rebuilt so downstream steps (commitment, PDE coupling) see consistent positions.

@@ -344,7 +344,7 @@ def main() -> None:
         enable_proliferation=args.proliferation,
         enable_secretion=args.secretion,
         move_prob=args.move_prob,
-        max_moves_per_day=args.max_moves,
+        max_moves_per_hour=args.max_moves,
         ob_division_prob=args.ob_div_prob,
         apoptosis_prob=args.apoptosis_prob,
         ob_apoptosis_prob=args.ob_apoptosis_prob,

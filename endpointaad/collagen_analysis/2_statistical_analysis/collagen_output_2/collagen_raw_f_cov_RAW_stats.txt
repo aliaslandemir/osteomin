@@ -1,0 +1,24 @@
+Coverage: DAPI-positive fraction (RAW)
+Metric column: f_cov
+Test: Mann–Whitney U (two-sided)
+Multiple testing: Benjamini–Hochberg within each family
+Alpha: 0.05
+
+Kruskal–Wallis across all conditions: H=14.87, p=0.03776
+
+Family A (black): C1 vs targets
+  C2 vs C1: p_raw=1, p_adj=1
+  C3 vs C1: p_raw=0.2222, p_adj=0.5185
+  C4 vs C1: p_raw=0.5476, p_adj=0.9583
+  C5 vs C1: p_raw=0.007937, p_adj=0.05556
+  C6 vs C1: p_raw=1, p_adj=1
+  C7 vs C1: p_raw=0.8413, p_adj=1
+  C8 vs C1: p_raw=0.2222, p_adj=0.5185
+
+Family B (red): C2 vs targets (excluding C1)
+  C3 vs C2: p_raw=0.2222, p_adj=0.4444
+  C4 vs C2: p_raw=0.3095, p_adj=0.4643
+  C5 vs C2: p_raw=0.007937, p_adj=0.04762
+  C6 vs C2: p_raw=1, p_adj=1
+  C7 vs C2: p_raw=0.8413, p_adj=1
+  C8 vs C2: p_raw=0.03175, p_adj=0.09524

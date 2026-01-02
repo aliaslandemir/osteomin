@@ -1,0 +1,134 @@
+DAPI nuclei shape metrics — KEPT nuclei only
+Segmentation: Gaussian+CLAHE -> Otsu -> watershed; clear_border; remove_small_objects
+Pixel size: 0.21 µm/px
+Filters: area 140.0-300.0 µm²; circularity 0.6-1.2
+Stats: MWU (two-sided) + BH within each family
+Alpha: 0.05
+Integrated intensity: mean_intensity × area_px (=sum of raw intensities in nucleus)
+
+=== Feature: area_um2 ===
+Kruskal–Wallis across all present conditions: H=74.2, p=2.081e-13
+Family A (black): C1 vs targets
+  C2 vs C1: p_raw=0.1951, p_adj=0.2731
+  C3 vs C1: p_raw=0.07202, p_adj=0.168
+  C4 vs C1: p_raw=0.1039, p_adj=0.1817
+  C5 vs C1: p_raw=0.7529, p_adj=0.8125
+  C6 vs C1: p_raw=0.000168, p_adj=0.0005879
+  C7 vs C1: p_raw=5.115e-06, p_adj=3.58e-05
+  C8 vs C1: p_raw=0.8125, p_adj=0.8125
+Family B (red): C2 vs targets (excluding C1)
+  C3 vs C2: p_raw=0.6954, p_adj=0.6954
+  C4 vs C2: p_raw=0.6605, p_adj=0.6954
+  C5 vs C2: p_raw=0.1088, p_adj=0.2175
+  C6 vs C2: p_raw=1.459e-06, p_adj=4.376e-06
+  C7 vs C2: p_raw=2.419e-07, p_adj=1.451e-06
+  C8 vs C2: p_raw=0.2022, p_adj=0.3032
+
+=== Feature: equivalent_diameter_um ===
+Kruskal–Wallis across all present conditions: H=74.2, p=2.081e-13
+Family A (black): C1 vs targets
+  C2 vs C1: p_raw=0.1951, p_adj=0.2731
+  C3 vs C1: p_raw=0.07202, p_adj=0.168
+  C4 vs C1: p_raw=0.1039, p_adj=0.1817
+  C5 vs C1: p_raw=0.7529, p_adj=0.8125
+  C6 vs C1: p_raw=0.000168, p_adj=0.0005879
+  C7 vs C1: p_raw=5.115e-06, p_adj=3.58e-05
+  C8 vs C1: p_raw=0.8125, p_adj=0.8125
+Family B (red): C2 vs targets (excluding C1)
+  C3 vs C2: p_raw=0.6954, p_adj=0.6954
+  C4 vs C2: p_raw=0.6605, p_adj=0.6954
+  C5 vs C2: p_raw=0.1088, p_adj=0.2175
+  C6 vs C2: p_raw=1.459e-06, p_adj=4.376e-06
+  C7 vs C2: p_raw=2.419e-07, p_adj=1.451e-06
+  C8 vs C2: p_raw=0.2022, p_adj=0.3032
+
+=== Feature: aspect_ratio ===
+Kruskal–Wallis across all present conditions: H=117.9, p=2.114e-22
+Family A (black): C1 vs targets
+  C2 vs C1: p_raw=0.1389, p_adj=0.1389
+  C3 vs C1: p_raw=1.906e-11, p_adj=3.336e-11
+  C4 vs C1: p_raw=1.162e-14, p_adj=8.136e-14
+  C5 vs C1: p_raw=5.71e-07, p_adj=6.662e-07
+  C6 vs C1: p_raw=3.4e-13, p_adj=1.19e-12
+  C7 vs C1: p_raw=3.733e-09, p_adj=5.226e-09
+  C8 vs C1: p_raw=3.497e-12, p_adj=8.16e-12
+Family B (red): C2 vs targets (excluding C1)
+  C3 vs C2: p_raw=4.517e-07, p_adj=6.775e-07
+  C4 vs C2: p_raw=1.587e-10, p_adj=9.523e-10
+  C5 vs C2: p_raw=0.0003923, p_adj=0.0003923
+  C6 vs C2: p_raw=1.288e-08, p_adj=3.864e-08
+  C7 vs C2: p_raw=3.073e-05, p_adj=3.688e-05
+  C8 vs C2: p_raw=1.288e-07, p_adj=2.576e-07
+
+=== Feature: circularity ===
+Kruskal–Wallis across all present conditions: H=27.52, p=0.0002691
+Family A (black): C1 vs targets
+  C2 vs C1: p_raw=0.2083, p_adj=0.2083
+  C3 vs C1: p_raw=0.03416, p_adj=0.03985
+  C4 vs C1: p_raw=2.571e-05, p_adj=0.00018
+  C5 vs C1: p_raw=0.0004768, p_adj=0.001112
+  C6 vs C1: p_raw=0.003681, p_adj=0.006441
+  C7 vs C1: p_raw=0.0004367, p_adj=0.001112
+  C8 vs C1: p_raw=0.006334, p_adj=0.008868
+Family B (red): C2 vs targets (excluding C1)
+  C3 vs C2: p_raw=0.579, p_adj=0.579
+  C4 vs C2: p_raw=0.004655, p_adj=0.02793
+  C5 vs C2: p_raw=0.04003, p_adj=0.08006
+  C6 vs C2: p_raw=0.2028, p_adj=0.3042
+  C7 vs C2: p_raw=0.03868, p_adj=0.08006
+  C8 vs C2: p_raw=0.274, p_adj=0.3288
+
+=== Feature: eccentricity ===
+Kruskal–Wallis across all present conditions: H=117.9, p=2.114e-22
+Family A (black): C1 vs targets
+  C2 vs C1: p_raw=0.1389, p_adj=0.1389
+  C3 vs C1: p_raw=1.906e-11, p_adj=3.336e-11
+  C4 vs C1: p_raw=1.162e-14, p_adj=8.136e-14
+  C5 vs C1: p_raw=5.71e-07, p_adj=6.662e-07
+  C6 vs C1: p_raw=3.4e-13, p_adj=1.19e-12
+  C7 vs C1: p_raw=3.733e-09, p_adj=5.226e-09
+  C8 vs C1: p_raw=3.497e-12, p_adj=8.16e-12
+Family B (red): C2 vs targets (excluding C1)
+  C3 vs C2: p_raw=4.517e-07, p_adj=6.775e-07
+  C4 vs C2: p_raw=1.587e-10, p_adj=9.523e-10
+  C5 vs C2: p_raw=0.0003923, p_adj=0.0003923
+  C6 vs C2: p_raw=1.288e-08, p_adj=3.864e-08
+  C7 vs C2: p_raw=3.073e-05, p_adj=3.688e-05
+  C8 vs C2: p_raw=1.288e-07, p_adj=2.576e-07
+
+=== Feature: solidity ===
+Kruskal–Wallis across all present conditions: H=29.73, p=0.0001064
+Family A (black): C1 vs targets
+  C2 vs C1: p_raw=0.6909, p_adj=0.6909
+  C3 vs C1: p_raw=0.03504, p_adj=0.1226
+  C4 vs C1: p_raw=0.2435, p_adj=0.3409
+  C5 vs C1: p_raw=0.1413, p_adj=0.2472
+  C6 vs C1: p_raw=0.01726, p_adj=0.1208
+  C7 vs C1: p_raw=0.3894, p_adj=0.4543
+  C8 vs C1: p_raw=0.117, p_adj=0.2472
+Family B (red): C2 vs targets (excluding C1)
+  C3 vs C2: p_raw=0.01586, p_adj=0.04759
+  C4 vs C2: p_raw=0.1025, p_adj=0.1537
+  C5 vs C2: p_raw=0.294, p_adj=0.3529
+  C6 vs C2: p_raw=0.004973, p_adj=0.02984
+  C7 vs C2: p_raw=0.7627, p_adj=0.7627
+  C8 vs C2: p_raw=0.03811, p_adj=0.07623
+
+=== Feature: integrated_intensity ===
+Kruskal–Wallis across all present conditions: H=462.1, p=1.107e-95
+Family A (black): C1 vs targets
+  C2 vs C1: p_raw=0.6726, p_adj=0.6726
+  C3 vs C1: p_raw=5.581e-05, p_adj=7.814e-05
+  C4 vs C1: p_raw=3.595e-06, p_adj=6.291e-06
+  C5 vs C1: p_raw=3.402e-25, p_adj=7.939e-25
+  C6 vs C1: p_raw=1.485e-30, p_adj=1.039e-29
+  C7 vs C1: p_raw=5.806e-29, p_adj=2.032e-28
+  C8 vs C1: p_raw=0.000578, p_adj=0.0006743
+Family B (red): C2 vs targets (excluding C1)
+  C3 vs C2: p_raw=0.002471, p_adj=0.002966
+  C4 vs C2: p_raw=0.001099, p_adj=0.001648
+  C5 vs C2: p_raw=3.328e-25, p_adj=6.657e-25
+  C6 vs C2: p_raw=9.646e-31, p_adj=5.788e-30
+  C7 vs C2: p_raw=4.396e-29, p_adj=1.319e-28
+  C8 vs C2: p_raw=0.02623, p_adj=0.02623
+

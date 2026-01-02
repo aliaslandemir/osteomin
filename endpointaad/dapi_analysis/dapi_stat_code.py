@@ -1,24 +1,40 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-DAPI nuclei segmentation + shape analysis + ALP-style stats/plots.
+DAPI nuclei segmentation + shape analysis + ALP Figure-2 master plot style (locked).
 
-Plot (per feature):
-- violins + jittered per-nucleus points
-- mean marker (red dot) + median marker (blue diamond)
-- stars in two rows:
-    * black: C1 vs others (MWU + BH)
-    * red:   C2 vs others excluding C1 (MWU + BH)
-- separators: C2–C3 and C6–C7
-- Δmean row: mean difference vs C1 (same units as feature)
-- compact header + legend
+Analysis (unchanged):
+- Segmentation: Gaussian blur + CLAHE -> Otsu -> fill holes -> distance transform
+  -> peak seeds -> watershed -> clear border -> remove small objects
+- Measurements use ORIGINAL DAPI intensities (not CLAHE image).
+- Integrated intensity: mean_intensity * area_px
+- Post-filter: area_um2 + circularity bounds
+- Stats: Kruskal–Wallis overall + MWU two-sided with BH in two families
+  * Family A: C1 vs C2–C8
+  * Family B: C2 vs C3–C8
 
-Segmentation:
-Gaussian blur + CLAHE -> Otsu -> fill holes -> distance transform -> peak seeds -> watershed
-Measurements use ORIGINAL DAPI intensities (not CLAHE image).
+Plot (changed only to match ALP Figure-2 master):
+- Column 1: Condition tags (two-line)
+- Column 2: ID (C1..C8)
+- Column 3: Horizontal violins + jittered points + mean(red circle) + median(black diamond)
+- Column 4: Δmean (vs C1) with arrows
+- Column 5: Significance stars (blank = ns), dual-family: black vs C1; red vs C2
 
-Integrated intensity:
-    integrated_intensity = mean_intensity * area_px
+
+
+python dapi_stat_code.py \
+  --input ../confocal \
+  --out dapi_output \
+  --pixel_um 0.21 \
+  --min_area_um2 140 \
+  --max_area_um2 300 \
+  --min_circ 0.6 \
+  --max_circ 1.2 \
+  --alpha 0.05 \
+  --seed 0
+
+
+
 """
 
 import warnings
@@ -33,33 +49,36 @@ import numpy as np
 import pandas as pd
 import tifffile as tf
 
-import matplotlib
-matplotlib.use("Agg")
+import matplotlib as mpl
 import matplotlib.pyplot as plt
-from matplotlib import rcParams
-from matplotlib.offsetbox import AnchoredOffsetbox, HPacker, TextArea
-from matplotlib.lines import Line2D
+from matplotlib.gridspec import GridSpec
+from matplotlib.ticker import NullFormatter
 
 from scipy import stats, ndimage
 from skimage import exposure, filters, measure, util, segmentation, morphology, feature
 
 
-# ========================== GLOBAL STYLE ==========================
-rcParams.update({
-    "figure.dpi": 120,
-    "savefig.dpi": 300,
-    "axes.spines.top": False,
-    "axes.spines.right": False,
-    "axes.linewidth": 1.2,
-    "axes.titlesize": 11,
-    "axes.labelsize": 10,
-    "xtick.labelsize": 9,
-    "ytick.labelsize": 9,
-    "font.size": 10,
-    "font.family": "DejaVu Sans",
-    "legend.frameon": False,
-    "figure.autolayout": True,
-})
+# =========================
+# GLOBAL PLOT SETTINGS (identical to ALP master)
+# =========================
+def apply_pub_rcparams() -> None:
+    mpl.rcParams.update(
+        {
+            "figure.dpi": 150,
+            "savefig.dpi": 300,
+            "savefig.bbox": "tight",
+            "pdf.fonttype": 42,
+            "ps.fonttype": 42,
+            "font.size": 10,
+            "axes.titlesize": 11,
+            "axes.labelsize": 10,
+            "xtick.labelsize": 9,
+            "ytick.labelsize": 9,
+            "axes.linewidth": 0.8,
+            "lines.linewidth": 1.0,
+            "grid.linewidth": 0.6,
+        }
+    )
 
 
 # ========================== CONDITIONS / LABELS ==========================
@@ -82,24 +101,24 @@ FAM_B_REF = "C2"
 FAM_B_TARGETS = ["C3", "C4", "C5", "C6", "C7", "C8"]
 
 COND_COLORS = {
-    "C1": "#BDCC16",   # yellow-green (baseline)
-    "C2": "#1F5AA6",  # blue (primary osteo)
-    "C3": "#1B7F5A",  # green (biological, secondary)
-    "C4": "#C97A00",  # orange (active, controlled)
-    "C5": "#A65C8A",  # magenta (distinct, muted)
-    "C6": "#B24C1A",  # vermillion (strong contrast)
-    "C7": "#6AAED6",  # light blue (secondary to C2)
-    "C8": "#7A6A3A",  # olive-brown (earthy, distinct)
+    "C1": "#BDCC16",
+    "C2": "#1F5AA6",
+    "C3": "#1B7F5A",
+    "C4": "#C97A00",
+    "C5": "#A65C8A",
+    "C6": "#B24C1A",
+    "C7": "#6AAED6",
+    "C8": "#7A6A3A",
 }
 
-VIOLIN_FACE = "#E6E6E6"
-VIOLIN_EDGE = "#B3B3B3"
+# ALP-style cosmetics (locked)
+VIOLIN_FACE = "#E9E9E9"
+VIOLIN_EDGE = "#B0B0B0"
+MEAN_COLOR = "#B22222"
+MEDIAN_COLOR = "#1F1F1F"
 STAR_COLOR_A = "#000000"
 STAR_COLOR_B = "#B22222"
-SEPARATOR_LINE = "#F2F2F2"
 
-MEAN_COLOR   = "#B22222"   # firebrick
-MEDIAN_COLOR = "#2B2B2B"   # charcoal
 
 def two_line_label(name: str) -> str:
     m = {
@@ -113,6 +132,14 @@ def two_line_label(name: str) -> str:
         "Osteo+MK-4 (H)":    r"AA+$\beta$-GP" + "\n" + r"$D_0K_H$",
     }
     return m.get(name, name)
+
+
+def cond_id_to_pretty_name(c: str) -> str:
+    return COND_CODE.get(c, c)
+
+
+def cond_id_to_tag(c: str) -> str:
+    return two_line_label(cond_id_to_pretty_name(c))
 
 
 # ========================== DAPI CONFIG ==========================
@@ -156,7 +183,7 @@ def setup_output_dirs(out_root: Path) -> Dict[str, Path]:
         "overlays_all": out_root / "overlays",
         "overlays_kept": out_root / "overlays_analyzed",
         "labelmaps": out_root / "labelmaps",
-        "figs": out_root / "figs_violin",
+        "figs": out_root / "figs_fig2_style",
         "csv_all": out_root / "nuclei_measurements_all.csv",
         "csv_kept": out_root / "nuclei_measurements_kept.csv",
         "stats_txt": out_root / "stats_report_DAPI_features.txt",
@@ -198,9 +225,7 @@ def derive_shape_metrics(df: pd.DataFrame, pixel_size_um: float) -> pd.DataFrame
     df["area_um2"] = df["area"] * (s ** 2)
     df["equivalent_diameter_um"] = df["equivalent_diameter_px"] * s
 
-    # Integrated intensity in (a.u.·px): sum of raw intensities in the nucleus
     df["integrated_intensity"] = df["mean_intensity"] * df["area"]
-
     return df
 
 
@@ -228,7 +253,7 @@ def star_from_p(p: float) -> str:
         return "**"
     if p < 0.05:
         return "*"
-    return ""
+    return ""  # blank = ns
 
 def kw_all_conditions(cond_to_vals: Dict[str, np.ndarray], conds_order: List[str]) -> Tuple[float, float]:
     groups = []
@@ -275,184 +300,229 @@ def pairwise_vs_ref_BH(
     return out
 
 
-# ========================== PLOT HELPERS ==========================
-def make_positions_with_gaps(conds: List[str]) -> Tuple[List[float], List[float]]:
-    xs = []
-    base = 0.0
-    for c in conds:
-        base += 1.0
-        if c == "C3":
-            base += 0.30   # gap between C2–C3
-        if c == "C7":
-            base += 0.35   # gap between C6–C7
-        xs.append(base)
-
-    idx = {c: i for i, c in enumerate(conds)}
-    seps = []
-    if "C2" in idx and "C3" in idx:
-        seps.append((xs[idx["C2"]] + xs[idx["C3"]]) / 2.0)
-    if "C6" in idx and "C7" in idx:
-        seps.append((xs[idx["C6"]] + xs[idx["C7"]]) / 2.0)
-    return xs, seps
-
-def mean_diff_labels_vs_c1(df: pd.DataFrame, value_col: str, conds: List[str]) -> List[str]:
-    ref_mean = df.loc[df["condition"] == "C1", value_col].mean()
-    out = []
-    for c in conds:
-        if c == "C1":
-            out.append("baseline")
-        else:
-            m = df.loc[df["condition"] == c, value_col].mean()
-            d = m - ref_mean
-            arrow = "↑" if d > 0 else "↓"
-            if np.isfinite(d) and abs(d) < 0.0005:
-                d = 0.0
-            out.append(f"{d:+.2g} {arrow}" if np.isfinite(d) else "")
-    return out
-
-def add_stats_header(ax, fs=8.6, grey="0.35", red="#B22222"):
-    t0 = TextArea("Stars: * p<0.05, ** p<0.01, *** p<0.001 (BH)",
-                  textprops=dict(color=grey, fontsize=fs))
-    s0 = TextArea("   |   ", textprops=dict(color=grey, fontsize=fs))
-    t1 = TextArea("Lower (black): vs C1 (MWU + BH)",
-                  textprops=dict(color=grey, fontsize=fs))
-    s1 = TextArea("   |   ", textprops=dict(color=grey, fontsize=fs))
-    t2 = TextArea("Upper (red): vs C2 (MWU + BH, excl. C1)",
-                  textprops=dict(color=red, fontsize=fs))
-
-    row = HPacker(children=[t0, s0, t1, s1, t2], align="center", pad=0, sep=0)
-    box = AnchoredOffsetbox(
-        loc="upper center",
-        child=row,
-        frameon=False,
-        bbox_to_anchor=(0.5, 1.0),
-        bbox_transform=ax.transAxes,
-        borderpad=0.0,
-    )
-    box.set_clip_on(False)
-    ax.add_artist(box)
-
-def add_mean_median_legend(ax):
-    handles = [
-        Line2D([], [], marker="o", linestyle="None",
-               markerfacecolor=MEAN_COLOR, markeredgecolor="white",
-               markersize=7, label="Mean"),
-        Line2D([], [], marker="D", linestyle="None",
-               markerfacecolor=MEDIAN_COLOR, markeredgecolor="white",
-               markersize=7, label="Median"),
-    ]
-    ax.legend(handles=handles, loc="upper left", fontsize=8.5,
-              frameon=False, handletextpad=0.4, borderaxespad=0.3)
-
-def plot_violin(
+# =========================
+# ALP FIGURE-2 MASTER PLOT (for DAPI features)
+# =========================
+def plot_fig2_tags_violin_delta_sig(
     df: pd.DataFrame,
     value_col: str,
     conds: List[str],
-    title: str,
-    ylab: str,
     famA: Dict[str, Dict[str, float]],
     famB: Dict[str, Dict[str, float]],
+    suptitle: str,
+    xlab: str,
     seed: int = 0,
 ) -> plt.Figure:
     rng = np.random.default_rng(seed)
-    xs, seps = make_positions_with_gaps(conds)
-    data = [df.loc[df["condition"] == c, value_col].dropna().astype(float).values for c in conds]
 
-    any_nonempty = any(v.size > 0 for v in data)
-    allv = np.concatenate([v for v in data if v.size > 0]) if any_nonempty else np.array([0.0])
-    y_min = float(np.min(allv))
-    y_max = float(np.max(allv))
-    yr = (y_max - y_min) if y_max > y_min else 1.0
+    data = [
+        df.loc[df["condition"] == c, value_col].dropna().astype(float).values
+        for c in conds
+    ]
 
-    yA = y_max + 0.045 * yr   # black stars
-    yB = y_max + 0.080 * yr   # red stars
+    ref_vals = df.loc[df["condition"] == "C1", value_col].dropna().astype(float).values
+    ref_mean = float(np.mean(ref_vals)) if ref_vals.size else np.nan
 
-    fig, ax = plt.subplots(figsize=(10.4, 4.9))
-    ax.set_axisbelow(True)
-    ax.grid(axis="y", alpha=0.12)
+    dmeans: List[float] = []
+    for c in conds:
+        vals = df.loc[df["condition"] == c, value_col].dropna().astype(float).values
+        if vals.size == 0 or not np.isfinite(ref_mean):
+            dmeans.append(np.nan)
+        else:
+            dmeans.append(float(np.mean(vals) - ref_mean))
 
-    vp = ax.violinplot(
-        data, positions=xs, widths=0.72,
-        showmeans=False, showmedians=False, showextrema=False,
+    def fmt_dmean(d: float) -> str:
+        if not np.isfinite(d):
+            return ""
+        if abs(d) < 0.0005:
+            d = 0.0
+        arrow = "↑" if d > 0 else ("↓" if d < 0 else "→")
+        return f"{d:+.2g} {arrow}"
+
+    # xlim from pooled data with padding
+    nonempty = [v for v in data if v.size > 0]
+    if nonempty:
+        allv = np.concatenate(nonempty)
+        xmin = float(np.min(allv))
+        xmax = float(np.max(allv))
+        xr = (xmax - xmin) if xmax > xmin else (abs(xmax) if xmax != 0 else 1.0)
+        pad = 0.12 * xr
+        xlim = (xmin - pad, xmax + pad)
+    else:
+        xlim = (0.0, 1.0)
+
+    fig = plt.figure(figsize=(15.0, 6.3))
+    fig.subplots_adjust(left=0.03, right=0.995, bottom=0.12, top=0.86, wspace=0.16)
+
+    gs = GridSpec(
+        1, 5,
+        width_ratios=[1.10, 0.60, 5.20, 0.80, 1.00],
+        wspace=0.12,
+        figure=fig,
+    )
+
+    axT  = fig.add_subplot(gs[0, 0])
+    axID = fig.add_subplot(gs[0, 1], sharey=axT)
+    axV  = fig.add_subplot(gs[0, 2], sharey=axT)
+    axD  = fig.add_subplot(gs[0, 3], sharey=axT)
+    axS  = fig.add_subplot(gs[0, 4], sharey=axT)
+
+    y = np.arange(len(conds))
+    axT.set_ylim(len(conds) - 0.5, -0.5)
+
+    # row guides
+    row_color, row_alpha, row_lw = "#000000", 0.10, 0.8
+    for yy in y:
+        for ax in (axT, axID, axV, axD, axS):
+            ax.axhline(yy, color=row_color, alpha=row_alpha, linewidth=row_lw, zorder=0)
+
+    title_pad = 10
+
+    # Condition column
+    axT.set_xlim(0, 1)
+    axT.set_xticks([])
+    axT.set_yticks(y)
+    axT.set_yticklabels([])
+    axT.set_title("Condition", pad=title_pad)
+    for i, c in enumerate(conds):
+        axT.text(
+            0.5, i, cond_id_to_tag(c),
+            ha="center", va="center",
+            fontsize=12, color="#1a1a1a",
+            linespacing=1.10,
+        )
+    for s in axT.spines.values():
+        s.set_visible(False)
+
+    # ID column
+    axID.set_xlim(0, 1)
+    axID.set_xticks([])
+    axID.set_yticks(y)
+    axID.set_yticklabels([])
+    axID.set_title("ID", pad=title_pad)
+    for i, c in enumerate(conds):
+        axID.text(
+            0.5, i, c,
+            ha="center", va="center",
+            fontsize=12, fontweight="bold",
+            color="#1a1a1a",
+        )
+    for s in axID.spines.values():
+        s.set_visible(False)
+
+    # Violins
+    vp = axV.violinplot(
+        data,
+        positions=y,
+        vert=False,
+        widths=0.80,
+        showmeans=False,
+        showmedians=True,
+        showextrema=False,
     )
     for body in vp["bodies"]:
         body.set_facecolor(VIOLIN_FACE)
         body.set_edgecolor(VIOLIN_EDGE)
         body.set_alpha(1.0)
         body.set_linewidth(1.0)
+    vp["cmedians"].set_color("#2b2b2b")
+    vp["cmedians"].set_linewidth(1.0)
 
-    for s in seps:
-        ax.axvline(s, color="white", linewidth=12, zorder=1)
-        ax.axvline(s, color=SEPARATOR_LINE, linewidth=1.5, zorder=2)
-
-    # points + mean/median markers
-    for x, c, vals in zip(xs, conds, data):
+    for i, (c, vals) in enumerate(zip(conds, data)):
         if vals.size == 0:
             continue
-        jitter = rng.normal(0, 0.055, size=vals.size)
-        ax.scatter(
-            x + jitter, vals,
+        yj = i + rng.normal(0, 0.06, size=vals.size)
+        axV.scatter(
+            vals, yj,
             s=22,
             color=COND_COLORS.get(c, "#444444"),
             edgecolor="white",
-            linewidth=0.7,
-            alpha=0.95,
+            linewidth=0.6,
+            alpha=0.92,
             zorder=3,
         )
-
-        mean_val = float(np.mean(vals))
-        median_val = float(np.median(vals))
-
-        ax.scatter(
-            x, mean_val,
-            s=55, marker="o",
+        axV.scatter(
+            float(np.mean(vals)), i,
+            s=60, marker="o",
             color=MEAN_COLOR,
             edgecolor="white",
             linewidth=0.8,
-            alpha=0.60, 
+            alpha=0.70,
             zorder=5,
         )
-        ax.scatter(
-            x, median_val,
+        axV.scatter(
+            float(np.median(vals)), i,
             s=60, marker="D",
             color=MEDIAN_COLOR,
             edgecolor="white",
             linewidth=0.8,
-            alpha=0.60, 
+            alpha=0.70,
             zorder=5,
         )
 
-    # stars
-    for x, c in zip(xs, conds):
-        if c in FAM_A_TARGETS:
+    axV.set_xlim(*xlim)
+    axV.set_xlabel(xlab)
+    axV.set_title("Distribution", pad=14)
+    axV.grid(axis="x", alpha=0.15)
+    axV.set_yticks([])
+    axV.yaxis.set_major_formatter(NullFormatter())
+    axV.tick_params(axis="y", length=0)
+    for s in axV.spines.values():
+        s.set_visible(False)
+
+    # Δmean
+    axD.set_xlim(0, 1)
+    axD.set_xticks([])
+    axD.set_yticks([])
+    axD.yaxis.set_major_formatter(NullFormatter())
+    axD.tick_params(axis="y", length=0)
+    axD.set_title("Δmean", pad=title_pad)
+    axD.text(
+        0.5, -0.085, "(vs C1)",
+        transform=axD.transAxes,
+        ha="center", va="top",
+        fontsize=10, color="0.65",
+    )
+    for i, (c, d) in enumerate(zip(conds, dmeans)):
+        if c == "C1":
+            txt, col = "baseline", "0.45"
+        else:
+            txt, col = fmt_dmean(d), "0.25"
+        axD.text(0.5, i, txt, ha="center", va="center", fontsize=10, color=col)
+    for s in axD.spines.values():
+        s.set_visible(False)
+
+    # Significance
+    axS.set_xlim(-0.6, 1.6)
+    axS.set_yticks([])
+    axS.yaxis.set_major_formatter(NullFormatter())
+    axS.tick_params(axis="y", length=0)
+    axS.set_xticks([])
+    axS.set_title("Significance\n(blank = ns)", pad=title_pad - 2)
+    axS.axvspan(-0.6, 0.5, color="0.0", alpha=0.015, zorder=0)
+    axS.axvline(0.5, color="0.0", alpha=0.18, lw=1.0, zorder=1)
+    axS.text(0.25, -0.09, "vs C1", transform=axS.transAxes,
+             ha="center", va="top", fontsize=10)
+    axS.text(0.75, -0.09, "vs C2", transform=axS.transAxes,
+             ha="center", va="top", fontsize=10)
+
+    for i, c in enumerate(conds):
+        if c == "C1":
+            axS.text(0.0, i, "ref", ha="center", va="center", fontsize=10, color="0.5")
+        else:
             st = star_from_p(famA.get(c, {}).get("p_adj", np.nan))
-            if st:
-                ax.text(x, yA + 0.015 * yr, st, ha="center", va="bottom",
-                        fontsize=12, color=STAR_COLOR_A, zorder=6)
-        if c in FAM_B_TARGETS:
+            axS.text(0.0, i, st, ha="center", va="center", fontsize=10, color=STAR_COLOR_A)
+
+        if c == "C2":
+            axS.text(1.0, i, "ref", ha="center", va="center", fontsize=10, color="0.5")
+        elif c != "C1":
             st = star_from_p(famB.get(c, {}).get("p_adj", np.nan))
-            if st:
-                ax.text(x, yB + 0.015 * yr, st, ha="center", va="bottom",
-                        fontsize=12, color=STAR_COLOR_B, zorder=6)
+            axS.text(1.0, i, st, ha="center", va="center", fontsize=10, color=STAR_COLOR_B)
 
-    # Δmean row
-    delta_labels = mean_diff_labels_vs_c1(df, value_col, conds)
-    y_delta = y_min - 0.11 * yr
-    for x, lab in zip(xs, delta_labels):
-        ax.text(x, y_delta, lab, ha="center", va="top", fontsize=8.2, color="0.35")
-    ax.text(xs[0] - 0.75, y_delta, r"$\Delta$mean", ha="left", va="top",
-            fontsize=8.2, color="0.35", clip_on=False)
+    for s in axS.spines.values():
+        s.set_visible(False)
 
-    ax.set_xticks(xs)
-    ax.set_xticklabels([two_line_label(COND_CODE[c]) for c in conds], fontsize=9)
-
-    ax.set_ylabel(ylab)
-    ax.set_title(title, fontsize=13)
-    ax.set_ylim(y_min - 0.17 * yr, y_max + 0.26 * yr)
-
-    add_stats_header(ax)
-    add_mean_median_legend(ax)
-    fig.tight_layout()
+    fig.suptitle(suptitle, fontsize=14, y=0.975)
     return fig
 
 
@@ -462,7 +532,6 @@ def segment_and_measure_one(image_path: Path, out_dirs: Dict[str, Path]) -> pd.D
         dapi_original = load_dapi_channel(image_path)
         dapi_float = util.img_as_float(dapi_original)
 
-        # preprocess for segmentation
         dapi_blurred = filters.gaussian(dapi_float, sigma=GAUSSIAN_BLUR_SIGMA)
         dapi_eq = exposure.equalize_adapthist(dapi_blurred, clip_limit=CLAHE_CLIP_LIMIT)
 
@@ -491,11 +560,9 @@ def segment_and_measure_one(image_path: Path, out_dirs: Dict[str, Path]) -> pd.D
             print(f"> No nuclei found in {image_path.name}")
             return None
 
-        # Save labelmap
         label_path = out_dirs["labelmaps"] / f"{image_path.stem}_labels.tif"
         tf.imwrite(label_path, labeled_final.astype(np.uint16), photometric="minisblack")
 
-        # Measure features using ORIGINAL intensities
         props = measure.regionprops_table(
             labeled_final,
             intensity_image=dapi_original,
@@ -505,7 +572,7 @@ def segment_and_measure_one(image_path: Path, out_dirs: Dict[str, Path]) -> pd.D
         df["image_filename"] = image_path.name
         df["condition"] = condition_from_path(image_path)
 
-        # Red overlay (all nuclei)
+        # overlay (all nuclei, red contours)
         disp = exposure.rescale_intensity(dapi_original, out_range=(0, 1))
         fig, ax = plt.subplots(figsize=(10, 10))
         ax.imshow(disp, cmap="gray")
@@ -524,7 +591,7 @@ def segment_and_measure_one(image_path: Path, out_dirs: Dict[str, Path]) -> pd.D
 
 # ========================== MAIN ==========================
 def parse_args():
-    p = argparse.ArgumentParser(description="DAPI nuclei shape analysis (seg + ALP-style stats/plots).")
+    p = argparse.ArgumentParser(description="DAPI nuclei shape analysis (seg + ALP Figure-2 style plots).")
     p.add_argument("-i", "--input", type=Path, default=DEFAULT_INPUT_DIR, help="Folder with .tif/.tiff images")
     p.add_argument("-o", "--out", type=Path, default=DEFAULT_OUTPUT_ROOT, help="Output root folder")
     p.add_argument("--pixel_um", type=float, default=DEFAULT_PIXEL_SIZE_UM, help="Pixel size (µm/px)")
@@ -540,6 +607,7 @@ def parse_args():
 
 
 def main():
+    apply_pub_rcparams()
     args = parse_args()
     out_dirs = setup_output_dirs(args.out)
 
@@ -636,6 +704,26 @@ def main():
         f.write(f"Alpha: {args.alpha}\n")
         f.write("Integrated intensity: mean_intensity × area_px (=sum of raw intensities in nucleus)\n\n")
 
+        ylab_map = {
+            "area_um2": r"Area ($\mu$m$^2$)",
+            "equivalent_diameter_um": r"Equivalent diameter ($\mu$m)",
+            "aspect_ratio": "Aspect ratio (major/minor)",
+            "circularity": "Circularity",
+            "eccentricity": "Eccentricity",
+            "solidity": "Solidity",
+            "integrated_intensity": "Integrated intensity (a.u.·px)",
+        }
+
+        title_map = {
+            "area_um2": "DAPI nuclei — area",
+            "equivalent_diameter_um": "DAPI nuclei — equivalent diameter",
+            "aspect_ratio": "DAPI nuclei — aspect ratio",
+            "circularity": "DAPI nuclei — circularity",
+            "eccentricity": "DAPI nuclei — eccentricity",
+            "solidity": "DAPI nuclei — solidity",
+            "integrated_intensity": "DAPI nuclei — integrated intensity",
+        }
+
         for feat in FEATURES_TO_PLOT:
             if feat not in df_kept.columns:
                 continue
@@ -673,38 +761,21 @@ def main():
                         f"p_adj={famB.get(c, {}).get('p_adj', np.nan):.4g}\n")
             f.write("\n")
 
-            ylab_map = {
-                "area_um2": r"Area ($\mu$m$^2$)",
-                "equivalent_diameter_um": r"Equivalent diameter ($\mu$m)",
-                "aspect_ratio": "Aspect ratio (major/minor)",
-                "circularity": "Circularity",
-                "eccentricity": "Eccentricity",
-                "solidity": "Solidity",
-                "integrated_intensity": "Integrated intensity (a.u.·px)",
-            }
-            ylab = ylab_map.get(feat, feat.replace("_", " "))
-
-            title_map = {
-                "area_um2": "DAPI nuclei — area",
-                "integrated_intensity": "DAPI nuclei — integrated intensity",
-            }
-            title = title_map.get(feat, f"DAPI nuclei — {feat.replace('_', ' ')}")
-
-            fig = plot_violin(
+            fig = plot_fig2_tags_violin_delta_sig(
                 df=df_kept,
                 value_col=feat,
                 conds=conds_present,
-                title=title,
-                ylab=ylab,
                 famA=famA,
                 famB=famB,
+                suptitle=title_map.get(feat, f"DAPI nuclei — {feat.replace('_',' ')}"),
+                xlab=ylab_map.get(feat, feat.replace("_", " ")),
                 seed=int(args.seed),
             )
 
-            pdf = out_dirs["figs"] / f"dapi_{feat}.pdf"
-            png = out_dirs["figs"] / f"dapi_{feat}.png"
-            fig.savefig(pdf, dpi=300, bbox_inches="tight")
-            fig.savefig(png, dpi=300, bbox_inches="tight")
+            pdf = out_dirs["figs"] / f"dapi_{feat}_fig2.pdf"
+            png = out_dirs["figs"] / f"dapi_{feat}_fig2.png"
+            fig.savefig(pdf)  # vector PDF; savefig.dpi applies only to embedded rasters
+            fig.savefig(png)  # 300 dpi from rcParams
             plt.close(fig)
 
     print(f"[saved] {out_dirs['stats_txt']}")
@@ -718,17 +789,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-"""
-To Run:
-
-python dapi_stat_code.py \
-  --input ../confocal \
-  --out dapi_analysis_output \
-  --pixel_um 0.21 \
-  --alpha 0.05 \
-  --seed 0
-  
-"""

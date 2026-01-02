@@ -16,18 +16,22 @@ class ABMConfig:
     enable_proliferation: bool = True
     enable_secretion: bool = True
 
-    base_commit_prob: float = 0.0005    # per hour (~0.012/day), low baseline for early pre-OB commitment
-    commit_prob_growth: float = 0.00003 # per hour (~0.7/day slope) toward higher commitment over ~10 days
+    base_commit_prob: float = (
+        0.0005  # per hour (~0.012/day), low baseline for early pre-OB commitment
+    )
+    commit_prob_growth: float = (
+        0.00003  # per hour (~0.7/day slope) toward higher commitment over ~10 days
+    )
 
     commit_delay: int = 72  # hours (legacy 3 days)
     apoptosis_prob: float = 0.01 / 24  # per hour
     ob_apoptosis_prob: float = 0.001 / 24  # per hour
-    min_div_days: int = 36  # hours between divisions 
-    max_div_days: int = 52  # hours between divisions 
+    min_div_hours: int = 38  # hours between divisions
+    max_div_hours: int = 52  # hours between divisions
     collagen_per_ob: float = 1.5
     alp_per_ob: float = 1.2
     move_prob: float = 1.0  # per hour
-    max_moves_per_day: int = 1  # max moves per hour 
+    max_moves_per_hour: int = 1  # max moves per hour
     ob_division_prob: float = 0.0  # per hour
     proliferation_chance: float = 1.0  # per hour
 

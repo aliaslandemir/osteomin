@@ -1,0 +1,25 @@
+Endpoint-derived mineral model v3 (+ SALib Sobol)
+Hmax=100.0, H0=0.0, T_end=28.0, t_switch=14.0, Gamma=2.5
+I(T_end)=∫S dt over [0,T] = 14 days
+
+Derived k_basal = 0.0231858  (1/day)
+Derived k_AA    = 5.03039  (1/day)
+
+Inferred eta (C2 fixed=1.0; may be <1 or >1):
+C2: eta=1.0 (fixed)
+C3: eta=1.3703
+C4: eta=1.04795
+C5: eta=0.579595
+C6: eta=0.423646
+C7: eta=0.469379
+C8: eta=0.431714
+
+Sanity check: endpoints:
+C1: H(T_end)=0.6471  vs endpoint=0.6471
+C2: H(T_end)=50.8723  vs endpoint=50.8723
+C3: H(T_end)=62.1497  vs endpoint=62.1497
+C4: H(T_end)=52.5035  vs endpoint=52.5035
+C5: H(T_end)=33.9445  vs endpoint=33.9445
+C6: H(T_end)=26.2764  vs endpoint=26.2764
+C7: H(T_end)=28.613  vs endpoint=28.613
+C8: H(T_end)=26.6941  vs endpoint=26.6941

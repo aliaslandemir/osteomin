@@ -1,0 +1,701 @@
+#!/usr/bin/env python3
+"""
+Collagen metrics — RAW / ABSOLUTE (NO fold normalization)
+
+PLOT STYLE: identical to ALP Figure-2 style:
+- Column 1: Condition tags (two-line labels)
+- Column 2: ID (C1..C8)
+- Column 3: Horizontal violin distribution + jittered points + mean(red circle) + median(black diamond)
+- Column 4: Δmean (vs C1) with arrows
+- Column 5: Significance: dual-family stars (vs C1 in black; vs C2 in red); "ref" for references; blank = ns
+
+ANALYSIS (kept):
+- RAW metrics computed per image:
+  - C_sum   = sum(collagen intensities)
+  - A_total = total # pixels
+  - D_area  = # pixels where DAPI > 0  (assumes true background pixels are exactly 0)
+  - D_sum   = sum(dapi intensities)
+- RAW metrics:
+  - M1_field = C_sum / A_total
+  - M2_cov   = C_sum / D_area
+  - f_cov    = D_area / A_total
+  - M3_dsum  = C_sum / D_sum
+- Stats (per metric):
+  - Global Kruskal–Wallis across all present conditions (reported)
+  - Family A: C1 vs (C2–C8), Mann–Whitney U + BH
+  - Family B: C2 vs (C3–C8), Mann–Whitney U + BH
+
+Outputs (per run):
+- CSV metrics (RAW)
+- one stats report TXT per metric
+- figures per metric (PDF + PNG)
+
+Run:
+python collagen_kw_stat.py \
+  -input ../../confocal \
+  --alpha 0.05 \
+  --out_prefix collagen_raw \
+  --out_dir collagen_output
+"""
+
+import argparse
+from pathlib import Path
+from typing import Dict, List, Tuple
+
+import numpy as np
+import pandas as pd
+import tifffile as tf
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+from scipy import stats
+from matplotlib.gridspec import GridSpec
+from matplotlib.ticker import NullFormatter
+
+
+# ---------------- defaults ----------------
+INPUT_DIR = Path("input_images")
+OUTPUT_DIR = Path("collagen_output")
+
+DAPI_CHANNEL = 0
+COLLAGEN_CHANNEL = 2
+
+COND_CODE = {
+    "C1": "Basal",
+    "C2": "Osteo",
+    "C3": "Osteo+D/MK4 (L/L)",
+    "C4": "Osteo+D/MK4 (L/H)",
+    "C5": "Osteo+D/MK4 (H/L)",
+    "C6": "Osteo+D/MK4 (H/H)",
+    "C7": "Osteo+Dex (H)",
+    "C8": "Osteo+MK-4 (H)",
+}
+CONDITIONS = list(COND_CODE.keys())
+
+# Comparison families
+FAM_A_REF = "C1"
+FAM_A_TARGETS = ["C2", "C3", "C4", "C5", "C6", "C7", "C8"]  # vs C1
+FAM_B_REF = "C2"
+FAM_B_TARGETS = ["C3", "C4", "C5", "C6", "C7", "C8"]  # vs C2 (exclude C1)
+
+# Colors (keep your palette)
+COND_COLORS = {
+    "C1": "#BDCC16",
+    "C2": "#1F5AA6",
+    "C3": "#1B7F5A",
+    "C4": "#C97A00",
+    "C5": "#A65C8A",
+    "C6": "#B24C1A",
+    "C7": "#6AAED6",
+    "C8": "#7A6A3A",
+}
+
+# ALP-style cosmetics
+VIOLIN_FACE = "#E9E9E9"
+VIOLIN_EDGE = "#B0B0B0"
+MEAN_COLOR = "#B22222"
+MEDIAN_COLOR = "#1F1F1F"
+STAR_COLOR_A = "#000000"  # vs C1
+STAR_COLOR_B = "#B22222"  # vs C2
+
+
+# =========================
+# GLOBAL PLOT SETTINGS (PLOS-ish)
+# =========================
+def apply_pub_rcparams() -> None:
+    mpl.rcParams.update(
+        {
+            "figure.dpi": 150,
+            "savefig.dpi": 300,
+            "savefig.bbox": "tight",
+            "pdf.fonttype": 42,
+            "ps.fonttype": 42,
+            "font.size": 10,
+            "axes.titlesize": 11,
+            "axes.labelsize": 10,
+            "xtick.labelsize": 9,
+            "ytick.labelsize": 9,
+            "axes.linewidth": 0.8,
+            "lines.linewidth": 1.0,
+            "grid.linewidth": 0.6,
+        }
+    )
+
+
+# ---------------- labels ----------------
+def two_line_label(name: str) -> str:
+    m = {
+        "Basal": "Basal",
+        "Osteo": r"AA+$\beta$-GP",
+        "Osteo+D/MK4 (L/L)": r"AA+$\beta$-GP" + "\n" + r"$D_LK_L$",
+        "Osteo+D/MK4 (L/H)": r"AA+$\beta$-GP" + "\n" + r"$D_LK_H$",
+        "Osteo+D/MK4 (H/L)": r"AA+$\beta$-GP" + "\n" + r"$D_HK_L$",
+        "Osteo+D/MK4 (H/H)": r"AA+$\beta$-GP" + "\n" + r"$D_HK_H$",
+        "Osteo+Dex (H)": r"AA+$\beta$-GP" + "\n" + r"$D_HK_0$",
+        "Osteo+MK-4 (H)": r"AA+$\beta$-GP" + "\n" + r"$D_0K_H$",
+    }
+    return m.get(name, name)
+
+
+def cond_id_to_pretty_name(c: str) -> str:
+    return COND_CODE.get(c, c)
+
+
+def cond_id_to_tag(c: str) -> str:
+    return two_line_label(cond_id_to_pretty_name(c))
+
+
+# ---------------- IO ----------------
+def get_condition_from_name(stem: str) -> str:
+    import re
+
+    m = re.match(r"^(C[1-8])[_-]", stem, re.IGNORECASE)
+    return m.group(1).upper() if m else "Unknown"
+
+
+def read_channels(path: Path) -> Tuple[np.ndarray, np.ndarray]:
+    with tf.TiffFile(path) as tif:
+        arr = tif.asarray()
+
+    if arr.ndim == 2:
+        raise ValueError("2D TIFF found; expected multichannel.")
+
+    if arr.ndim == 3:
+        # (C,H,W)
+        if arr.shape[0] <= max(DAPI_CHANNEL, COLLAGEN_CHANNEL):
+            raise ValueError("Not enough channels.")
+        dapi = arr[DAPI_CHANNEL].astype(np.float64)
+        col = arr[COLLAGEN_CHANNEL].astype(np.float64)
+    elif arr.ndim == 4:
+        # (T/Z,C,H,W) -> first plane
+        if arr.shape[1] <= max(DAPI_CHANNEL, COLLAGEN_CHANNEL):
+            raise ValueError("Not enough channels.")
+        dapi = arr[0, DAPI_CHANNEL].astype(np.float64)
+        col = arr[0, COLLAGEN_CHANNEL].astype(np.float64)
+    else:
+        raise ValueError(f"Unsupported shape {arr.shape}")
+
+    return dapi, col
+
+
+def compute_row(path: Path) -> dict:
+    dapi_raw, col_raw = read_channels(path)
+
+    A_total = float(dapi_raw.size)
+    C_sum = float(np.sum(col_raw))
+    D_sum = float(np.sum(dapi_raw))
+    D_area = float(np.count_nonzero(dapi_raw > 0))
+
+    M1_field = (C_sum / A_total) if A_total > 0 else np.nan
+    M2_cov = (C_sum / D_area) if D_area > 0 else np.nan
+    f_cov = (D_area / A_total) if A_total > 0 else np.nan
+    M3_dsum = (C_sum / D_sum) if D_sum > 0 else np.nan
+
+    return {
+        "image": path.name,
+        "condition": get_condition_from_name(path.stem),
+        "C_sum": C_sum,
+        "A_total": A_total,
+        "D_area": D_area,
+        "D_sum": D_sum,
+        "M1_field": M1_field,
+        "M2_cov": M2_cov,
+        "M3_dsum": M3_dsum,
+        "f_cov": f_cov,
+    }
+
+
+# ---------------- stats ----------------
+def benjamini_hochberg(pvals: List[float]) -> List[float]:
+    p = np.asarray(pvals, dtype=float)
+    m = p.size
+    if m == 0:
+        return []
+    order = np.argsort(p)
+    ranked = p[order]
+    adj = ranked * m / (np.arange(m) + 1)
+    adj = np.minimum.accumulate(adj[::-1])[::-1]
+    adj = np.clip(adj, 0.0, 1.0)
+    out = np.empty_like(adj)
+    out[order] = adj
+    return out.tolist()
+
+
+def star_from_p(p: float) -> str:
+    if not np.isfinite(p):
+        return ""
+    if p < 0.001:
+        return "***"
+    if p < 0.01:
+        return "**"
+    if p < 0.05:
+        return "*"
+    return ""  # blank = ns
+
+
+def kw_all_conditions(
+    cond_to_vals: Dict[str, np.ndarray], conds_order: List[str]
+) -> Tuple[float, float]:
+    groups = []
+    for c in conds_order:
+        v = np.asarray(cond_to_vals.get(c, np.array([])), dtype=float)
+        v = v[np.isfinite(v)]
+        if v.size > 0:
+            groups.append(v)
+    if len(groups) < 2:
+        return np.nan, np.nan
+    H, p = stats.kruskal(*groups)
+    return float(H), float(p)
+
+
+def pairwise_vs_ref_BH(
+    cond_to_vals: Dict[str, np.ndarray],
+    ref: str,
+    targets: List[str],
+    alpha: float,
+) -> Dict[str, Dict[str, float]]:
+    ref_vals = np.asarray(cond_to_vals.get(ref, np.array([])), dtype=float)
+    ref_vals = ref_vals[np.isfinite(ref_vals)]
+
+    out: Dict[str, Dict[str, float]] = {}
+    names: List[str] = []
+    p_raws: List[float] = []
+
+    for c in targets:
+        vals = np.asarray(cond_to_vals.get(c, np.array([])), dtype=float)
+        vals = vals[np.isfinite(vals)]
+
+        if ref_vals.size == 0 or vals.size == 0:
+            out[c] = {"p_raw": np.nan, "p_adj": np.nan, "sig": False}
+            continue
+
+        _, p_raw = stats.mannwhitneyu(ref_vals, vals, alternative="two-sided")
+        out[c] = {"p_raw": float(p_raw)}
+        names.append(c)
+        p_raws.append(float(p_raw))
+
+    p_adjs = benjamini_hochberg(p_raws)
+    for c, padj in zip(names, p_adjs):
+        out[c]["p_adj"] = float(padj)
+        out[c]["sig"] = bool(padj < alpha)
+    return out
+
+
+# =========================
+# ALP-STYLE FIGURE (generic)
+# =========================
+def plot_tags_violin_delta_sig(
+    df: pd.DataFrame,
+    value_col: str,
+    conds: List[str],
+    famA: Dict[str, Dict[str, float]],
+    famB: Dict[str, Dict[str, float]],
+    suptitle: str,
+    xlab: str,
+    seed: int = 0,
+) -> plt.Figure:
+    rng = np.random.default_rng(seed)
+
+    data = [
+        df.loc[df["condition"] == c, value_col].dropna().astype(float).values
+        for c in conds
+    ]
+
+    ref_vals = df.loc[df["condition"] == "C1", value_col].dropna().astype(float).values
+    ref_mean = float(np.mean(ref_vals)) if ref_vals.size else np.nan
+
+    dmeans: List[float] = []
+    for c in conds:
+        vals = df.loc[df["condition"] == c, value_col].dropna().astype(float).values
+        if vals.size == 0 or not np.isfinite(ref_mean):
+            dmeans.append(np.nan)
+        else:
+            dmeans.append(float(np.mean(vals) - ref_mean))
+
+    def fmt_dmean(d: float) -> str:
+        if not np.isfinite(d):
+            return ""
+        if abs(d) < 0.005:
+            d = 0.0
+        arrow = "↑" if d > 0 else ("↓" if d < 0 else "→")
+        return f"{d:+.2f} {arrow}"
+
+    # xlim from pooled data with padding
+    nonempty = [v for v in data if v.size > 0]
+    if nonempty:
+        allv = np.concatenate(nonempty)
+        xmin = float(np.min(allv))
+        xmax = float(np.max(allv))
+        xr = (xmax - xmin) if xmax > xmin else (abs(xmax) if xmax != 0 else 1.0)
+        pad = 0.12 * xr
+        xlim = (xmin - pad, xmax + pad)
+    else:
+        xlim = (0.0, 1.0)
+
+    # ---- layout (identical signature) ----
+    fig = plt.figure(figsize=(15.0, 6.3))
+    fig.subplots_adjust(left=0.03, right=0.995, bottom=0.12, top=0.86, wspace=0.16)
+
+    gs = GridSpec(
+        1,
+        5,
+        width_ratios=[1.10, 0.60, 5.20, 0.80, 1.00],
+        wspace=0.12,
+        figure=fig,
+    )
+
+    axT = fig.add_subplot(gs[0, 0])
+    axID = fig.add_subplot(gs[0, 1], sharey=axT)
+    axV = fig.add_subplot(gs[0, 2], sharey=axT)
+    axD = fig.add_subplot(gs[0, 3], sharey=axT)
+    axS = fig.add_subplot(gs[0, 4], sharey=axT)
+
+    y = np.arange(len(conds))
+    axT.set_ylim(len(conds) - 0.5, -0.5)
+
+    # row guides
+    row_color, row_alpha, row_lw = "#000000", 0.10, 0.8
+    for yy in y:
+        for ax in (axT, axID, axV, axD, axS):
+            ax.axhline(yy, color=row_color, alpha=row_alpha, linewidth=row_lw, zorder=0)
+
+    title_pad = 10
+
+    # ---- Condition column ----
+    axT.set_xlim(0, 1)
+    axT.set_xticks([])
+    axT.set_yticks(y)
+    axT.set_yticklabels([])
+    axT.set_title("Condition", pad=title_pad)
+
+    for i, c in enumerate(conds):
+        axT.text(
+            0.5,
+            i,
+            cond_id_to_tag(c),
+            ha="center",
+            va="center",
+            fontsize=12,
+            color="#1a1a1a",
+            linespacing=1.10,
+        )
+    for s in axT.spines.values():
+        s.set_visible(False)
+
+    # ---- ID column ----
+    axID.set_xlim(0, 1)
+    axID.set_xticks([])
+    axID.set_yticks(y)
+    axID.set_yticklabels([])
+    axID.set_title("ID", pad=title_pad)
+
+    for i, c in enumerate(conds):
+        axID.text(
+            0.5,
+            i,
+            c,
+            ha="center",
+            va="center",
+            fontsize=12,
+            fontweight="bold",
+            color="#1a1a1a",
+        )
+    for s in axID.spines.values():
+        s.set_visible(False)
+
+    # ---- Violins ----
+    vp = axV.violinplot(
+        data,
+        positions=y,
+        vert=False,
+        widths=0.80,
+        showmeans=False,
+        showmedians=True,
+        showextrema=False,
+    )
+    for body in vp["bodies"]:
+        body.set_facecolor(VIOLIN_FACE)
+        body.set_edgecolor(VIOLIN_EDGE)
+        body.set_alpha(1.0)
+        body.set_linewidth(1.0)
+    vp["cmedians"].set_color("#2b2b2b")
+    vp["cmedians"].set_linewidth(1.0)
+
+    for i, (c, vals) in enumerate(zip(conds, data)):
+        if vals.size == 0:
+            continue
+        yj = i + rng.normal(0, 0.06, size=vals.size)
+        axV.scatter(
+            vals,
+            yj,
+            s=22,
+            color=COND_COLORS.get(c, "#444444"),
+            edgecolor="white",
+            linewidth=0.6,
+            alpha=0.92,
+            zorder=3,
+        )
+        axV.scatter(
+            float(np.mean(vals)),
+            i,
+            s=60,
+            marker="o",
+            color=MEAN_COLOR,
+            edgecolor="white",
+            linewidth=0.8,
+            alpha=0.70,
+            zorder=5,
+        )
+        axV.scatter(
+            float(np.median(vals)),
+            i,
+            s=60,
+            marker="D",
+            color=MEDIAN_COLOR,
+            edgecolor="white",
+            linewidth=0.8,
+            alpha=0.70,
+            zorder=5,
+        )
+
+    axV.set_xlim(*xlim)
+    axV.set_xlabel(xlab)
+    axV.set_title("Distribution", pad=14)
+    axV.grid(axis="x", alpha=0.15)
+    axV.set_yticks([])
+    axV.yaxis.set_major_formatter(NullFormatter())
+    axV.tick_params(axis="y", length=0, labelsize=11)
+    for s in axV.spines.values():
+        s.set_visible(False)
+
+    # ---- Δmean column ----
+    axD.set_xlim(0, 1)
+    axD.set_xticks([])
+    axD.set_yticks([])
+    axD.yaxis.set_major_formatter(NullFormatter())
+    axD.tick_params(axis="y", length=0)
+    axD.set_title("Δmean", pad=title_pad)
+
+    axD.text(
+        0.5,
+        -0.085,
+        "(vs C1)",
+        transform=axD.transAxes,
+        ha="center",
+        va="top",
+        fontsize=10,
+        color="0.65",
+    )
+
+    for i, (c, d) in enumerate(zip(conds, dmeans)):
+        if c == "C1":
+            txt = "baseline"
+            col = "0.45"
+        else:
+            txt = fmt_dmean(d)
+            col = "0.25"
+        axD.text(0.5, i, txt, ha="center", va="center", fontsize=10, color=col)
+
+    for s in axD.spines.values():
+        s.set_visible(False)
+
+    # ---- Significance column ----
+    axS.set_xlim(-0.6, 1.6)
+    axS.set_yticks([])
+    axS.yaxis.set_major_formatter(NullFormatter())
+    axS.tick_params(axis="y", length=0)
+    axS.set_xticks([])
+
+    axS.set_title("Significance\n(blank = ns)", pad=title_pad - 2)
+    axS.axvspan(-0.6, 0.5, color="0.0", alpha=0.015, zorder=0)
+    axS.axvline(0.5, color="0.0", alpha=0.18, lw=1.0, zorder=1)
+
+    axS.text(
+        0.25,
+        -0.09,
+        "vs C1",
+        transform=axS.transAxes,
+        ha="center",
+        va="top",
+        fontsize=10,
+    )
+    axS.text(
+        0.75,
+        -0.09,
+        "vs C2",
+        transform=axS.transAxes,
+        ha="center",
+        va="top",
+        fontsize=10,
+    )
+
+    for i, c in enumerate(conds):
+        # vs C1
+        if c == "C1":
+            axS.text(0.0, i, "ref", ha="center", va="center", fontsize=10, color="0.5")
+        else:
+            st = star_from_p(famA.get(c, {}).get("p_adj", np.nan))
+            axS.text(
+                0.0, i, st, ha="center", va="center", fontsize=10, color=STAR_COLOR_A
+            )
+
+        # vs C2
+        if c == "C2":
+            axS.text(1.0, i, "ref", ha="center", va="center", fontsize=10, color="0.5")
+        elif c != "C1":
+            st = star_from_p(famB.get(c, {}).get("p_adj", np.nan))
+            axS.text(
+                1.0, i, st, ha="center", va="center", fontsize=10, color=STAR_COLOR_B
+            )
+
+    for s in axS.spines.values():
+        s.set_visible(False)
+
+    fig.suptitle(suptitle, fontsize=14, y=0.975)
+    return fig
+
+
+# ---------------- main ----------------
+def parse_args():
+    p = argparse.ArgumentParser(
+        description="Collagen RAW metrics + dual-family MWU+BH + ALP-style multi-column plots."
+    )
+    p.add_argument(
+        "-input", type=Path, default=INPUT_DIR, help="Folder containing TIFF images."
+    )
+    p.add_argument(
+        "--alpha", type=float, default=0.05, help="BH threshold (default 0.05)."
+    )
+    p.add_argument(
+        "--out_prefix", type=str, default="collagen_raw", help="Output filename prefix."
+    )
+    p.add_argument("--out_dir", type=Path, default=OUTPUT_DIR, help="Output directory.")
+    p.add_argument("--seed", type=int, default=0, help="Random seed for jitter.")
+    return p.parse_args()
+
+
+def main():
+    apply_pub_rcparams()
+
+    args = parse_args()
+    args.out_dir.mkdir(parents=True, exist_ok=True)
+
+    paths = sorted(list(args.input.glob("*.tif")) + list(args.input.glob("*.tiff")))
+    if not paths:
+        print("No images found in", args.input)
+        return
+
+    rows = []
+    for pth in paths:
+        try:
+            rows.append(compute_row(pth))
+        except Exception as e:
+            print(f"[warn] {pth.name}: {e}")
+
+    df = pd.DataFrame(rows)
+    df = df[df["condition"].isin(CONDITIONS)].copy()
+    if df.empty:
+        print("No valid C1–C8 images after filtering.")
+        return
+
+    conds = [c for c in CONDITIONS if (df["condition"] == c).any()]
+    print("Conditions present:", conds)
+
+    if "C1" not in conds:
+        raise ValueError("Missing C1 (Basal).")
+    if "C2" not in conds:
+        raise ValueError("Missing C2 (Osteo).")
+
+    # save metrics (RAW)
+    csv_path = args.out_dir / f"{args.out_prefix}_metrics_RAW.csv"
+    df.to_csv(csv_path, index=False)
+    print(f"Saved CSV: {csv_path}")
+
+    def cond_to_vals(col: str) -> Dict[str, np.ndarray]:
+        out: Dict[str, np.ndarray] = {}
+        for c in conds:
+            v = df.loc[df["condition"] == c, col].dropna().astype(float).values
+            if v.size:
+                out[c] = v
+        return out
+
+    plot_specs = [
+        ("M1_field", "Collagen density per field", "Mean collagen intensity per pixel"),
+        (
+            "M2_cov",
+            "Collagen per DAPI-positive area",
+            "Collagen intensity / DAPI-positive pixel",
+        ),
+        (
+            "M3_dsum",
+            "Collagen per total DAPI intensity",
+            "Collagen sum / DAPI sum (a.u.)",
+        ),
+        ("f_cov", "Coverage: DAPI-positive fraction", "DAPI-positive area fraction"),
+    ]
+
+    for col, title, xlab in plot_specs:
+        cmap = cond_to_vals(col)
+
+        H, pkw = kw_all_conditions(cmap, conds)
+
+        famA = pairwise_vs_ref_BH(
+            cmap,
+            ref=FAM_A_REF,
+            targets=[c for c in FAM_A_TARGETS if c in conds],
+            alpha=args.alpha,
+        )
+        famB = pairwise_vs_ref_BH(
+            cmap,
+            ref=FAM_B_REF,
+            targets=[c for c in FAM_B_TARGETS if c in conds],
+            alpha=args.alpha,
+        )
+
+        # stats report per metric
+        rpt = args.out_dir / f"{args.out_prefix}_{col}_RAW_stats.txt"
+        with open(rpt, "w", encoding="utf-8") as f:
+            f.write(f"{title} (RAW)\n")
+            f.write(f"Metric column: {col}\n")
+            f.write("Test: Mann–Whitney U (two-sided)\n")
+            f.write("Multiple testing: Benjamini–Hochberg within each family\n")
+            f.write(f"Alpha: {args.alpha}\n\n")
+            f.write(f"Kruskal–Wallis across all conditions: H={H:.4g}, p={pkw:.4g}\n\n")
+
+            f.write("Family A (black): C1 vs targets\n")
+            for c in [x for x in FAM_A_TARGETS if x in conds]:
+                f.write(
+                    f"  {c} vs C1: p_raw={famA.get(c, {}).get('p_raw', np.nan):.4g}, "
+                    f"p_adj={famA.get(c, {}).get('p_adj', np.nan):.4g}\n"
+                )
+
+            f.write("\nFamily B (red): C2 vs targets (excluding C1)\n")
+            for c in [x for x in FAM_B_TARGETS if x in conds]:
+                f.write(
+                    f"  {c} vs C2: p_raw={famB.get(c, {}).get('p_raw', np.nan):.4g}, "
+                    f"p_adj={famB.get(c, {}).get('p_adj', np.nan):.4g}\n"
+                )
+
+        fig = plot_tags_violin_delta_sig(
+            df=df,
+            value_col=col,
+            conds=conds,
+            famA=famA,
+            famB=famB,
+            suptitle=title,
+            xlab=xlab,
+            seed=args.seed,
+        )
+
+        pdf = args.out_dir / f"{args.out_prefix}_{col}_RAW.pdf"
+        png = args.out_dir / f"{args.out_prefix}_{col}_RAW.png"
+        fig.savefig(pdf)
+        fig.savefig(png)
+        plt.close(fig)
+
+        print(f"Saved: {pdf}")
+        print(f"Saved: {png}")
+        print(f"Saved: {rpt}")
+
+
+if __name__ == "__main__":
+    main()

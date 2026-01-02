@@ -1,0 +1,16 @@
+day_start=3.0, day_measure=14.0, dt_h=1.0
+basal_endpoint(day14)=2740.0
+aa_endpoint(day14, used to fit alpha at beta=1)=2880.0
+AA0_ugml=50.0, beta=1.0
+
+Calibration (reference):
+Km_ref=15.0, media_interval_ref=48.0, half_life_ref=3.0
+r0_per_h=8.15476
+alpha_per_h=3.47025
+S_ref=40.3429
+
+Plot scenario:
+Km_plot=15.0, media_interval_plot=48.0, half_life_plot=3.0
+Predicted C_basal(day14)=2740
+Predicted C_osteo(day14)=2880
+Predicted Δ(day14)=140

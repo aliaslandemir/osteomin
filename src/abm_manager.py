@@ -56,7 +56,7 @@ class ABMManager:
         self.dead_ob_coords: List[Tuple[int, int]] = []  # died while OB
         self.committed_today: int = 0
         self._move_prob_hourly = min(1.0, max(0.0, float(self.cfg.move_prob)))
-        self._max_moves_per_step = max(0, int(self.cfg.max_moves_per_day))
+        self._max_moves_per_step = max(0, int(self.cfg.max_moves_per_hour))
         self._apoptosis_prob_preob = min(1.0, max(0.0, float(self.cfg.apoptosis_prob)))
         self._apoptosis_prob_ob = min(1.0, max(0.0, float(self.cfg.ob_apoptosis_prob)))
         self._proliferation_chance_hourly = min(
@@ -64,8 +64,8 @@ class ABMManager:
         )
         self._commit_growth_per_hour = max(0.0, float(self.cfg.commit_prob_growth))
         self._commit_delay_hours = max(0, int(self.cfg.commit_delay))
-        self._min_div_interval = max(1, int(self.cfg.min_div_days))
-        self._max_div_interval = max(self._min_div_interval, int(self.cfg.max_div_days))
+        self._min_div_interval = max(1, int(self.cfg.min_div_hours))
+        self._max_div_interval = max(self._min_div_interval, int(self.cfg.max_div_hours))
 
         self.field = None
 

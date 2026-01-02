@@ -4,35 +4,36 @@
 """
 ARS quantification — complementary-color ratio threshold (paper-aligned)
 
-UPDATED to match Eggerschwiler et al. DIA logic:
-- For red stains (ARS): score = R / (G + B)
-- Positive pixel if score >= ratio_threshold (default 1.0)
-  (Optional) derive threshold from Basal (C1) percentile of score.
+ANALYSIS (kept):
+- score = R / (G + B + eps)
+- positive pixel if score >= threshold
+- threshold modes:
+    * ratio_fixed: use --ratio_thresh
+    * ratio_basal_percentile: compute threshold from C1 percentile of score
+- metrics:
+    * fraction_percent = 100 * positive_px / total_px
+    * stained_area_um2, total_area_um2 if --px is given
+- stats:
+    * Kruskal–Wallis across all present conditions
+    * Family A: C1 vs (C2–C8), Mann–Whitney U + BH
+    * Family B: C2 vs (C3–C8), Mann–Whitney U + BH
 
-Keeps your publication plotting + stats style:
-- violins (light grey)
-- colored jittered points
-- mean (red circle) + median (dark diamond), alpha=0.60
-- dual-family stars: black vs C1; red vs C2
-- separators (C2–C3 and C6–C7)
-- Δmean row (difference vs C1 mean)
-
-Metrics:
-- fraction_percent = 100 * positive_px / total_px
-- stained_area_um2, total_area_um2 if --px is given
+PLOT STYLE (UPDATED to identical ALP Figure-2 master):
+- Column 1: Condition tags (two-line labels)
+- Column 2: ID (C1..C8)
+- Column 3: Horizontal violins + jitter points + mean(red circle) + median(black diamond)
+- Column 4: Δmean (vs C1 mean) with arrows
+- Column 5: Significance stars (blank = ns), dual-family: black vs C1; red vs C2
 
 Outputs:
 - CSV metrics
 - TXT stats
-- PDF/PNG plot
+- PDF/PNG plot (PDF is vector; embedded rasters at 300 dpi if any)
 - optional QC overlays (cyan mask)
 
-Notes:
-- Ratio uses a small epsilon to avoid division by zero.
-- If your images are not standard 8-bit RGB (e.g., 16-bit-per-channel), we rescale safely.
-
-Refs:
-Eggerschwiler et al. describe red-channel divided by cyan (G+B) thresholding. (see your pasted paper excerpt)
+Run example:
+python ars_code2.py -input ../ars --mode ratio_fixed --ratio_thresh 0.55 \
+  --metric fraction_percent --out_prefix ars_ratio1 --out_dir ars_output_2 --overlay
 """
 
 import argparse
@@ -43,10 +44,11 @@ from typing import Dict, List, Tuple
 import numpy as np
 import pandas as pd
 from skimage import io
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 from scipy import stats
-from matplotlib.offsetbox import AnchoredOffsetbox, HPacker, TextArea
-from matplotlib.lines import Line2D
+from matplotlib.gridspec import GridSpec
+from matplotlib.ticker import NullFormatter
 from PIL import Image
 
 
@@ -82,15 +84,36 @@ COND_COLORS = {
     "C8": "#8C6D31",
 }
 
-VIOLIN_FACE = "#E6E6E6"
-VIOLIN_EDGE = "#B3B3B3"
+# ALP Figure-2 cosmetics (locked)
+VIOLIN_FACE = "#E9E9E9"
+VIOLIN_EDGE = "#B0B0B0"
+MEAN_COLOR = "#B22222"
+MEDIAN_COLOR = "#1F1F1F"
+STAR_COLOR_A = "#000000"  # vs C1
+STAR_COLOR_B = "#B22222"  # vs C2
 
-STAR_COLOR_A = "#000000"
-STAR_COLOR_B = "#B22222"
-SEPARATOR_LINE = "#F2F2F2"
 
-MEAN_COLOR   = "#B22222"
-MEDIAN_COLOR = "#2B2B2B"
+# =========================
+# GLOBAL PLOT SETTINGS (PLOS-ish)
+# =========================
+def apply_pub_rcparams() -> None:
+    mpl.rcParams.update(
+        {
+            "figure.dpi": 150,
+            "savefig.dpi": 300,
+            "savefig.bbox": "tight",
+            "pdf.fonttype": 42,
+            "ps.fonttype": 42,
+            "font.size": 10,
+            "axes.titlesize": 11,
+            "axes.labelsize": 10,
+            "xtick.labelsize": 9,
+            "ytick.labelsize": 9,
+            "axes.linewidth": 0.8,
+            "lines.linewidth": 1.0,
+            "grid.linewidth": 0.6,
+        }
+    )
 
 
 # ---------------- labels ----------------
@@ -106,6 +129,14 @@ def two_line_label(name: str) -> str:
         "Osteo+MK-4 (H)": r"AA+$\beta$-GP" + "\n" + r"$D_0K_H$",
     }
     return m.get(name, name)
+
+
+def cond_id_to_pretty_name(c: str) -> str:
+    return COND_CODE.get(c, c)
+
+
+def cond_id_to_tag(c: str) -> str:
+    return two_line_label(cond_id_to_pretty_name(c))
 
 
 # ---------------- detection + IO ----------------
@@ -124,7 +155,7 @@ def load_rgb_float01(p: Path) -> np.ndarray:
       - grayscale -> replicates
       - channel-first -> moves
       - alpha -> drops
-      - uint8/uint16 -> rescales by dtype max
+      - uint8/uint16 -> rescales by observed max
     """
     img = io.imread(str(p))
     if img.ndim == 2:
@@ -138,13 +169,9 @@ def load_rgb_float01(p: Path) -> np.ndarray:
         img = img[..., :3]
 
     img = img.astype(np.float32)
-
-    # rescale robustly
     maxv = float(np.max(img)) if img.size else 1.0
     if maxv > 1.0:
-        # if it looks like 8-bit or 16-bit, normalize by observed max
         img = img / maxv
-
     return np.clip(img, 0.0, 1.0)
 
 
@@ -207,7 +234,7 @@ def star_from_p(p: float) -> str:
         return "**"
     if p < 0.05:
         return "*"
-    return ""
+    return ""  # blank = ns
 
 
 def kw_all_conditions(cond_to_vals: Dict[str, np.ndarray], conds_order: List[str]) -> Tuple[float, float]:
@@ -256,122 +283,127 @@ def pairwise_vs_ref_BH(
     return out
 
 
-# ---------------- plotting ----------------
-def make_positions_with_gaps(conds: List[str]) -> Tuple[List[float], List[float]]:
-    xs = []
-    base = 0.0
-    for c in conds:
-        base += 1.0
-        if c == "C3":
-            base += 0.30
-        if c == "C7":
-            base += 0.35
-        xs.append(base)
-
-    idx = {c: i for i, c in enumerate(conds)}
-    seps = []
-    if "C2" in idx and "C3" in idx:
-        seps.append((xs[idx["C2"]] + xs[idx["C3"]]) / 2.0)
-    if "C6" in idx and "C7" in idx:
-        seps.append((xs[idx["C6"]] + xs[idx["C7"]]) / 2.0)
-    return xs, seps
-
-
-def mean_diff_labels_vs_c1(df: pd.DataFrame, value_col: str, conds: List[str]) -> List[str]:
-    ref_mean = df.loc[df["cond"] == "C1", value_col].mean()
-    out = []
-    for c in conds:
-        if c == "C1":
-            out.append("baseline")
-        else:
-            m = df.loc[df["cond"] == c, value_col].mean()
-            d = m - ref_mean
-            if not np.isfinite(d):
-                out.append("NA")
-                continue
-            arrow = "↑" if d > 0 else "↓"
-            if abs(d) < 0.005:
-                d = 0.0
-            if abs(d) >= 1000:
-                out.append(f"{d:+.0f} {arrow}")
-            elif abs(d) >= 10:
-                out.append(f"{d:+.1f} {arrow}")
-            else:
-                out.append(f"{d:+.2f} {arrow}")
-    return out
-
-
-def add_stats_header(ax, fs=8.6, grey="0.35", red="#B22222"):
-    t0 = TextArea("Stars: * p<0.05, ** p<0.01, *** p<0.001 (BH)",
-                  textprops=dict(color=grey, fontsize=fs))
-    s0 = TextArea("   |   ", textprops=dict(color=grey, fontsize=fs))
-    t1 = TextArea("Lower (black): vs C1 (MWU + BH)",
-                  textprops=dict(color=grey, fontsize=fs))
-    s1 = TextArea("   |   ", textprops=dict(color=grey, fontsize=fs))
-    t2 = TextArea("Upper (red): vs C2 (MWU + BH, excl. C1)",
-                  textprops=dict(color=red, fontsize=fs))
-
-    row = HPacker(children=[t0, s0, t1, s1, t2], align="center", pad=0, sep=0)
-    box = AnchoredOffsetbox(
-        loc="upper center",
-        child=row,
-        frameon=False,
-        bbox_to_anchor=(0.5, 1.0),
-        bbox_transform=ax.transAxes,
-        borderpad=0.0,
-    )
-    box.set_clip_on(False)
-    ax.add_artist(box)
-
-
-def add_mean_median_legend(ax):
-    handles = [
-        Line2D([], [], marker="o", linestyle="None",
-               markerfacecolor=MEAN_COLOR, markeredgecolor="white",
-               markersize=7, label="Mean"),
-        Line2D([], [], marker="D", linestyle="None",
-               markerfacecolor=MEDIAN_COLOR, markeredgecolor="white",
-               markersize=7, label="Median"),
-    ]
-    ax.legend(handles=handles, loc="upper left", fontsize=8.5,
-              frameon=False, handletextpad=0.4, borderaxespad=0.3)
-
-
-def plot_violin_alp_style(
+# =========================
+# ALP-STYLE FIGURE 2 (locked 5-column layout)
+# =========================
+def plot_fig2_tags_violin_delta_sig(
     df: pd.DataFrame,
     value_col: str,
     conds: List[str],
-    title: str,
-    ylab: str,
     famA: Dict[str, Dict[str, float]],
     famB: Dict[str, Dict[str, float]],
+    suptitle: str,
+    xlab: str,
     seed: int = 0,
 ) -> plt.Figure:
     rng = np.random.default_rng(seed)
-    xs, seps = make_positions_with_gaps(conds)
-    data = [df.loc[df["cond"] == c, value_col].dropna().astype(float).values for c in conds]
 
-    any_nonempty = any(v.size > 0 for v in data)
-    allv = np.concatenate([v for v in data if v.size > 0]) if any_nonempty else np.array([0.0])
-    y_min = float(np.min(allv))
-    y_max = float(np.max(allv))
-    yr = (y_max - y_min) if y_max > y_min else 1.0
+    data = [
+        df.loc[df["cond"] == c, value_col].dropna().astype(float).values
+        for c in conds
+    ]
 
-    yA = y_max + 0.045 * yr
-    yB = y_max + 0.080 * yr
+    ref_vals = df.loc[df["cond"] == "C1", value_col].dropna().astype(float).values
+    ref_mean = float(np.mean(ref_vals)) if ref_vals.size else np.nan
 
-    fig, ax = plt.subplots(figsize=(10.4, 4.9))
-    ax.set_axisbelow(True)
-    ax.grid(axis="y", alpha=0.12)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
+    dmeans: List[float] = []
+    for c in conds:
+        vals = df.loc[df["cond"] == c, value_col].dropna().astype(float).values
+        if vals.size == 0 or not np.isfinite(ref_mean):
+            dmeans.append(np.nan)
+        else:
+            dmeans.append(float(np.mean(vals) - ref_mean))
 
-    vp = ax.violinplot(
+    def fmt_dmean(d: float) -> str:
+        if not np.isfinite(d):
+            return ""
+        if abs(d) < 0.005:
+            d = 0.0
+        arrow = "↑" if d > 0 else ("↓" if d < 0 else "→")
+        return f"{d:+.2f} {arrow}"
+
+    # xlim from pooled data with padding
+    nonempty = [v for v in data if v.size > 0]
+    if nonempty:
+        allv = np.concatenate(nonempty)
+        xmin = float(np.min(allv))
+        xmax = float(np.max(allv))
+        xr = (xmax - xmin) if xmax > xmin else (abs(xmax) if xmax != 0 else 1.0)
+        pad = 0.12 * xr
+        xlim = (xmin - pad, xmax + pad)
+    else:
+        xlim = (0.0, 1.0)
+
+    # ---- layout (identical signature) ----
+    fig = plt.figure(figsize=(15.0, 6.3))
+    fig.subplots_adjust(left=0.03, right=0.995, bottom=0.12, top=0.86, wspace=0.16)
+
+    gs = GridSpec(
+        1, 5,
+        width_ratios=[1.10, 0.60, 5.20, 0.80, 1.00],
+        wspace=0.12,
+        figure=fig,
+    )
+
+    axT  = fig.add_subplot(gs[0, 0])
+    axID = fig.add_subplot(gs[0, 1], sharey=axT)
+    axV  = fig.add_subplot(gs[0, 2], sharey=axT)
+    axD  = fig.add_subplot(gs[0, 3], sharey=axT)
+    axS  = fig.add_subplot(gs[0, 4], sharey=axT)
+
+    y = np.arange(len(conds))
+    axT.set_ylim(len(conds) - 0.5, -0.5)
+
+    # row guides
+    row_color, row_alpha, row_lw = "#000000", 0.10, 0.8
+    for yy in y:
+        for ax in (axT, axID, axV, axD, axS):
+            ax.axhline(yy, color=row_color, alpha=row_alpha, linewidth=row_lw, zorder=0)
+
+    title_pad = 10
+
+    # ---- Condition column ----
+    axT.set_xlim(0, 1)
+    axT.set_xticks([])
+    axT.set_yticks(y)
+    axT.set_yticklabels([])
+    axT.set_title("Condition", pad=title_pad)
+
+    for i, c in enumerate(conds):
+        axT.text(
+            0.5, i, cond_id_to_tag(c),
+            ha="center", va="center",
+            fontsize=12, color="#1a1a1a",
+            linespacing=1.10,
+        )
+    for s in axT.spines.values():
+        s.set_visible(False)
+
+    # ---- ID column ----
+    axID.set_xlim(0, 1)
+    axID.set_xticks([])
+    axID.set_yticks(y)
+    axID.set_yticklabels([])
+    axID.set_title("ID", pad=title_pad)
+
+    for i, c in enumerate(conds):
+        axID.text(
+            0.5, i, c,
+            ha="center", va="center",
+            fontsize=12, fontweight="bold",
+            color="#1a1a1a",
+        )
+    for s in axID.spines.values():
+        s.set_visible(False)
+
+    # ---- Violins ----
+    vp = axV.violinplot(
         data,
-        positions=xs,
-        widths=0.72,
+        positions=y,
+        vert=False,
+        widths=0.80,
         showmeans=False,
-        showmedians=False,
+        showmedians=True,
         showextrema=False,
     )
     for body in vp["bodies"]:
@@ -379,77 +411,111 @@ def plot_violin_alp_style(
         body.set_edgecolor(VIOLIN_EDGE)
         body.set_alpha(1.0)
         body.set_linewidth(1.0)
+    vp["cmedians"].set_color("#2b2b2b")
+    vp["cmedians"].set_linewidth(1.0)
 
-    for s in seps:
-        ax.axvline(s, color="white", linewidth=12, zorder=1)
-        ax.axvline(s, color=SEPARATOR_LINE, linewidth=1.5, zorder=2)
-
-    for x, c, vals in zip(xs, conds, data):
+    for i, (c, vals) in enumerate(zip(conds, data)):
         if vals.size == 0:
             continue
-
-        jitter = rng.normal(0, 0.055, size=vals.size)
-        ax.scatter(
-            x + jitter, vals,
+        yj = i + rng.normal(0, 0.06, size=vals.size)
+        axV.scatter(
+            vals, yj,
             s=22,
             color=COND_COLORS.get(c, "#444444"),
             edgecolor="white",
-            linewidth=0.7,
-            alpha=0.95,
+            linewidth=0.6,
+            alpha=0.92,
             zorder=3,
         )
-
-        mean_val = float(np.mean(vals))
-        median_val = float(np.median(vals))
-
-        ax.scatter(
-            x, mean_val,
-            s=55, marker="o",
+        axV.scatter(
+            float(np.mean(vals)), i,
+            s=60, marker="o",
             color=MEAN_COLOR,
             edgecolor="white",
             linewidth=0.8,
-            alpha=0.60,
+            alpha=0.70,
             zorder=5,
         )
-        ax.scatter(
-            x, median_val,
+        axV.scatter(
+            float(np.median(vals)), i,
             s=60, marker="D",
             color=MEDIAN_COLOR,
             edgecolor="white",
             linewidth=0.8,
-            alpha=0.60,
+            alpha=0.70,
             zorder=5,
         )
 
-    for x, c in zip(xs, conds):
-        if c in FAM_A_TARGETS:
+    axV.set_xlim(*xlim)
+    axV.set_xlabel(xlab)
+    axV.set_title("Distribution", pad=14)
+    axV.grid(axis="x", alpha=0.15)
+    axV.set_yticks([])
+    axV.yaxis.set_major_formatter(NullFormatter())
+    axV.tick_params(axis="y", length=0, labelsize=11)
+    for s in axV.spines.values():
+        s.set_visible(False)
+
+    # ---- Δmean column ----
+    axD.set_xlim(0, 1)
+    axD.set_xticks([])
+    axD.set_yticks([])
+    axD.yaxis.set_major_formatter(NullFormatter())
+    axD.tick_params(axis="y", length=0)
+    axD.set_title("Δmean", pad=title_pad)
+
+    axD.text(
+        0.5, -0.085, "(vs C1)",
+        transform=axD.transAxes,
+        ha="center", va="top",
+        fontsize=10, color="0.65",
+    )
+
+    for i, (c, d) in enumerate(zip(conds, dmeans)):
+        if c == "C1":
+            txt, col = "baseline", "0.45"
+        else:
+            txt, col = fmt_dmean(d), "0.25"
+        axD.text(0.5, i, txt, ha="center", va="center", fontsize=10, color=col)
+
+    for s in axD.spines.values():
+        s.set_visible(False)
+
+    # ---- Significance column ----
+    axS.set_xlim(-0.6, 1.6)
+    axS.set_yticks([])
+    axS.yaxis.set_major_formatter(NullFormatter())
+    axS.tick_params(axis="y", length=0)
+    axS.set_xticks([])
+
+    axS.set_title("Significance\n(blank = ns)", pad=title_pad - 2)
+    axS.axvspan(-0.6, 0.5, color="0.0", alpha=0.015, zorder=0)
+    axS.axvline(0.5, color="0.0", alpha=0.18, lw=1.0, zorder=1)
+
+    axS.text(0.25, -0.09, "vs C1", transform=axS.transAxes,
+             ha="center", va="top", fontsize=10)
+    axS.text(0.75, -0.09, "vs C2", transform=axS.transAxes,
+             ha="center", va="top", fontsize=10)
+
+    for i, c in enumerate(conds):
+        # vs C1
+        if c == "C1":
+            axS.text(0.0, i, "ref", ha="center", va="center", fontsize=10, color="0.5")
+        else:
             st = star_from_p(famA.get(c, {}).get("p_adj", np.nan))
-            if st:
-                ax.text(x, yA + 0.015 * yr, st, ha="center", va="bottom",
-                        fontsize=12, color=STAR_COLOR_A, zorder=6)
-        if c in FAM_B_TARGETS:
+            axS.text(0.0, i, st, ha="center", va="center", fontsize=10, color=STAR_COLOR_A)
+
+        # vs C2
+        if c == "C2":
+            axS.text(1.0, i, "ref", ha="center", va="center", fontsize=10, color="0.5")
+        elif c != "C1":
             st = star_from_p(famB.get(c, {}).get("p_adj", np.nan))
-            if st:
-                ax.text(x, yB + 0.015 * yr, st, ha="center", va="bottom",
-                        fontsize=12, color=STAR_COLOR_B, zorder=6)
+            axS.text(1.0, i, st, ha="center", va="center", fontsize=10, color=STAR_COLOR_B)
 
-    delta_labels = mean_diff_labels_vs_c1(df, value_col, conds)
-    y_delta = y_min - 0.11 * yr
-    for x, lab in zip(xs, delta_labels):
-        ax.text(x, y_delta, lab, ha="center", va="top", fontsize=8.2, color="0.35")
-    ax.text(xs[0] - 0.75, y_delta, r"$\Delta$mean", ha="left", va="top",
-            fontsize=8.2, color="0.35", clip_on=False)
+    for s in axS.spines.values():
+        s.set_visible(False)
 
-    ax.set_xticks(xs)
-    ax.set_xticklabels([two_line_label(COND_CODE[c]) for c in conds], fontsize=9)
-
-    ax.set_ylabel(ylab)
-    ax.set_title(title, fontsize=13)
-    ax.set_ylim(y_min - 0.17 * yr, y_max + 0.26 * yr)
-
-    add_stats_header(ax)
-    add_mean_median_legend(ax)
-    fig.tight_layout()
+    fig.suptitle(suptitle, fontsize=14, y=0.975)
     return fig
 
 
@@ -492,6 +558,8 @@ def parse_args():
 
 
 def main():
+    apply_pub_rcparams()
+
     args = parse_args()
 
     if args.mode == "ratio_basal_percentile" and not (0.0 < args.percentile < 100.0):
@@ -512,12 +580,10 @@ def main():
         raise RuntimeError(f"No files found: {args.input} with glob '{args.glob}'")
 
     # 1) Determine threshold on ratio score
-    threshold = None
     if args.mode == "ratio_fixed":
         threshold = float(args.ratio_thresh)
         thr_note = f"Fixed threshold on R/(G+B): {threshold:.6g}"
     else:
-        # basal-derived percentile on ratio score
         basal_vals = []
         for p in files:
             if detect_condition(p) != "C1":
@@ -619,19 +685,19 @@ def main():
         alpha=args.alpha,
     )
 
-    # y-labels
+    # labels
     if value_col == "fraction_percent":
-        ylab = "ARS-positive area (% of field)"
+        xlab = "ARS-positive area (% of field)"
     elif value_col == "stained_area_um2":
-        ylab = r"ARS-positive area ($\mu m^2$)"
+        xlab = r"ARS-positive area ($\mu m^2$)"
     else:
-        ylab = r"Field area ($\mu m^2$)"
+        xlab = r"Field area ($\mu m^2$)"
 
-    title = f"ARS area fraction (score = R/(G+B); {thr_note})"
+    suptitle = f"ARS area fraction — score = R/(G+B) — {thr_note}"
 
     rpt = args.out_dir / f"{args.out_prefix}_{value_col}_stats.txt"
     with open(rpt, "w", encoding="utf-8") as f:
-        f.write(f"{title}\n")
+        f.write(f"{suptitle}\n")
         f.write(f"Metric column: {value_col}\n")
         f.write("Score: R/(G+B)\n")
         f.write(f"Thresholding: {thr_note}\n")
@@ -658,22 +724,22 @@ def main():
 
     print("Saved stats:", rpt)
 
-    # 4) Plot
-    fig = plot_violin_alp_style(
+    # 4) Plot (ALP Figure-2 master)
+    fig = plot_fig2_tags_violin_delta_sig(
         df=df,
         value_col=value_col,
         conds=conds,
-        title=title,
-        ylab=ylab,
         famA=famA,
         famB=famB,
+        suptitle=suptitle,
+        xlab=xlab,
         seed=args.seed,
     )
 
-    pdf = args.out_dir / f"{args.out_prefix}_{value_col}.pdf"
-    png = args.out_dir / f"{args.out_prefix}_{value_col}.png"
-    fig.savefig(pdf, dpi=300, bbox_inches="tight")
-    fig.savefig(png, dpi=300, bbox_inches="tight")
+    pdf = args.out_dir / f"{args.out_prefix}_{value_col}_fig2.pdf"
+    png = args.out_dir / f"{args.out_prefix}_{value_col}_fig2.png"
+    fig.savefig(pdf)   # vector PDF; savefig.dpi applies to embedded rasters
+    fig.savefig(png)   # 300 dpi because rcParams['savefig.dpi']=300
     plt.close(fig)
     print("Saved:", pdf)
     print("Saved:", png)
@@ -682,11 +748,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-"""
-
-python ars_code2.py -input ../ars --mode ratio_fixed --ratio_thresh 0.55   --metric fraction_percent --out_prefix ars_ratio1 --out_dir ars_output_2 --overlay
-
-"""
