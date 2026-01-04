@@ -177,6 +177,7 @@ python dapi_analysis.py \
 Use \texttt{overlay\_analysis.py} to create merged overlays  
 (see also \texttt{overlay\_an\_meta.md}).  
 Point \texttt{--input} at your confocal folder and select any \texttt{--out}.
+Add \texttt{--pdf} to the command below to also generate 300~DPI PDF copies.
 
 \subsection*{Command}
 
@@ -187,7 +188,8 @@ python overlay_analysis.py \
     --input ../data/input_images \
     --out overlay_output \
     --pix 0.21 \
-    --scalebar_um 100
+    --scalebar_um 100 \
+    --pdf
 \end{verbatim}
 \end{minipage}
 \end{center}

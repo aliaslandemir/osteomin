@@ -16,7 +16,7 @@
    * Scale bar appears in the lower-left, auto-sized based on `--pix` (defaults to 0.21 µm/px); optionally force `--scalebar_um`.
    * Channel legend + stretch text are drawn across the top banner with outlined white text for readability.
    * Condition text uses predefined two-line ALP labels (e.g., `A+β-GP` / `D_HK_L`) drawn at the top-left.
-5. **Export**: Saves overlays at 100 DPI into `overlay_output/overlays/<basename>_overlay.png`.
+5. **Export**: Saves overlays at 100 DPI into `overlay_output/overlays/<basename>_overlay.png`; set `--pdf` (plus optional `--pdf-dpi`) to also emit 300 DPI PDF copies with the same basename.
 
 ## Usage
 ```sh
@@ -24,7 +24,10 @@ python overlay_analysis.py \
     --input input_images \
     --out overlay_output \
     --pix 0.21 \
-    --scalebar_um 200
+    --scalebar_um 200 \
+    --pdf
 ```
+
+Set `--pdf-dpi 300` (default) to keep the secondary export at publication resolution.
 
 Input hints: filenames should start with `C1_…C8_` or live in a parent named `c1…c8`.

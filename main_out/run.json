@@ -2,7 +2,7 @@
   "total_hours": 672,
   "hours_per_day": 24,
   "days": 29,
-  "seed": 78300,
+  "seed": 134575,
   "abm_cfg": {
     "width": 33,
     "height": 33,
@@ -30,7 +30,7 @@
     "height": 33,
     "media_interval": 48,
     "enable_nodules": true,
-    "nodule_window": 4
+    "nodule_window": 5
   },
   "spatial_every": 1,
   "spatial_days": [

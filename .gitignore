@@ -15,6 +15,9 @@ day_hor/
 grids/
 spatial_cells/
 sanity_check1/
+overlay_output/
+
+endpointaad/overlay_output/
 
 
 # venv & python cache
