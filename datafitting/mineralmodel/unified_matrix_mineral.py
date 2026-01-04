@@ -46,6 +46,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -55,51 +56,40 @@ DAY_START_AA = 3.0
 DAY_COLLAGEN = 14.0
 DAY_MINERAL = 28.0
 
+COLOR_BASAL = "#1F77B4"
+COLOR_OSTEO = "#D62728"
+COLOR_ACCENT = "#6C757D"
+COLOR_SHADE = "#C7CBD1"
+
 
 # -----------------------------
 # Plot style (clean / Nature-ish)
 # -----------------------------
 def _set_style():
-    """PLOS Computational Biology–friendly defaults.
-
-    Notes:
-      - Sans-serif fonts (prefers Arial/Helvetica; falls back to DejaVu Sans).
-      - Embedded fonts in PDF (fonttype 42).
-      - High-resolution exports for line art (600 dpi PNG/TIFF).
-      - Colorblind-safe default color cycle (Okabe–Ito).
-    """
-    okabe_ito = [
-        "#0072B2",  # blue
-        "#D55E00",  # vermillion
-        "#009E73",  # bluish green
-        "#CC79A7",  # reddish purple
-        "#56B4E9",  # sky blue
-        "#E69F00",  # orange
-        "#F0E442",  # yellow
-        "#000000",  # black
-    ]
+    """Clean, journal-style defaults with clear contrasts."""
+    cycle = [COLOR_BASAL, COLOR_OSTEO, "#2CA02C", "#9467BD", "#8C564B", "#17BECF", "#7F7F7F"]
 
     plt.rcParams.update(
         {
             "font.family": "sans-serif",
-            "font.sans-serif": ["Arial", "Helvetica", "DejaVu Sans"],
-            "font.size": 8.5,
-            "axes.titlesize": 9.5,
-            "axes.labelsize": 9.0,
-            "legend.fontsize": 8.0,
-            "xtick.labelsize": 8.0,
-            "ytick.labelsize": 8.0,
-            "axes.linewidth": 0.8,
-            "xtick.major.width": 0.8,
-            "ytick.major.width": 0.8,
-            "xtick.major.size": 3.2,
-            "ytick.major.size": 3.2,
+            "font.sans-serif": ["DejaVu Sans", "Arial", "Helvetica"],
+            "font.size": 9.0,
+            "axes.titlesize": 10.0,
+            "axes.labelsize": 9.5,
+            "legend.fontsize": 8.5,
+            "xtick.labelsize": 8.5,
+            "ytick.labelsize": 8.5,
+            "axes.linewidth": 0.9,
+            "xtick.major.width": 0.9,
+            "ytick.major.width": 0.9,
+            "xtick.major.size": 3.6,
+            "ytick.major.size": 3.6,
             "xtick.direction": "out",
             "ytick.direction": "out",
             "axes.spines.top": False,
             "axes.spines.right": False,
-            "lines.linewidth": 1.8,
-            "axes.prop_cycle": plt.cycler(color=okabe_ito),
+            "lines.linewidth": 2.2,
+            "axes.prop_cycle": plt.cycler(color=cycle),
             "figure.dpi": 150,
             "savefig.dpi": 600,
             "pdf.fonttype": 42,
@@ -111,25 +101,17 @@ def _set_style():
 def _format_axes(ax, grid: bool = False):
     ax.tick_params(which="both", top=False, right=False)
     if grid:
-        ax.grid(True, alpha=0.18, linewidth=0.6)
+        ax.grid(True, alpha=0.15, linewidth=0.6)
     else:
         ax.grid(False)
 
 
 def _save(fig, outdir: Path, name: str):
-    """Export as PNG + PDF + TIFF (LZW), with tight bounding boxes."""
+    """Export as PNG + PDF (100/300 dpi), with tight bounding boxes."""
     outdir.mkdir(parents=True, exist_ok=True)
 
-    fig.savefig(outdir / f"{name}.png", bbox_inches="tight", pad_inches=0.12)
-    fig.savefig(outdir / f"{name}.pdf", bbox_inches="tight", pad_inches=0.12)
-    # TIFF is frequently requested by journals; keep it lossless + high dpi.
-    fig.savefig(
-        outdir / f"{name}.tif",
-        bbox_inches="tight",
-        pad_inches=0.12,
-        dpi=600,
-        pil_kwargs={"compression": "tiff_lzw"},
-    )
+    fig.savefig(outdir / f"{name}.png", bbox_inches="tight", pad_inches=0.12, dpi=100)
+    fig.savefig(outdir / f"{name}.pdf", bbox_inches="tight", pad_inches=0.12, dpi=300)
 
 
 
@@ -188,7 +170,7 @@ def simulate_collagen_hold_after_14(
     s_mod: float,
     Km: float,
 ) -> np.ndarray:
-    """Euler integrate to day 14; hold constant afterward."""
+    """Euler integrate to collagen measurement day; hold constant afterward."""
     dt = float(np.median(np.diff(t_days)))
     sat = mm_saturation(A, Km)
 
@@ -362,51 +344,52 @@ def plot_collagen_timecourses_0_14(
     C1 = simulate_collagen_hold_after_14(t_days, A, r0=r0, s_mod=s_mod_C1, Km=Km_star)
     C2 = simulate_collagen_hold_after_14(t_days, A, r0=r0, s_mod=s_mod_C2, Km=Km_star)
 
-    C1_end = float(np.interp(DAY_COLLAGEN, t_days, C1))
-    C2_end = float(np.interp(DAY_COLLAGEN, t_days, C2))
-    C2_ind = float(np.interp(day_induction, t_days, C2))
+    delta = C2 - C1
+    eps = 1e-6
+    with np.errstate(divide="ignore", invalid="ignore"):
+        ratio = np.divide(C2, C1, out=np.zeros_like(C2), where=C1 > eps)
+    rel_pct = (ratio - 1.0) * 100.0
+    rel_pct = np.nan_to_num(rel_pct, nan=0.0, posinf=0.0, neginf=0.0)
 
-    fig, ax = plt.subplots(figsize=(3.6, 2.7), constrained_layout=True)
-    ax.plot(t, C1[m14], label="C1 basal")
-    ax.plot(t, C2[m14], label="C2 osteogenic")
+    df = pd.DataFrame(
+        {
+            "day": t,
+            "collagen_basal": C1[m14],
+            "collagen_osteo": C2[m14],
+            "delta": delta[m14],
+            "delta_pct": rel_pct[m14],
+        }
+    )
+    df.to_excel(outdir / "collagen_timecourse_values.xlsx", index=False)
+    np.savez(
+        outdir / "collagen_timecourse_values.npz",
+        day=t,
+        collagen_basal=C1[m14],
+        collagen_osteo=C2[m14],
+        delta=delta[m14],
+        delta_pct=rel_pct[m14],
+    )
 
-    # Reference lines
-    ax.axvline(day_induction, ls="--", lw=1.0, alpha=0.8)
-    ax.axvline(DAY_COLLAGEN, ls=":", lw=1.0, alpha=0.9)
-
-    # ★ induction marker on osteogenic curve (day 3)
-    ax.scatter([day_induction], [C2_ind], marker="*", s=180, edgecolor="black", linewidth=0.8, zorder=8, label="Induction (day 3)")
-
-    # Endpoints: use x-jitter + extend xlim so nothing clips
-    xj1, xj2 = DAY_COLLAGEN - 0.08, DAY_COLLAGEN + 0.08
-
-    # observed endpoints (circles)
-    ax.scatter([xj1], [collagen_C1_obs], s=150, marker="o", edgecolor="black", linewidth=1.1, zorder=9)
-    ax.scatter([xj2], [collagen_C2_obs], s=150, marker="o", edgecolor="black", linewidth=1.1, zorder=9)
-
-    # model endpoints (diamonds)
-    ax.scatter([xj1], [C1_end], s=120, marker="D", edgecolor="black", linewidth=1.0, zorder=8)
-    ax.scatter([xj2], [C2_end], s=120, marker="D", edgecolor="black", linewidth=1.0, zorder=8)
-
-    # labels (small)
-    ax.annotate(f"obs {collagen_C1_obs:.0f}", (xj1, collagen_C1_obs), xytext=(-6, -14),
-                textcoords="offset points", fontsize=8, ha="right", va="top")
-    ax.annotate(f"obs {collagen_C2_obs:.0f}", (xj2, collagen_C2_obs), xytext=(6, -14),
-                textcoords="offset points", fontsize=8, ha="left", va="top")
-    ax.annotate(f"mdl {C1_end:.0f}", (xj1, C1_end), xytext=(-6, 10),
-                textcoords="offset points", fontsize=8, ha="right", va="bottom")
-    ax.annotate(f"mdl {C2_end:.0f}", (xj2, C2_end), xytext=(6, 10),
-                textcoords="offset points", fontsize=8, ha="left", va="bottom")
-
-    ax.set_xlim(0.0, DAY_COLLAGEN + 0.6)  # prevents clipping
+    fig, ax = plt.subplots(figsize=(4.4, 3.2), constrained_layout=True)
+    ax.plot(t, delta[m14], color=COLOR_OSTEO, linewidth=1.7)
+    ax.fill_between(t, 0, delta[m14], where=delta[m14] >= 0, interpolate=True, color=COLOR_OSTEO, alpha=0.22)
+    ax.axhline(0.0, color="black", lw=0.9, linestyle="--")
+    ax.axvline(day_induction, color=COLOR_ACCENT, ls="--", lw=0.8, label=f"Induction (day {int(day_induction)})")
+    ax.axvline(DAY_COLLAGEN, color=COLOR_ACCENT, ls=":", lw=0.8, label=f"Measurement (day {int(DAY_COLLAGEN)})")
     ax.set_xlabel("Day")
-    ax.set_ylabel("Collagen proxy (a.u.)")
-    ax.set_title(f"Collagen (0–14 d; Km*={Km_star:g})")
-    _format_axes(ax, grid=False)
+    ax.set_ylabel("Δ collagen (Osteogenic − Basal)")
+    ax.set_title("Paired Δ collagen (main figure)")
+    ypad = 0.08 * (delta[m14].max() - delta[m14].min() + 1e-9)
+    ax.set_ylim(delta[m14].min() - ypad, delta[m14].max() + ypad)
+    _format_axes(ax, grid=True)
+    ax.legend(frameon=False, loc="upper left", fontsize=8)
 
-    ax.legend(frameon=False, loc="upper left")
-    ax.text(0.02, 0.02, "○ observed (day 14)\n◇ model (day 14)\n★ induction (day 3)",
-            transform=ax.transAxes, fontsize=8, va="bottom", ha="left")
+    ax2 = ax.twinx()
+    ax2.plot(t, rel_pct[m14], color=COLOR_BASAL, linestyle=":", linewidth=1.1, label="Relative Δ (%)")
+    ax2.set_ylabel("Relative Δ (%)", color=COLOR_BASAL)
+    ax2.tick_params(axis="y", colors=COLOR_BASAL)
+    ax2.set_ylim(0, max(5.0, rel_pct[m14].max() * 1.2))
+    ax2.legend(frameon=False, loc="lower right", fontsize=7)
 
     _save(fig, outdir, "collagen_timecourses")
     plt.close(fig)
@@ -419,7 +402,8 @@ def plot_km_sweep_collagen(
     r0: float,
     collagen_C2_obs: float,
     Km_vals: list[float],
-    s_mod_C2: float,
+    s_mod_C1: float,
+    s_mod_C2_candidates: list[float],
     day_induction: float,
 ):
     """
@@ -433,48 +417,73 @@ def plot_km_sweep_collagen(
 
     trajs = []
     ends = []
+    c1_ends = []
     inds = []
-    for Km in Km_vals:
-        C2 = simulate_collagen_hold_after_14(t_days, A, r0=r0, s_mod=s_mod_C2, Km=float(Km))
+    for Km, smod2 in zip(Km_vals, s_mod_C2_candidates):
+        C2 = simulate_collagen_hold_after_14(t_days, A, r0=r0, s_mod=float(smod2), Km=float(Km))
+        C1 = simulate_collagen_hold_after_14(t_days, A, r0=r0, s_mod=s_mod_C1, Km=float(Km))
         trajs.append(C2[m14])
         ends.append(float(np.interp(DAY_COLLAGEN, t_days, C2)))
+        c1_ends.append(float(np.interp(DAY_COLLAGEN, t_days, C1)))
         inds.append(float(np.interp(day_induction, t_days, C2)))
 
     ends = np.asarray(ends, dtype=float)
+    c1_ends = np.asarray(c1_ends, dtype=float)
+    delta = ends - c1_ends
 
     fig, (ax1, ax2) = plt.subplots(
-        2, 1, figsize=(3.7, 4.4),
+        2, 1, figsize=(4.8, 4.8),
         constrained_layout=True,
         gridspec_kw={"height_ratios": [2.2, 1.1]}
     )
 
-    # Top panel: time courses
+    # Top panel: time courses (color-mapped by Km)
+    cmap = plt.cm.viridis
+    km_norm = plt.Normalize(min(Km_vals), max(Km_vals))
     for Km, y in zip(Km_vals, trajs):
-        ax1.plot(t, y, label=f"Km={float(Km):g}")
+        ax1.plot(t, y, color=cmap(km_norm(float(Km))), alpha=0.95)
+        ax1.scatter([DAY_COLLAGEN], [y[-1]], s=18, color=cmap(km_norm(float(Km))), zorder=4)
 
-    ax1.axvline(day_induction, ls="--", lw=1.0, alpha=0.8)
-    ax1.axvline(DAY_COLLAGEN, ls=":", lw=1.0, alpha=0.9)
-    ax1.scatter([DAY_COLLAGEN + 0.10], [collagen_C2_obs], s=140, marker="o",
-                edgecolor="black", linewidth=1.1, zorder=10, label="Observed (day 14)")
+    ax1.axvline(day_induction, ls="--", lw=0.9, alpha=0.7, color=COLOR_ACCENT)
+    ax1.axvline(DAY_COLLAGEN, ls=":", lw=0.9, alpha=0.8, color=COLOR_ACCENT)
+    ax1.scatter([DAY_COLLAGEN + 0.10], [collagen_C2_obs], s=70, marker="o",
+                facecolor="white", edgecolor="black", linewidth=1.0, zorder=10, label="Observed")
 
     # show induction star for the chosen Km curve? (use Km closest to median just for marker location)
     # but keep it simple: mark induction on observed panel line using one star at mean induction height
-    ax1.scatter([day_induction], [np.mean(inds)], marker="*", s=160,
+    ax1.scatter([day_induction], [np.mean(inds)], marker="*", s=90,
                 edgecolor="black", linewidth=0.8, zorder=10)
 
     ax1.set_xlim(0.0, DAY_COLLAGEN + 0.6)  # prevent clipping
+    ax1.set_ylim(bottom=0.0)
     ax1.set_ylabel("Collagen proxy (a.u.)")
-    ax1.set_title("Collagen: Km sweep (C2; no α)")
-    _format_axes(ax1, grid=False)
-    ax1.legend(frameon=False, ncol=2, loc="upper left")
+    ax1.set_title("Km sweep: osteogenic collagen")
+    _format_axes(ax1, grid=True)
+    ax1.legend(frameon=False, ncol=1, loc="upper left")
 
-    # Bottom panel: endpoint vs Km
-    ax2.plot(Km_vals, ends, marker="o", markersize=6, markeredgecolor="black", linewidth=2.0)
-    ax2.axhline(collagen_C2_obs, ls=":", lw=1.2)
+    sm = plt.cm.ScalarMappable(norm=km_norm, cmap=cmap)
+    cbar = fig.colorbar(sm, ax=ax1, pad=0.02, fraction=0.05)
+    cbar.set_label("Km")
+
+    # Bottom panel: endpoint vs Km with delta
+    ax2.plot(Km_vals, ends, marker="o", markersize=4.5, markeredgecolor="black", linewidth=2.0, color=COLOR_OSTEO, label="C2")
+    ax2.axhline(collagen_C2_obs, ls=":", lw=1.0, color=COLOR_ACCENT, alpha=0.8, label="Observed")
     ax2.set_xlabel("Km candidate")
     ax2.set_ylabel("C2(day 14)")
-    ax2.set_title("Endpoint vs Km (line = observed)")
-    _format_axes(ax2, grid=False)
+    ax2.set_title("Endpoint match")
+    ypad = 0.05 * (ends.max() - ends.min() + 1e-9)
+    ax2.set_ylim(ends.min() - ypad, ends.max() + ypad)
+    _format_axes(ax2, grid=True)
+
+    ax2b = ax2.twinx()
+    ax2b.plot(Km_vals, delta, linestyle="--", color=COLOR_SHADE, marker="s", markersize=4.5, label="Δ (C2-C1)")
+    ax2b.set_ylabel("Δ (collagen)")
+    ax2b.set_ylim(0, delta.max() * 1.4 if delta.max() > 0 else 1.0)
+    ax2b.spines["right"].set_visible(True)
+
+    lines, labels = ax2.get_legend_handles_labels()
+    lines2, labels2 = ax2b.get_legend_handles_labels()
+    ax2.legend(lines + lines2, labels + labels2, frameon=False, loc="upper left", fontsize=8)
 
     _save(fig, outdir, "collagen_km_sweep")
     plt.close(fig)
@@ -492,19 +501,21 @@ def plot_mineral_timecourses(
     day_induction: float,
 ):
     _set_style()
-    fig, ax = plt.subplots(figsize=(3.6, 2.7), constrained_layout=True)
-    ax.plot(t_days, H1 * plot_scale, label="C1 basal")
-    ax.plot(t_days, H2 * plot_scale, label="C2 osteogenic")
+    fig, ax = plt.subplots(figsize=(4.6, 3.1), constrained_layout=True)
+    ax.plot(t_days, H1 * plot_scale, label="Basal", color=COLOR_BASAL)
+    ax.plot(t_days, H2 * plot_scale, label="Osteogenic", color=COLOR_OSTEO)
+    ax.fill_between(t_days, H1 * plot_scale, H2 * plot_scale, color=COLOR_SHADE, alpha=0.22, zorder=1, label="Δ (osteo-basal)")
 
-    ax.axvline(day_induction, ls="--", lw=1.0, alpha=0.8)
-    ax.axvline(float(t_start), ls=":", lw=1.0, alpha=0.9)
-    ax.axvline(DAY_MINERAL, ls=":", lw=1.0, alpha=0.9)
+    ax.axvline(day_induction, ls="--", lw=0.9, alpha=0.7, color=COLOR_ACCENT)
+    ax.axvline(float(t_start), ls=":", lw=0.9, alpha=0.8, color=COLOR_ACCENT)
+    ax.axvline(DAY_MINERAL, ls=":", lw=0.9, alpha=0.8, color=COLOR_ACCENT)
 
     ax.set_xlabel("Day")
     ax.set_ylabel(ylabel)
-    ax.set_title(f"Mineral (n*={n_star:g}; endpoint-derived k)")
-    _format_axes(ax, grid=False)
-    ax.legend(frameon=False, loc="upper left")
+    ax.set_title("Mineral deposition")
+    ax.set_ylim(bottom=0.0)
+    _format_axes(ax, grid=True)
+    ax.legend(frameon=False, loc="upper left", ncol=2, handlelength=1.6)
 
     _save(fig, outdir, "mineral_timecourses")
     plt.close(fig)
@@ -525,22 +536,28 @@ def plot_n_sweep_mineral(
     _, plot_scale, ylabel = ars_to_fraction(float(ars_C1), ars_units)
     H2_end, _, _ = ars_to_fraction(float(ars_C2), ars_units)
 
-    fig, ax = plt.subplots(figsize=(3.6, 2.7), constrained_layout=True)
+    fig, ax = plt.subplots(figsize=(4.6, 3.1), constrained_layout=True)
 
+    cmap = plt.cm.plasma
+    n_norm = plt.Normalize(min(n_vals), max(n_vals))
     for n in n_vals:
         T_eff = DAY_MINERAL - float(t_start)
         k2 = solve_k_from_endpoint(H2_end, T_eff, float(n), float(zeta_C2))
         H2 = mineral_hill(t_days, t_start=float(t_start), k=float(k2), n=float(n), zeta=float(zeta_C2))
-        ax.plot(t_days, H2 * plot_scale, label=f"n={float(n):g}")
+        ax.plot(t_days, H2 * plot_scale, color=cmap(n_norm(float(n))), alpha=0.95)
+        ax.scatter([DAY_MINERAL], [H2[-1] * plot_scale], s=18, color=cmap(n_norm(float(n))), zorder=4)
 
-    ax.axvline(day_induction, ls="--", lw=1.0, alpha=0.8)
-    ax.axvline(float(t_start), ls=":", lw=1.0, alpha=0.9)
-    ax.axvline(DAY_MINERAL, ls=":", lw=1.0, alpha=0.9)
+    ax.axvline(day_induction, ls="--", lw=0.9, alpha=0.7, color=COLOR_ACCENT)
+    ax.axvline(float(t_start), ls=":", lw=0.9, alpha=0.8, color=COLOR_ACCENT)
+    ax.axvline(DAY_MINERAL, ls=":", lw=0.9, alpha=0.8, color=COLOR_ACCENT)
     ax.set_xlabel("Day")
     ax.set_ylabel(ylabel)
-    ax.set_title("Mineral: n sweep (C2; endpoint matched at day 28)")
-    _format_axes(ax, grid=False)
-    ax.legend(frameon=False, ncol=2, loc="upper left")
+    ax.set_title("n sweep (endpoint matched)")
+    ax.set_ylim(bottom=0.0)
+    _format_axes(ax, grid=True)
+    sm = plt.cm.ScalarMappable(norm=n_norm, cmap=cmap)
+    cbar = fig.colorbar(sm, ax=ax, pad=0.02, fraction=0.05)
+    cbar.set_label("n")
 
     _save(fig, outdir, "mineral_n_sweep")
     plt.close(fig)
@@ -585,57 +602,62 @@ def plot_candidate_selection_explainer(
         H2_trajs.append(mineral_hill(t_days, t_start=float(t_start), k=float(k2), n=float(n), zeta=float(zeta_C2)))
     k_req = np.asarray(k_req, dtype=float)
 
-    fig, axes = plt.subplots(2, 2, figsize=(6.8, 4.8), constrained_layout=True)
+    fig, axes = plt.subplots(2, 2, figsize=(7.8, 5.2), constrained_layout=True)
 
     # (A) collagen misfit
     ax = axes[0, 0]
     x = np.arange(len(Km_vals))
-    ax.bar(x, err)
+    ax.bar(x, err, color=COLOR_OSTEO, alpha=0.85)
     ax.set_xticks(x, [f"{v:g}" for v in Km_vals])
     if Km_star in Km_vals:
         idx = Km_vals.index(Km_star)
         ax.scatter([idx], [err[idx]], s=90, marker="*", zorder=6)
     ax.set_xlabel("Km candidate")
-    ax.set_ylabel(r"$|C_2(14)-C_{obs}|$")
-    ax.set_title("Collagen: endpoint misfit")
-    _format_axes(ax, grid=False)
+    ax.set_ylabel("Abs error")
+    ax.set_title("Collagen misfit")
+    _format_axes(ax, grid=True)
 
     # (B) mineral trajectories
     ax = axes[0, 1]
+    cmap = plt.cm.plasma
+    n_norm = plt.Normalize(min(n_vals), max(n_vals))
     for n, k2, H2 in zip(n_vals, k_req, H2_trajs):
-        ax.plot(t_days, H2 * plot_scale, label=f"n={n:g} (k={k2:.3g}/d)")
-    ax.scatter([DAY_MINERAL], [H2_end * plot_scale], s=18, zorder=5)
+        ax.plot(t_days, H2 * plot_scale, color=cmap(n_norm(float(n))), alpha=0.95)
+    ax.scatter([DAY_MINERAL], [H2_end * plot_scale], s=22, zorder=5, facecolor="white", edgecolor="black", linewidth=0.9)
     ax.axvline(float(t_start), ls=":", lw=1.0, alpha=0.9)
     ax.axvline(DAY_MINERAL, ls=":", lw=1.0, alpha=0.9)
     ax.set_xlabel("Day")
     ax.set_ylabel(ylabel)
-    ax.set_title("Mineral: n changes dynamics, endpoint fixed")
-    _format_axes(ax, grid=False)
-    ax.legend(frameon=False, fontsize=7, loc="upper left")
+    ax.set_title("Mineral dynamics")
+    ax.set_ylim(bottom=0.0)
+    _format_axes(ax, grid=True)
+    sm = plt.cm.ScalarMappable(norm=n_norm, cmap=cmap)
+    cbar = fig.colorbar(sm, ax=ax, pad=0.01, fraction=0.05)
+    cbar.set_label("n")
 
     # (C) collagen endpoint vs Km
     ax = axes[1, 0]
-    ax.plot(Km_vals, C2_end, marker="o", markersize=6, markeredgecolor="black", linewidth=2.0)
-    ax.axhline(collagen_C2_obs, ls=":", lw=1.2)
+    ax.plot(Km_vals, C2_end, marker="o", markersize=5.0, markeredgecolor="black", linewidth=2.0, color=COLOR_OSTEO)
+    ax.axhline(collagen_C2_obs, ls=":", lw=1.0, color=COLOR_ACCENT, alpha=0.8)
     ax.set_xlabel("Km candidate")
     ax.set_ylabel("C2(day 14) model")
-    ax.set_title("Collagen: endpoint vs Km")
-    _format_axes(ax, grid=False)
+    ax.set_title("Collagen endpoint vs Km")
+    _format_axes(ax, grid=True)
 
     # (D) k vs n
     ax = axes[1, 1]
     x = np.arange(len(n_vals))
-    ax.bar(x, k_req)
+    ax.bar(x, k_req, color=COLOR_OSTEO, alpha=0.85)
     ax.set_xticks(x, [f"{v:g}" for v in n_vals])
     if n_star in n_vals:
         nidx = n_vals.index(n_star)
         ax.scatter([nidx], [k_req[nidx]], s=90, marker="*", zorder=6)
     ax.set_xlabel("n candidate")
-    ax.set_ylabel("Implied k (1/day)")
-    ax.set_title("k required to match H2(day 28)")
-    _format_axes(ax, grid=False)
+    ax.set_ylabel("k (1/day)")
+    ax.set_title("k to match endpoint")
+    _format_axes(ax, grid=True)
 
-    fig.suptitle(f"Candidate comparison (Km*={Km_star:g}, n*={n_star:g})", y=1.01)
+    fig.suptitle("Candidate comparison", y=1.01)
     _save(fig, outdir, "candidate_selection_explainer")
     plt.close(fig)
 
@@ -643,7 +665,7 @@ def plot_candidate_selection_explainer(
 # -----------------------------
 # Main
 # -----------------------------
-def main():
+def _build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser()
 
     # endpoints
@@ -658,6 +680,8 @@ def main():
     ap.add_argument("--half_life_h", type=float, default=3.0)
     ap.add_argument("--media_interval_h", type=float, default=48.0)
     ap.add_argument("--day_start_AA", type=float, default=DAY_START_AA)
+    ap.add_argument("--collagen_day_measure", type=float, default=DAY_COLLAGEN)
+    ap.add_argument("--ars_day_measure", type=float, default=DAY_MINERAL)
 
     # candidates
     ap.add_argument("--Km_vals", type=float, nargs=4, default=[5.0, 10.0, 15.0, 30.0])
@@ -693,15 +717,30 @@ def main():
     ap.add_argument("--t_start_vals", type=float, nargs=4, default=[12.0, 14.0, 16.0, 18.0])
     ap.add_argument("--k_vals", type=float, nargs=4, default=None)
 
-    args = ap.parse_args()
+    return ap
+
+
+def run_matrix_mineral(args: argparse.Namespace):
     outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
+
+    global DAY_COLLAGEN, DAY_MINERAL
+    DAY_COLLAGEN = float(args.collagen_day_measure)
+    DAY_MINERAL = float(args.ars_day_measure)
+    if DAY_COLLAGEN <= 0 or DAY_MINERAL <= 0:
+        raise ValueError("collagen_day_measure and ars_day_measure must be > 0.")
+    if DAY_MINERAL <= DAY_COLLAGEN:
+        raise ValueError("ars_day_measure must be > collagen_day_measure.")
+    if not (0 <= float(args.day_start_AA) < DAY_COLLAGEN):
+        raise ValueError("day_start_AA must satisfy 0 <= day_start_AA < collagen_day_measure.")
 
     # resolve s_mod values
     if args.smod_C1 is None:
         args.smod_C1 = 0.0 if args.sAA_C1 is None else float(args.sAA_C1)
     if args.smod_C2 is None:
-        args.smod_C2 = 1.0 if args.sAA_C2 is None else float(args.sAA_C2)
+        args.smod_C2 = None
+    elif args.sAA_C2 is not None:
+        args.smod_C2 = float(args.sAA_C2)
 
     smod2_vals = args.smod2_vals if args.sAA2_vals is None else args.sAA2_vals
     smod2_vals = list(map(float, smod2_vals))
@@ -726,19 +765,28 @@ def main():
         sat_int.append(float(np.sum(sat[:-1]) * dt))
     sat_int = np.asarray(sat_int, dtype=float)
 
+    int_day = float(DAY_COLLAGEN)
     # Solve r0(Km) from C1 endpoint:
-    # C1(14) = r0*14 + s_mod_C1 * Int(Km)
-    r0_per_Km = (float(args.collagen_C1) - float(args.smod_C1) * sat_int) / float(DAY_COLLAGEN)
+    r0_per_Km = (float(args.collagen_C1) - float(args.smod_C1) * sat_int) / int_day
 
-    # Predict C2 endpoint per Km:
-    # C2(14) = r0(Km)*14 + s_mod_C2 * Int(Km)
-    C2_pred = r0_per_Km * float(DAY_COLLAGEN) + float(args.smod_C2) * sat_int
+    if args.smod_C2 is None:
+        smod_C2_by_Km = np.zeros_like(sat_int)
+        mask = sat_int > 0
+        smod_C2_by_Km[mask] = (
+            float(args.collagen_C2) - r0_per_Km[mask] * int_day
+        ) / sat_int[mask]
+    else:
+        smod_C2_by_Km = np.full_like(sat_int, float(args.smod_C2))
+
+    C2_pred = r0_per_Km * int_day + smod_C2_by_Km * sat_int
     err = np.abs(C2_pred - float(args.collagen_C2))
 
     # Select Km* by C2 endpoint misfit
     Km_index = int(np.argmin(err))
     Km_star = float(Km_vals[Km_index])
     r0 = float(r0_per_Km[Km_index])
+    s_mod_C2_selected = float(smod_C2_by_Km[Km_index])
+    args.smod_C2 = s_mod_C2_selected
 
     # Mineral endpoints conversion
     H1_end, plot_scale, ylabel = ars_to_fraction(args.ars_C1, args.ars_units)
@@ -754,7 +802,7 @@ def main():
 
     # simulate exported run
     C1 = simulate_collagen_hold_after_14(t_days, A, r0=r0, s_mod=float(args.smod_C1), Km=Km_star)
-    C2 = simulate_collagen_hold_after_14(t_days, A, r0=r0, s_mod=float(args.smod_C2), Km=Km_star)
+    C2 = simulate_collagen_hold_after_14(t_days, A, r0=r0, s_mod=s_mod_C2_selected, Km=Km_star)
 
     H1 = mineral_hill(t_days, t_start=float(args.t_start), k=float(k1_star), n=n_star, zeta=float(args.zeta_C1))
     H2 = mineral_hill(t_days, t_start=float(args.t_start), k=float(k2_star), n=n_star, zeta=float(args.zeta_C2))
@@ -790,7 +838,7 @@ def main():
         n_selected=np.array([n_star]),
         r0_per_day=np.array([r0]),
         s_mod_C1=np.array([float(args.smod_C1)]),
-        s_mod_C2=np.array([float(args.smod_C2)]),
+        s_mod_C2=np.array([s_mod_C2_selected]),
         k_C1=np.array([float(k1_star)]),
         k_C2=np.array([float(k2_star)]),
         collagen_C2_pred_all=np.array(C2_pred, dtype=float),
@@ -806,7 +854,7 @@ def main():
         collagen_C1_obs=float(args.collagen_C1),
         collagen_C2_obs=float(args.collagen_C2),
         s_mod_C1=float(args.smod_C1),
-        s_mod_C2=float(args.smod_C2),
+        s_mod_C2=s_mod_C2_selected,
         Km_star=Km_star,
         day_induction=float(args.day_start_AA),
     )
@@ -818,7 +866,8 @@ def main():
         r0=r0,
         collagen_C2_obs=float(args.collagen_C2),
         Km_vals=Km_vals,
-        s_mod_C2=float(args.smod_C2),
+        s_mod_C1=float(args.smod_C1),
+        s_mod_C2_candidates=list(map(float, smod_C2_by_Km)),
         day_induction=float(args.day_start_AA),
     )
 
@@ -924,6 +973,71 @@ def main():
     print(f"[i] selected Km*={Km_star:g} (index {Km_index}), r0={r0:.6g}/day")
     print(f"[i] s_mod_C1={float(args.smod_C1):g}, s_mod_C2={float(args.smod_C2):g}")
     print(f"[i] n*={n_star:g} (index {n_index}); ARS units={args.ars_units}")
+    return {
+        "outdir": outdir,
+        "Km_star": Km_star,
+        "Km_index": int(Km_index),
+        "n_star": n_star,
+        "n_index": int(n_index),
+        "k1_star": float(k1_star),
+        "k2_star": float(k2_star),
+        "r0": float(r0),
+        "t_days": t_days,
+        "AA_ugml": A,
+        "C1": C1,
+        "C2": C2,
+        "H1_fraction": H1,
+        "H2_fraction": H2,
+        "plot_scale": float(plot_scale),
+        "ylabel": ylabel,
+    }
+
+
+def run_matrix_mineral_from_kwargs(**kwargs):
+    """Programmatic entry point that mirrors CLI defaults."""
+    defaults = {
+        "ars_units": "percent",
+        "AA0_ugml": 50.0,
+        "half_life_h": 3.0,
+        "media_interval_h": 48.0,
+        "day_start_AA": DAY_START_AA,
+        "collagen_day_measure": DAY_COLLAGEN,
+        "ars_day_measure": DAY_MINERAL,
+        "Km_vals": [5.0, 10.0, 15.0, 30.0],
+        "n_vals": [1.0, 2.0, 3.0, 4.0],
+        "smod_C1": None,
+        "smod_C2": None,
+        "sAA_C1": None,
+        "sAA_C2": None,
+        "zeta_C1": 1.0,
+        "zeta_C2": 1.0,
+        "t_start": 14.0,
+        "dt_h": 1.0,
+        "outdir": "out_bas_v_osteo",
+        "sobol": False,
+        "sobol_baseN": 512,
+        "smod2_vals": [0.0, 0.5, 1.0, 2.0],
+        "sAA2_vals": None,
+        "half_life_vals": [1.5, 3.0, 6.0, 12.0],
+        "media_interval_vals": [24.0, 48.0, 72.0, 96.0],
+        "zeta2_vals": [0.5, 1.0, 1.5, 2.0],
+        "t_start_vals": [12.0, 14.0, 16.0, 18.0],
+        "k_vals": None,
+    }
+    merged = {**defaults, **kwargs}
+    required = ["collagen_C1", "collagen_C2", "ars_C1", "ars_C2"]
+    missing = [k for k in required if k not in merged]
+    if missing:
+        raise ValueError(f"Missing required endpoints: {missing}")
+
+    args_ns = SimpleNamespace(**merged)
+    return run_matrix_mineral(args_ns)
+
+
+def main():
+    ap = _build_parser()
+    args = ap.parse_args()
+    run_matrix_mineral(args)
 
 
 if __name__ == "__main__":

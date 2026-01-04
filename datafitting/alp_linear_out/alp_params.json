@@ -1,0 +1,12 @@
+{
+  "P_day_measure_basal": 0.7,
+  "P_day_measure_osteo": 1.16,
+  "day_measure": 10.0,
+  "day_start": 3.0,
+  "dt_hours": 1.0,
+  "gamma": 1.0,
+  "note": "Inputs r_basal and r_osteo are endpoint ALP values at day_measure (basal vs osteo TOTAL). Hourly rates are derived to satisfy P_basal(day_measure)=P_basal_endpoint and P_total(day_measure)=P_osteo_endpoint.",
+  "r_basal_hour": 0.0029166666666666664,
+  "r_osteo_hour": 0.002738095238095238,
+  "units": "ALP_units"
+}

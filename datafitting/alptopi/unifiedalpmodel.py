@@ -65,6 +65,49 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 
+# -----------------------------
+# Plot style (aligned with mineral model)
+# -----------------------------
+def _set_style():
+    """Lightweight PLOS/Nature-friendly defaults with Okabe–Ito colors."""
+    okabe_ito = [
+        "#0072B2",
+        "#D55E00",
+        "#009E73",
+        "#CC79A7",
+        "#56B4E9",
+        "#E69F00",
+        "#F0E442",
+        "#000000",
+    ]
+
+    plt.rcParams.update(
+        {
+            "font.family": "sans-serif",
+            "font.sans-serif": ["Arial", "Helvetica", "DejaVu Sans"],
+            "font.size": 10.0,
+            "axes.titlesize": 11.0,
+            "axes.labelsize": 10.5,
+            "legend.fontsize": 9.0,
+            "xtick.labelsize": 9.0,
+            "ytick.labelsize": 9.0,
+            "axes.spines.top": False,
+            "axes.spines.right": False,
+            "axes.linewidth": 0.9,
+            "xtick.major.width": 0.8,
+            "ytick.major.width": 0.8,
+            "xtick.direction": "out",
+            "ytick.direction": "out",
+            "lines.linewidth": 2.0,
+            "axes.prop_cycle": plt.cycler(color=okabe_ito),
+            "figure.dpi": 150,
+            "savefig.dpi": 600,
+            "pdf.fonttype": 42,
+            "ps.fonttype": 42,
+        }
+    )
+
+
 def derive_hourly_rates_from_endpoints(
     P_day_measure_basal: float,
     P_day_measure_osteo_total: float,
@@ -206,17 +249,7 @@ def save_components_plot(
     - filled circle marker at measurement endpoint on total curve
     - open circle marker at basal endpoint (on basal curve) at day_measure
     """
-    plt.rcParams.update(
-        {
-            "font.size": 11,
-            "axes.labelsize": 12,
-            "axes.titlesize": 13,
-            "axes.spines.top": False,
-            "axes.spines.right": False,
-            "figure.dpi": 150,
-            "savefig.dpi": 300,
-        }
-    )
+    _set_style()
 
     t_days = t_hours / 24.0
     idx_start = _index_for_day(t_hours, day_start)
@@ -269,51 +302,123 @@ def save_components_plot(
     return pdf_path, png_path
 
 
-def main():
-    p = argparse.ArgumentParser(
-        description="Piecewise-linear ALP model (hourly) using endpoint inputs (basal vs osteo at day_measure)."
-    )
+def _barplot_horizontal(names, S1, ST, title, outdir: Path, fname: str):
+    _set_style()
+    names = list(names)
+    S1 = np.asarray(S1, dtype=float)
+    ST = np.asarray(ST, dtype=float)
 
-    # NOTE: names kept as you used them, but they are ENDPOINTS now.
-    p.add_argument("--r_basal", type=float, required=True, help="Endpoint ALP in basal condition at day_measure.")
-    p.add_argument("--r_osteo", type=float, required=True, help="Endpoint ALP in osteogenic condition at day_measure (TOTAL).")
-    p.add_argument("--gamma", type=float, default=1.0, help="Scaling factor for osteogenic increment (dimensionless).")
+    y = np.arange(len(names))[::-1]
+    fig, ax = plt.subplots(figsize=(6.2, 0.42 * len(names) + 1.0), constrained_layout=True)
+    ax.barh(y + 0.18, S1[::-1], height=0.34, label="S1")
+    ax.barh(y - 0.18, ST[::-1], height=0.34, label="ST")
+    ax.set_yticks(y, names[::-1])
+    ax.set_xlim(0, 1.02)
+    ax.set_xlabel("Sensitivity index")
+    ax.set_title(title)
+    ax.grid(False)
+    ax.legend(frameon=False, loc="lower right")
+    fig.savefig(outdir / f"{fname}.png", bbox_inches="tight", pad_inches=0.12, dpi=100)
+    fig.savefig(outdir / f"{fname}.pdf", bbox_inches="tight", pad_inches=0.12, dpi=300)
+    plt.close(fig)
 
-    p.add_argument("--day_start", type=float, default=3.0, help="Day of osteogenic induction (default 3).")
-    p.add_argument("--day_measure", type=float, default=10.0, help="Measurement day for endpoints (default 10).")
-    p.add_argument("--dt_hours", type=float, default=1.0, help="Time step in hours (default 1).")
-    p.add_argument("--outdir", type=str, default="alp_linear_output", help="Output directory.")
-    p.add_argument("--units", type=str, default="ALP_units", help="Units label stored with params (for endpoints).")
 
-    args = p.parse_args()
+def sobol_alp_rates(
+    *,
+    outdir: Path,
+    r_basal_endpoint: float,
+    r_osteo_endpoint: float,
+    gamma: float,
+    day_start: float,
+    day_measure: float,
+    baseN: int,
+    rel_span: float,
+):
+    from SALib.sample import saltelli
+    from SALib.analyze import sobol
 
-    outdir = Path(args.outdir)
+    rel_span = float(rel_span)
+    if rel_span <= 0:
+        raise ValueError("rel_span must be > 0.")
+
+    rb_lo = max(0.0, r_basal_endpoint * (1.0 - rel_span))
+    rb_hi = r_basal_endpoint * (1.0 + rel_span)
+    ro_lo = max(0.0, r_osteo_endpoint * (1.0 - rel_span))
+    ro_hi = r_osteo_endpoint * (1.0 + rel_span)
+    g_lo = max(1e-8, gamma * (1.0 - rel_span))
+    g_hi = gamma * (1.0 + rel_span)
+    ds_lo = 0.0
+    ds_hi = max(0.5, day_measure - 1e-6)
+
+    names = ["P_basal_end", "P_osteo_end", "gamma", "day_start"]
+    bounds = [[rb_lo, rb_hi], [ro_lo, ro_hi], [g_lo, g_hi], [ds_lo, ds_hi]]
+    problem = {"num_vars": len(names), "names": names, "bounds": bounds}
+    X = saltelli.sample(problem, N=int(baseN), calc_second_order=True)
+
+    r_b = np.zeros(X.shape[0], dtype=float)
+    r_o = np.zeros(X.shape[0], dtype=float)
+    for i in range(X.shape[0]):
+        rb_i, ro_i = derive_hourly_rates_from_endpoints(
+            P_day_measure_basal=float(X[i, 0]),
+            P_day_measure_osteo_total=float(X[i, 1]),
+            gamma=float(X[i, 2]),
+            day_start=float(X[i, 3]),
+            day_measure=float(day_measure),
+        )
+        r_b[i] = rb_i
+        r_o[i] = ro_i
+
+    Si_rb = sobol.analyze(problem, r_b, calc_second_order=True, print_to_console=False)
+    Si_ro = sobol.analyze(problem, r_o, calc_second_order=True, print_to_console=False)
+
+    _barplot_horizontal(names, Si_rb["S1"], Si_rb["ST"], "Sobol: ALP basal rate", outdir, "sobol_alp_r_basal")
+    _barplot_horizontal(names, Si_ro["S1"], Si_ro["ST"], "Sobol: ALP osteogenic rate", outdir, "sobol_alp_r_osteo")
+
+    return {
+        "names": names,
+        "r_basal": {"S1": Si_rb["S1"].tolist(), "ST": Si_rb["ST"].tolist(), "S2": Si_rb["S2"].tolist()},
+        "r_osteo": {"S1": Si_ro["S1"].tolist(), "ST": Si_ro["ST"].tolist(), "S2": Si_ro["S2"].tolist()},
+    }
+
+
+def run_alp_model(
+    *,
+    r_basal: float,
+    r_osteo: float,
+    gamma: float = 1.0,
+    day_start: float = 3.0,
+    day_measure: float = 10.0,
+    dt_hours: float = 1.0,
+    outdir: Path | str = "alp_linear_output",
+    units: str = "ALP_units",
+    sobol: bool = False,
+    sobol_baseN: int = 512,
+    sobol_rel_span: float = 0.3,
+) -> dict:
+    """Run ALP model with keyword args matching the CLI; returns output paths."""
+    outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
 
-    # Interpret provided values as endpoints at day_measure
-    P_day_measure_basal = float(args.r_basal)
-    P_day_measure_osteo = float(args.r_osteo)
+    P_day_measure_basal = float(r_basal)
+    P_day_measure_osteo = float(r_osteo)
 
-    # Derive hourly rates consistent with endpoints
     r_b_hour, r_o_hour = derive_hourly_rates_from_endpoints(
         P_day_measure_basal=P_day_measure_basal,
         P_day_measure_osteo_total=P_day_measure_osteo,
-        gamma=float(args.gamma),
-        day_start=float(args.day_start),
-        day_measure=float(args.day_measure),
+        gamma=float(gamma),
+        day_start=float(day_start),
+        day_measure=float(day_measure),
     )
 
-    # Simulate trajectory
     t_hours, P_total, P_basal, P_osteo = alp_piecewise_linear_components(
         r_basal_hour=r_b_hour,
         r_osteo_hour=r_o_hour,
-        gamma=float(args.gamma),
-        day_start=float(args.day_start),
-        day_measure=float(args.day_measure),
-        dt_hours=float(args.dt_hours),
+        gamma=float(gamma),
+        day_start=float(day_start),
+        day_measure=float(day_measure),
+        dt_hours=float(dt_hours),
     )
 
-    # Save trajectories
     pd.DataFrame(
         {
             "hour": t_hours,
@@ -337,36 +442,104 @@ def main():
         }
     ).to_csv(outdir / "alp_daily_sampled.csv", index=False)
 
-    # Save parameters for later use in OsteoMin
     params = {
         "P_day_measure_basal": P_day_measure_basal,
         "P_day_measure_osteo": P_day_measure_osteo,
         "r_basal_hour": r_b_hour,
         "r_osteo_hour": r_o_hour,
-        "gamma": float(args.gamma),
-        "day_start": float(args.day_start),
-        "day_measure": float(args.day_measure),
-        "dt_hours": float(args.dt_hours),
-        "units": args.units,
+        "gamma": float(gamma),
+        "day_start": float(day_start),
+        "day_measure": float(day_measure),
+        "dt_hours": float(dt_hours),
+        "units": units,
         "note": (
             "Inputs r_basal and r_osteo are endpoint ALP values at day_measure (basal vs osteo TOTAL). "
             "Hourly rates are derived to satisfy P_basal(day_measure)=P_basal_endpoint and "
             "P_total(day_measure)=P_osteo_endpoint."
         ),
     }
-    save_params(outdir, params)
+    npz_path, json_path = save_params(outdir, params)
 
-    # Plot
     title = "ALP accumulation: basal + osteogenic contributions"
-    save_components_plot(
+    pdf_path, png_path = save_components_plot(
         t_hours=t_hours,
         P_total=P_total,
         P_basal=P_basal,
         P_osteo=P_osteo,
-        day_start=float(args.day_start),
-        day_measure=float(args.day_measure),
+        day_start=float(day_start),
+        day_measure=float(day_measure),
         outdir=outdir,
         title=title,
+    )
+
+    if sobol:
+        try:
+            import SALib  # noqa: F401
+        except Exception:
+            raise RuntimeError("SALib not installed. Install: pip install SALib")
+
+        sobol_out = sobol_alp_rates(
+            outdir=outdir,
+            r_basal_endpoint=P_day_measure_basal,
+            r_osteo_endpoint=P_day_measure_osteo,
+            gamma=float(gamma),
+            day_start=float(day_start),
+            day_measure=float(day_measure),
+            baseN=int(sobol_baseN),
+            rel_span=float(sobol_rel_span),
+        )
+        (outdir / "sobol_alp_rates.json").write_text(json.dumps(sobol_out, indent=2), encoding="utf-8")
+
+    return {
+        "outdir": outdir,
+        "params_npz": npz_path,
+        "params_json": json_path,
+        "hourly_csv": outdir / "alp_hourly.csv",
+        "daily_csv": outdir / "alp_daily_sampled.csv",
+        "plot_pdf": pdf_path,
+        "plot_png": png_path,
+        "r_basal_hour": r_b_hour,
+        "r_osteo_hour": r_o_hour,
+        "t_hours": t_hours,
+        "P_total": P_total,
+        "P_basal": P_basal,
+        "P_osteo": P_osteo,
+    }
+
+
+def main():
+    p = argparse.ArgumentParser(
+        description="Piecewise-linear ALP model (hourly) using endpoint inputs (basal vs osteo at day_measure)."
+    )
+
+    # NOTE: names kept as you used them, but they are ENDPOINTS now.
+    p.add_argument("--r_basal", type=float, required=True, help="Endpoint ALP in basal condition at day_measure.")
+    p.add_argument("--r_osteo", type=float, required=True, help="Endpoint ALP in osteogenic condition at day_measure (TOTAL).")
+    p.add_argument("--gamma", type=float, default=1.0, help="Scaling factor for osteogenic increment (dimensionless).")
+
+    p.add_argument("--day_start", type=float, default=3.0, help="Day of osteogenic induction (default 3).")
+    p.add_argument("--day_measure", type=float, default=10.0, help="Measurement day for endpoints (default 10).")
+    p.add_argument("--dt_hours", type=float, default=1.0, help="Time step in hours (default 1).")
+    p.add_argument("--outdir", type=str, default="alp_linear_output", help="Output directory.")
+    p.add_argument("--units", type=str, default="ALP_units", help="Units label stored with params (for endpoints).")
+    p.add_argument("--sobol", action="store_true", help="Enable Sobol sensitivity for derived ALP rates.")
+    p.add_argument("--sobol_baseN", type=int, default=512, help="Sobol base N.")
+    p.add_argument("--sobol_rel_span", type=float, default=0.3, help="Relative span for Sobol parameter bounds.")
+
+    args = p.parse_args()
+
+    run_alp_model(
+        r_basal=float(args.r_basal),
+        r_osteo=float(args.r_osteo),
+        gamma=float(args.gamma),
+        day_start=float(args.day_start),
+        day_measure=float(args.day_measure),
+        dt_hours=float(args.dt_hours),
+        outdir=Path(args.outdir),
+        units=args.units,
+        sobol=bool(args.sobol),
+        sobol_baseN=int(args.sobol_baseN),
+        sobol_rel_span=float(args.sobol_rel_span),
     )
 
 
