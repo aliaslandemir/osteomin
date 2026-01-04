@@ -29,32 +29,199 @@ COLORS = {
     "bg": "#ffffff",
     "grid": "#eaeaea",
 }
+PLOT_STYLE = {
+    "title_size": 12,
+    "label_size": 10,
+    "tick_size": 9,
+    "line_width": 2.2,
+    "grid_alpha": 0.18,
+}
+
+plt.rcParams.update(
+    {
+        "font.family": "DejaVu Serif",
+        "axes.titleweight": "semibold",
+        "axes.titlesize": PLOT_STYLE["title_size"],
+        "axes.labelsize": PLOT_STYLE["label_size"],
+        "xtick.labelsize": PLOT_STYLE["tick_size"],
+        "ytick.labelsize": PLOT_STYLE["tick_size"],
+        "legend.fontsize": 9,
+        "axes.spines.top": False,
+        "axes.spines.right": False,
+    }
+)
 
 
 def _set_white(ax):
     ax.set_facecolor(COLORS["bg"])
     for spine in ax.spines.values():
         spine.set_color("#cccccc")
+        spine.set_linewidth(0.8)
+    ax.tick_params(direction="out", length=4, width=0.8, colors="#222222")
+    ax.grid(alpha=PLOT_STYLE["grid_alpha"], linestyle="--", linewidth=0.7)
 
 
-def plot_summary(df: pd.DataFrame, outdir: str | Path) -> None:
+def _limit_days(df: pd.DataFrame, hours: int | None) -> pd.DataFrame:
+    if hours is None or hours <= 0:
+        return df
+    max_day = float(hours) / 24.0
+    return df[df["day"] <= max_day].copy()
+
+def _normalize_cumulative(series: np.ndarray, denom: float) -> np.ndarray:
+    if denom <= 0.0:
+        return series
+    return series / denom
+
+
+def _format_xlabel(ax: plt.Axes, days: np.ndarray) -> None:
+    if days.size == 0:
+        ax.set_xlabel("Day")
+        return
+    max_day = float(np.max(days))
+    max_hours = max_day * 24.0
+    ax.set_xlabel(f"Day (0–{int(round(max_day))}; {int(round(max_hours))} h)")
+    # force integer day ticks including last day
+    end_tick = int(np.ceil(max_day))
+    if end_tick <= 0:
+        ax.set_xticks([0])
+        return
+    step = max(1, int(np.ceil(end_tick / 7)))
+    ticks = list(range(0, end_tick + 1, step))
+    if ticks[-1] != end_tick:
+        ticks.append(end_tick)
+    ax.set_xticks(ticks)
+
+
+def _save_figure(fig: plt.Figure, outdir: Path, basename: str) -> None:
+    png_path = outdir / f"{basename}.png"
+    pdf_dir = outdir / "figures_pdf"
+    pdf_dir.mkdir(parents=True, exist_ok=True)
+    pdf_path = pdf_dir / f"{basename}.pdf"
+    fig.savefig(png_path, dpi=100, bbox_inches="tight")
+    fig.savefig(pdf_path, dpi=300, bbox_inches="tight")
+
+def _plot_cumulative_components(
+    df: pd.DataFrame,
+    outdir: Path,
+    *,
+    base_col: str,
+    ob_col: str,
+    total_col: str,
+    plot_hours: int | None,
+    filename: str,
+    title: str,
+    ylabel: str,
+) -> None:
+    df_plot = _limit_days(df, plot_hours)
+    if df_plot.empty:
+        return
+    days_plot = df_plot["day"].to_numpy()
+    base_vals = df_plot[base_col].to_numpy()
+    ob_vals = df_plot[ob_col].to_numpy()
+    total_vals = df_plot[total_col].to_numpy()
+    denom = float(total_vals[-1]) if total_vals.size else 0.0
+
+    fig, ax = plt.subplots(figsize=(6.2, 3.6))
+    _set_white(ax)
+    ax.plot(
+        days_plot,
+        _normalize_cumulative(base_vals, denom),
+        label="preOB contribution",
+        lw=PLOT_STYLE["line_width"],
+        color="#0ea5e9",
+    )
+    ax.plot(
+        days_plot,
+        _normalize_cumulative(ob_vals, denom),
+        label="OB contribution",
+        lw=PLOT_STYLE["line_width"],
+        color="#f97316",
+    )
+    ax.plot(
+        days_plot,
+        _normalize_cumulative(total_vals, denom),
+        label="Total",
+        lw=PLOT_STYLE["line_width"] + 0.3,
+        ls="--",
+        color="#111827",
+    )
+    if total_vals.size:
+        ax.plot(
+            days_plot[-1],
+            _normalize_cumulative(total_vals[-1], denom),
+            marker="o",
+            markersize=6,
+            markerfacecolor="#111827",
+            markeredgecolor="#111827",
+            linestyle="None",
+        )
+    if days_plot.size:
+        ax.set_xlim(days_plot[0], days_plot[-1])
+        ticks = list(ax.get_xticks())
+        last_day = float(days_plot[-1])
+        if all(abs(t - last_day) > 1e-6 for t in ticks):
+            ticks.append(last_day)
+            ticks = sorted(ticks)
+            ax.set_xticks(ticks)
+    ax.set_xlabel("Day")
+    ax.set_ylabel(ylabel)
+    ax.set_title(title, pad=10)
+    ax.legend(
+        frameon=False,
+        ncol=1,
+        loc="upper right",
+        bbox_to_anchor=(0.99, 0.99),
+    )
+    _format_xlabel(ax, days_plot)
+    fig.tight_layout(pad=0.6)
+    _save_figure(fig, outdir, Path(filename).stem)
+    plt.close(fig)
+
+
+def plot_summary(
+    df: pd.DataFrame,
+    outdir: str | Path,
+    *,
+    alp_plot_hours: int | None = None,
+    collagen_plot_hours: int | None = None,
+    mineral_plot_hours: int | None = None,
+) -> None:
     outdir = Path(outdir)
     img_dir = outdir / "collagen_ha"
     img_dir.mkdir(parents=True, exist_ok=True)
     days = df["day"].to_numpy()
 
-    fig, ax = plt.subplots(figsize=(6, 3.5))
+    fig, ax = plt.subplots(figsize=(6.2, 3.6))
     _set_white(ax)
-    ax.plot(days, df["n_preob"], label="preOB", color=COLORS["preob"], lw=2)
-    ax.plot(days, df["n_osteoblast"], label="Osteoblast", color=COLORS["ob"], lw=2)
-    ax.plot(days, df["n_total"], label="Total", color="#333", lw=1.3, ls="--")
+    ax.plot(
+        days,
+        df["n_preob"],
+        label="preOB",
+        color=COLORS["preob"],
+        lw=PLOT_STYLE["line_width"],
+    )
+    ax.plot(
+        days,
+        df["n_osteoblast"],
+        label="Osteoblast",
+        color=COLORS["ob"],
+        lw=PLOT_STYLE["line_width"],
+    )
+    ax.plot(
+        days,
+        df["n_total"],
+        label="Total",
+        color="#333",
+        lw=1.6,
+        ls="--",
+    )
     ax.set_xlabel("Day")
     ax.set_ylabel("Cells")
-    ax.set_title("Cell states over time")
-    ax.legend(frameon=False, ncol=2)
-    ax.grid(alpha=0.25)
+    ax.set_title("Cell states over time", pad=10)
+    ax.legend(frameon=False, ncol=2, loc="upper right", bbox_to_anchor=(0.99, 0.99))
+    _format_xlabel(ax, days)
     fig.tight_layout(pad=0.6)
-    fig.savefig(outdir / "01_states_counts.png", dpi=300, bbox_inches="tight")
+    _save_figure(fig, outdir, "01_states_counts")
     plt.close(fig)
 
     tmp = df.copy()
@@ -64,227 +231,48 @@ def plot_summary(df: pd.DataFrame, outdir: str | Path) -> None:
     tmp["dead_ob_cum"] = tmp["dead_ob_today"].cumsum()
     tmp["dead_total_cum"] = tmp["dead_total_today"].cumsum()
 
-    fig, ax = plt.subplots(figsize=(6, 3.5))
+    fig, ax = plt.subplots(figsize=(6.2, 3.6))
     _set_white(ax)
     ax.plot(
         days,
         tmp["dead_preob_cum"],
         label="preOB→Dead (cum)",
         color=COLORS["dead_preob"],
-        lw=2,
+        lw=PLOT_STYLE["line_width"],
     )
     ax.plot(
-        days, tmp["dead_ob_cum"], label="OB→Dead (cum)", color=COLORS["dead_ob"], lw=2
+        days,
+        tmp["dead_ob_cum"],
+        label="OB→Dead (cum)",
+        color=COLORS["dead_ob"],
+        lw=PLOT_STYLE["line_width"],
     )
     ax.plot(
         days,
         tmp["dead_total_cum"],
         label="All deaths (cum)",
         color="#444",
-        lw=1.5,
+        lw=1.6,
         ls="--",
     )
     ax.set_xlabel("Day")
     ax.set_ylabel("Cumulative count")
-    ax.set_title("Cumulative events")
-    ax.legend(frameon=False)
-    ax.grid(alpha=0.25)
+    ax.set_title("Cumulative events", pad=10)
+    ax.legend(frameon=False, loc="upper right", bbox_to_anchor=(0.99, 0.99), ncol=1)
+    _format_xlabel(ax, days)
     fig.tight_layout(pad=0.6)
-    fig.savefig(outdir / "02_events_cumulative.png", dpi=300, bbox_inches="tight")
+    _save_figure(fig, outdir, "02_events_cumulative")
     plt.close(fig)
 
-    # --- Biochemistry ions: stacked panels (without free pools) ---
-    ca_used = df["ca_used_total"] if "ca_used_total" in df.columns else None
-    ca_supplied = df["ca_supplied_total"] if "ca_supplied_total" in df.columns else None
-    cell_ca = df["cell_ca"] if "cell_ca" in df.columns else None
-    ca_media = df["ca_media"] if "ca_media" in df.columns else None
-
-    pi_used = df["pi_used_total"] if "pi_used_total" in df.columns else None
-    pi_generated = (
-        df["pi_generated_total"] if "pi_generated_total" in df.columns else None
-    )
-    bgp_consumed = (
-        df["bgp_consumed_total"] if "bgp_consumed_total" in df.columns else None
-    )
-    bgp_pool = df["bgp_pool"] if "bgp_pool" in df.columns else None
-    cell_pi = df["cell_pi"] if "cell_pi" in df.columns else None
-
-    fig, axes = plt.subplots(2, 1, figsize=(6, 5.2), sharex=True)
-
-    # Panel 1: cumulative calcium budget (separate scales)
-    ax_ca_left = axes[0]
-    _set_white(ax_ca_left)
-    left_handles = []
-    left_labels = []
-    if ca_used is not None:
-        left_handles.append(
-            ax_ca_left.plot(
-                days,
-                ca_used,
-                label="Ca used (cum)",
-                lw=2,
-                color="#7c3aed",
-            )[0]
-        )
-        left_labels.append("Ca used (cum)")
-    ax_ca_left.set_ylabel("Ca used (a.u.)")
-    ax_ca_left.set_title("Calcium budget (cumulative)")
-    ax_ca_right = ax_ca_left.twinx()
-    right_handles = []
-    right_labels = []
-    if ca_supplied is not None:
-        right_handles.append(
-            ax_ca_right.plot(
-                days,
-                ca_supplied,
-                label="media Ca supplied (cum)",
-                lw=2,
-                ls=":",
-                color="#268bd2",
-            )[0]
-        )
-        right_labels.append("media Ca supplied (cum)")
-    if right_handles:
-        ax_ca_right.set_ylabel("Ca supplied (a.u.)")
-    handles = left_handles + right_handles
-    labels = left_labels + right_labels
-    if handles:
-        ax_ca_left.legend(handles, labels, frameon=False)
-    ax_ca_left.grid(alpha=0.25)
-
-    # Panel 2: cumulative phosphate / β-GP budget (separate scales)
-    ax_pi_left = axes[1]
-    _set_white(ax_pi_left)
-    left_handles = []
-    left_labels = []
-    if pi_used is not None:
-        left_handles.append(
-            ax_pi_left.plot(
-                days,
-                pi_used,
-                label="Pi used (cum)",
-                lw=2,
-                color="#6a51a3",
-            )[0]
-        )
-        left_labels.append("Pi used (cum)")
-    ax_pi_left.set_ylabel("Pi used (a.u.)")
-    ax_pi_left.set_title("Phosphate / β-GP budget (cumulative)")
-    ax_pi_right = ax_pi_left.twinx()
-    right_handles = []
-    right_labels = []
-    if pi_generated is not None:
-        right_handles.append(
-            ax_pi_right.plot(
-                days,
-                pi_generated,
-                label="Pi generated (cum)",
-                lw=2,
-                ls="--",
-                color="#9467bd",
-            )[0]
-        )
-        right_labels.append("Pi generated (cum)")
-    if bgp_consumed is not None:
-        right_handles.append(
-            ax_pi_right.plot(
-                days,
-                bgp_consumed,
-                label="β-GP consumed (cum)",
-                lw=2,
-                ls="-.",
-                color="#d95f02",
-            )[0]
-        )
-        right_labels.append("β-GP consumed (cum)")
-    if right_handles:
-        ax_pi_right.set_ylabel("Generated / β-GP (a.u.)")
-    handles = left_handles + right_handles
-    labels = left_labels + right_labels
-    ax_pi_left.set_xlabel("Day")
-    if handles:
-        ax_pi_left.legend(handles, labels, frameon=False, ncol=2)
-    ax_pi_left.grid(alpha=0.25)
-
-    fig.tight_layout(pad=0.8)
-    fig.savefig(outdir / "03_biochem.png", dpi=300, bbox_inches="tight")
-    plt.close(fig)
-
-    # --- Free media & cell pools: standalone fancier plot ---
-    fig, ax_free = plt.subplots(figsize=(6.5, 3.8))
-    _set_white(ax_free)
-    handles: list = []
-    labels: list = []
-    if ca_media is not None:
-        handles.append(
-            ax_free.plot(
-                days,
-                ca_media,
-                label="media Ca (free)",
-                lw=2.5,
-                color="#1f77b4",
-            )[0]
-        )
-        labels.append("media Ca (free)")
-    if cell_ca is not None:
-        handles.append(
-            ax_free.plot(
-                days,
-                cell_ca,
-                label="cell-processed Ca (per area)",
-                lw=2.5,
-                color="#0d9488",
-            )[0]
-        )
-        labels.append("cell-processed Ca (per area)")
-    if bgp_pool is not None:
-        handles.append(
-            ax_free.plot(
-                days,
-                bgp_pool,
-                label="β-GP pool (free)",
-                lw=2.5,
-                ls="--",
-                color="#f97316",
-            )[0]
-        )
-        labels.append("β-GP pool (free)")
-    if cell_pi is not None:
-        handles.append(
-            ax_free.plot(
-                days,
-                cell_pi,
-                label="cell-generated Pi (mean field)",
-                lw=2.5,
-                ls="-.",
-                color="#ff7f0e",
-            )[0]
-        )
-        labels.append("cell-generated Pi (mean field)")
-    ax_free.set_xlabel("Day")
-    ax_free.set_ylabel("Free pools (a.u.)")
-    ax_free.set_title("Free media & cell pools")
-    if handles:
-        leg = ax_free.legend(
-            handles,
-            labels,
-            frameon=True,
-            ncol=2,
-            loc="upper left",
-            bbox_to_anchor=(0.0, 0.85),
-        )
-    ax_free.grid(alpha=0.3, linestyle="--", linewidth=0.7)
-    fig.tight_layout(pad=0.8)
-    fig.savefig(outdir / "03_biochem_free_pools.png", dpi=300, bbox_inches="tight")
-    plt.close(fig)
-
-    fig, ax = plt.subplots(figsize=(6, 3.5))
+    fig, ax = plt.subplots(figsize=(6.2, 3.6))
     _set_white(ax)
     ax.bar(
         days,
         df["committed_today"],
         label="Committed (today)",
         color="#fdae61",
+        edgecolor="#9a3412",
+        linewidth=0.5,
         alpha=0.9,
     )
     ax.bar(
@@ -293,6 +281,8 @@ def plot_summary(df: pd.DataFrame, outdir: str | Path) -> None:
         bottom=df["committed_today"],
         label="Died (preOB)",
         color=COLORS["dead_preob"],
+        edgecolor="#b45309",
+        linewidth=0.5,
         alpha=0.9,
     )
     ax.bar(
@@ -301,73 +291,66 @@ def plot_summary(df: pd.DataFrame, outdir: str | Path) -> None:
         bottom=df["committed_today"] + df["dead_preob_today"],
         label="Died (osteoblast)",
         color=COLORS["dead_ob"],
+        edgecolor="#9d174d",
+        linewidth=0.5,
         alpha=0.9,
     )
     ax.set_xlabel("Day")
     ax.set_ylabel("Count")
-    ax.set_title("Daily events")
-    ax.legend(frameon=False, ncol=2)
-    ax.grid(alpha=0.25)
+    ax.set_title("Daily events", pad=10)
+    ax.legend(frameon=False, ncol=1, loc="upper right", bbox_to_anchor=(0.99, 0.99))
+    _format_xlabel(ax, days)
     fig.tight_layout(pad=0.6)
-    fig.savefig(outdir / "04_events_daily.png", dpi=300, bbox_inches="tight")
+    _save_figure(fig, outdir, "04_events_daily")
     plt.close(fig)
 
-    supp_cols = [
-        ("supp_aa", "Ascorbic acid (AA)", "#0d9488"),
-        ("supp_bgp", "β-GP", "#f97316"),
-    ]
-    if all(col in df.columns for col, _, _ in supp_cols):
-        fig, ax = plt.subplots(figsize=(6, 3.5))
-        _set_white(ax)
-        for col, label, color in supp_cols:
-            ax.plot(days, df[col], label=label, lw=2, color=color)
-        ax.set_xlabel("Day")
-        ax.set_ylabel("Supplement scale (a.u.)")
-        ax.set_title("Supplements schedule")
-        ax.legend(frameon=False, ncol=2)
-        ax.grid(alpha=0.25)
-        fig.tight_layout(pad=0.6)
-        fig.savefig(outdir / "05_supplements.png", dpi=300, bbox_inches="tight")
-        plt.close(fig)
+    if all(
+        col in df.columns
+        for col in ("alp_preob_total", "alp_ob_total", "alp_total")
+    ):
+        _plot_cumulative_components(
+            df,
+            outdir,
+            base_col="alp_preob_total",
+            ob_col="alp_ob_total",
+            total_col="alp_total",
+            plot_hours=alp_plot_hours,
+            filename="06_alp_total.png",
+            title="ALP accumulation (normalized cumulative)",
+            ylabel="Fraction of total",
+        )
 
-    acp_total = df["acp_total"] if "acp_total" in df.columns else None
-    ha_total = df["ha_total"] if "ha_total" in df.columns else None
-    if acp_total is not None or ha_total is not None:
-        fig, ax = plt.subplots(figsize=(6, 3.5))
-        _set_white(ax)
-        handles = []
-        labels = []
-        if acp_total is not None:
-            handles.append(
-                ax.plot(
-                    days,
-                    acp_total,
-                    label="ACP (cum)",
-                    lw=2,
-                    color="#fb923c",
-                )[0]
-            )
-            labels.append("ACP (cum)")
-        if ha_total is not None:
-            handles.append(
-                ax.plot(
-                    days,
-                    ha_total,
-                    label="HA (cum)",
-                    lw=2,
-                    color="#0ea5e9",
-                )[0]
-            )
-            labels.append("HA (cum)")
-        ax.set_xlabel("Day")
-        ax.set_ylabel("Cumulative mass (a.u.)")
-        ax.set_title("ACP and HA accumulation")
-        if handles:
-            ax.legend(handles, labels, frameon=False)
-        ax.grid(alpha=0.25)
-        fig.tight_layout(pad=0.6)
-    fig.savefig(outdir / "06_minerals_cumulative.png", dpi=300, bbox_inches="tight")
-    plt.close(fig)
+    if all(
+        col in df.columns
+        for col in ("collagen_preob_total", "collagen_ob_total", "collagen_total")
+    ):
+        _plot_cumulative_components(
+            df,
+            outdir,
+            base_col="collagen_preob_total",
+            ob_col="collagen_ob_total",
+            total_col="collagen_total",
+            plot_hours=collagen_plot_hours,
+            filename="07_collagen_total.png",
+            title="Collagen accumulation (normalized cumulative)",
+            ylabel="Fraction of total",
+        )
+
+    if all(
+        col in df.columns
+        for col in ("mineral_preob_total", "mineral_ob_total", "ha_total")
+    ):
+        _plot_cumulative_components(
+            df,
+            outdir,
+            base_col="mineral_preob_total",
+            ob_col="mineral_ob_total",
+            total_col="ha_total",
+            plot_hours=mineral_plot_hours,
+            filename="05_minerals_cumulative.png",
+            title="Mineral accumulation (normalized cumulative)",
+            ylabel="Fraction of total",
+        )
 
 
 def _render_spatial_image(

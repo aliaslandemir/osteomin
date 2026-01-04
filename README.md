@@ -47,12 +47,6 @@ python main.py
 | `--media-interval` | 2 |
 | `--seed` | None (random) |
 
-### Supplements
-| Flag | Default |
-|------|---------|
-| `--aa` | 1.0 |
-| `--bgp` | 1.0 |
-
 ### Cell behaviors
 | Behavior | Default |
 |----------|---------|
@@ -61,17 +55,19 @@ python main.py
 | Apoptosis | enabled (`--apoptosis`), `--apoptosis-prob 0.01`, `--apoptosis-osteo 0.001` |
 | Osteogenic commitment | enabled, `--commit-growth 0.01`, `--commit-delay 3` |
 | Secretion | enabled (`--secretion`) |
+| Division interval | `--min-div-hours 38`, `--max-div-hours 52` |
+
+### Data-driven inputs
+| Flag | Default |
+|------|---------|
+| `--datafit` | `datafitting/datafit.npz` (hourly basal/osteo ALP, collagen, mineral curves) |
 
 ### Field / chemistry
 | Parameter | Default |
 |-----------|---------|
-| `--s-thresh` | 0.01 (Ca×Pi supersaturation for ACP) |
-| `--k-nuc` | 0.025 (ACP nucleation rate) |
-| `--k-ha` | 0.06 (ACP→HA conversion rate) |
-| `--nucleation` | enabled |
 | `--enable-nodules` | enabled (runs the sliding-window nodule scanner) |
 | `--nodule-window` | 4 (lattice cells per side) |
-| Nodule logic | every site in the window must be OB with HA ≥ `ACP_TO_HA_THRESHOLD` (0.20 a.u.) |
+| Nodule logic | every site in the window must be OB with HA ≥ `--ha-threshold` |
 
 ### Output
 | Flag | Default |
@@ -84,6 +80,13 @@ python main.py
 | `--csv` | off |
 | `--uniqueID` | on (`--no-unique-id` skips per-cell history export) |
 
+### Plotting windows
+| Flag | Default |
+|------|---------|
+| `--alp-plot-hours` | 240 |
+| `--collagen-plot-hours` | 336 |
+| `--mineral-plot-hours` | 672 |
+
 ---
 
 ## Recommended Run (example)
@@ -95,14 +98,15 @@ python main.py \
   --boundary-mode periodic \
   --seed $(shuf -i 1-999999 -n 1) \
   --media-interval 48 \
-  --aa 1.0 --bgp 1.0 \
   --random-move --move-prob 1.0 --max-moves 1 \
   --proliferation --ob-div-prob 0.0 \
   --apoptosis --apoptosis-prob 0.00042 --apoptosis-osteo 0.000042 \
   --osteogenic-commitment --commit-growth 0.00001736 --commit-delay 72 \
-  --secretion --nucleation --enable-nodules \
+  --min-div-hours 38 --max-div-hours 52 \
+  --secretion --enable-nodules \
   --spatial-every 1 --out out \
-  --nodule-window 4 --k-ha 0.0025 --k-nuc 0.0010417 \
+  --nodule-window 4 \
+  --datafit datafitting/datafit.npz \
   --no-hourly-exports
 ```
 
@@ -113,17 +117,17 @@ This command matches the configuration used in the paper; feel free to omit flag
 ## Key CLI Controls
 
 - **Geometry & time:** `--days`, `--cells`, `--w`, `--h`, `--boundary-mode`, `--media-interval`, `--seed`.
-- **Supplements:** `--aa` and `--bgp` seed the media pools that limit collagen/ALP production (MK-4/Dex flags have been removed).
+- **Datafit forcing:** `--datafit` points to `datafitting/datafit.npz`; preOB use basal curves, OB use osteogenic curves, and hourly increments are blended by the live mix.
 - **Cell events:** toggles for movement, proliferation, apoptosis, secretion, and commitment determine whether the ABM executes the corresponding steps each day. Per-process probabilities are adjustable via the associated flags.
-- **Nucleation & nodules:** `--s-thresh`, `--k-nuc`, `--k-ha`, `--nodule-window`, and `--enable-nodules` control ACP/HA kinetics and how nodules are detected. A nodule is counted if every site in the window is an osteoblast with HA ≥ `ACP_TO_HA_THRESHOLD`.
--- All per-day flags listed above are internally scaled to hourly values so the CLI stays familiar even though the solver now runs on 1-hour ticks.
+- **Nodule detection:** `--nodule-window` and `--enable-nodules` control how dynamic clusters are reported; each window must consist solely of OBs that have deposited mineral so the HA field is positive across the block.
+- All per-day flags listed above are internally scaled to hourly values so the CLI stays familiar even though the solver now runs on 1-hour ticks.
 
 ---
 
 ## Time resolution
 
 - Simulation now executes 24 hourly updates for each reported day so that the ABM and chemistry layers evolve continuously while snapshots and exports remain keyed to day indices `0..N-1`.
-- The CLI still describes parameters in day-based units, but they are converted to internal hourly rates before each solver tick (commitment growth, per-day probabilities, media interval, `k_nuc`, `k_ha`, etc.).
+- The CLI still describes parameters in day-based units, but they are converted to internal hourly rates before each solver tick (commitment growth, per-day probabilities, media interval, etc.).
 - Hourly spatial snapshots are saved inside `out/day_hor/dayX/` (e.g., `day_hor/day1/spatial_cells/hour_00.png` and `day_hor/day1/collagen_ha/hour_00.png`), giving per-hour visualizations in addition to the daily overlays and grids.
 - Enable hourly exports with `--hourly-exports` (and disable them with `--no-hourly-exports`) if you want those per-hour PNGs; the default is off to keep output size manageable.
 

@@ -28,7 +28,6 @@ class ABMConfig:
     ob_apoptosis_prob: float = 0.001 / 24  # per hour
     min_div_hours: int = 38  # hours between divisions
     max_div_hours: int = 52  # hours between divisions
-    collagen_per_ob: float = 1.5
     alp_per_ob: float = 1.2
     move_prob: float = 1.0  # per hour
     max_moves_per_hour: int = 1  # max moves per hour
@@ -36,37 +35,10 @@ class ABMConfig:
     proliferation_chance: float = 1.0  # per hour
 
     # Mineralization thresholds/kinetics (legacy; FieldManager now owns them)
-    S_THRESH: float = 0.01  # Ca*Pi supersaturation threshold
-    K_NUC: float = 0.025 / 24  # ACP nucleation rate per hour
-    K_HA: float = 0.06 / 24  # ACP->HA conversion rate per hour
-
-
 @dataclass(slots=True)
 class FieldConfig:
     width: int = 33
     height: int = 33
     media_interval: int = 48  # hours between media refresh (legacy default 2 days)
-    enable_nucleation: bool = True
     enable_nodules: bool = True
-    s_thresh: float = 0.01
-    k_nuc: float = 0.025 / 24  # per hour
-    k_ha: float = 0.06 / 24  # per hour
     nodule_window: int = 4
-    ca0: float = 1.0
-    pi0: float = 0.0
-    alp_to_pi_rate: float = 0.01
-    ca_per_acp: float = 3.0
-    pi_per_acp: float = 2.0
-    acp_to_ha_threshold: float = 0.05
-    collagen_nucleation_threshold: float = 1e-6
-    acp_per_ha_reaction: float = 3.0
-    ca_per_reaction: float = 1.0
-    ha_per_reaction: float = 2.0
-    h_plus_per_ha: float = 1.0
-    kw: float = 1.0
-    h_base: float = 1.0
-    oh_base: float = 1.0
-    aa_usage_per_collagen: float = 0.05
-    bgp_usage_per_pi: float = 3e-4
-    base_collagen_rate: float = 0.001
-    k_aa: float = 0.2

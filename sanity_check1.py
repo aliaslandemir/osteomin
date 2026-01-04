@@ -49,11 +49,6 @@ TOGGLES = [
         "negative": ["--no-secretion"],
     },
     {
-        "name": "nucleation",
-        "desc": "Pi+Ca form ACP, which can mature into HA.",
-        "negative": ["--no-nucleation"],
-    },
-    {
         "name": "commit_delay",
         "desc": "Delay (hours) before commit probability turns on.",
         "negative": ["--commit-delay", "0"],
@@ -74,10 +69,8 @@ BASE_ARGS = [
     "periodic",
     "--media-interval",
     "48",
-    "--aa",
-    "1.0",
-    "--bgp",
-    "1.0",
+    "--datafit",
+    "datafitting/datafit.npz",
     "--random-move",
     "--move-prob",
     "1.0",
@@ -97,16 +90,11 @@ BASE_ARGS = [
     "--commit-delay",
     "72",
     "--secretion",
-    "--nucleation",
     "--enable-nodules",
     "--spatial-every",
     "1",
     "--nodule-window",
     "4",
-    "--k-ha",
-    "0.0025",
-    "--k-nuc",
-    "0.0010417",
     "--no-hourly-exports",
 ]
 
@@ -199,7 +187,6 @@ def write_report(results: Sequence[RunResult], path: Path) -> None:
             "",
             "1. Open relevant `timeseries.xlsx` sheets for each pair to compare deaths/commits/mineral totals.",
             "2. Use the `_snapshots` folders to verify that collagen/HA overlays obey the expected toggle.",
-            "3. Adjust `--nucleation`/`--no-nucleation` runs for more than one mineralization scenario if needed.",
         ]
     )
 

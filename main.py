@@ -74,11 +74,6 @@ def parse_args() -> argparse.Namespace:
         help="treat edges as hard boundaries (clamp) or wrap around (periodic)",
     )
 
-    p.add_argument("--aa", type=float, default=1.0, help="ascorbic acid scaling")
-    p.add_argument(
-        "--bgp", type=float, default=1.0, help="beta-glycerophosphate scaling"
-    )
-
     p.add_argument(
         "--random-move",
         "--cell-movement",
@@ -107,6 +102,18 @@ def parse_args() -> argparse.Namespace:
         default=1,
         help="max random-walk steps per preOB cell per hour",
     )
+    p.add_argument(
+        "--min-div-hours",
+        type=int,
+        default=ABMConfig.min_div_hours,
+        help="minimum hours between divisions for a cell",
+    )
+    p.add_argument(
+        "--max-div-hours",
+        type=int,
+        default=ABMConfig.max_div_hours,
+        help="maximum hours between divisions for a cell",
+    )
 
     p.add_argument(
         "--ob-div-prob",
@@ -134,6 +141,12 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=0.01 / (24 * 24),
         help="per-hour increase in osteogenic commitment probability (legacy 0.01/day slope)",
+    )
+    p.add_argument(
+        "--commit-base",
+        type=float,
+        default=ABMConfig.base_commit_prob,
+        help="base per-hour osteogenic commitment probability",
     )
 
     p.add_argument(
@@ -205,24 +218,6 @@ def parse_args() -> argparse.Namespace:
     p.set_defaults(secretion=True)
 
     p.add_argument(
-        "--s-thresh",
-        type=float,
-        default=0.01,
-        help="supersaturation threshold for ACP nucleation",
-    )
-    p.add_argument(
-        "--k-nuc",
-        type=float,
-        default=0.025 / 24,
-        help="ACP nucleation rate per hour (legacy 0.025/day)",
-    )
-    p.add_argument(
-        "--k-ha",
-        type=float,
-        default=0.06 / 24,
-        help="ACP → HA maturation rate per hour (legacy 0.06/day)",
-    )
-    p.add_argument(
         "--enable-nodules",
         dest="nodules",
         action="store_true",
@@ -241,20 +236,6 @@ def parse_args() -> argparse.Namespace:
         default=4,
         help="window size (in lattice cells) for nodule detection",
     )
-    p.add_argument(
-        "--nucleation",
-        dest="nucleation",
-        action="store_true",
-        help="enable Pi→ACP nucleation and maturation to HA",
-    )
-    p.add_argument(
-        "--no-nucleation",
-        dest="nucleation",
-        action="store_false",
-        help="disable Pi→ACP nucleation and maturation to HA",
-    )
-    p.set_defaults(nucleation=True)
-
     p.add_argument(
         "--spatial-every",
         type=int,
@@ -319,6 +300,30 @@ def parse_args() -> argparse.Namespace:
         help="skip hourly snapshot exports",
     )
     p.set_defaults(hourly_exports=False)
+    p.add_argument(
+        "--datafit",
+        type=str,
+        default="datafitting/datafit.npz",
+        help="path to datafit.npz bundle with hourly basal/osteo ALP, collagen, and mineral values",
+    )
+    p.add_argument(
+        "--alp-plot-hours",
+        type=int,
+        default=240,
+        help="limit ALP plot to this many hours (0 = no limit)",
+    )
+    p.add_argument(
+        "--collagen-plot-hours",
+        type=int,
+        default=336,
+        help="limit collagen plot to this many hours (0 = no limit)",
+    )
+    p.add_argument(
+        "--mineral-plot-hours",
+        type=int,
+        default=672,
+        help="limit mineral (ACP/HA) plot to this many hours (0 = no limit)",
+    )
 
     return p.parse_args()
 
@@ -349,23 +354,19 @@ def main() -> None:
         apoptosis_prob=args.apoptosis_prob,
         ob_apoptosis_prob=args.ob_apoptosis_prob,
         proliferation_chance=args.proliferation_chance,
+        base_commit_prob=args.commit_base,
         commit_prob_growth=args.commit_growth,
         commit_delay=args.commit_delay,
+        min_div_hours=max(1, int(args.min_div_hours)),
+        max_div_hours=max(int(args.min_div_hours), int(args.max_div_hours)),
     )
     field_cfg = FieldConfig(
         width=args.w,
         height=args.h,
         media_interval=args.media_interval,
-        enable_nucleation=args.nucleation,
         enable_nodules=args.nodules,
-        s_thresh=args.s_thresh,
-        k_nuc=args.k_nuc,
-        k_ha=args.k_ha,
         nodule_window=max(1, int(args.nodule_window)),
     )
-
-    supplements = dict(aa=args.aa, bgp=args.bgp)
-
     spatial_days = [int(x) for x in args.spatial_days.split(",") if x.strip()]
 
     if args.hours is not None:
@@ -375,18 +376,20 @@ def main() -> None:
     if total_hours <= 0:
         raise SystemExit("specify a positive --hours or --days value")
 
+    datafit_path = Path(args.datafit) if args.datafit else None
+
     model = OsteoModel(
         outdir=outdir,
         total_hours=total_hours,
         abm_cfg=abm_cfg,
         field_cfg=field_cfg,
-        supplements=supplements,
         seed=args.seed,
         spatial_every=args.spatial_every,
         spatial_days=spatial_days,
         snapshots_enabled=args.snapshots,
         unique_id_tracking=args.unique_id,
         hourly_exports=args.hourly_exports,
+        datafit_path=datafit_path,
     )
 
     model.seed_random(args.cells, abm_cfg.width, abm_cfg.height)
@@ -404,7 +407,13 @@ def main() -> None:
     if args.unique_id:
         model.save_cell_history_excel("cell_history")
 
-    plot_summary(df, outdir)
+    plot_summary(
+        df,
+        outdir,
+        alp_plot_hours=args.alp_plot_hours,
+        collagen_plot_hours=args.collagen_plot_hours,
+        mineral_plot_hours=args.mineral_plot_hours,
+    )
 
     total_days = model.days
     overlay_days = sorted({d for d in model.spatial_days if 0 <= d < total_days})
@@ -437,29 +446,34 @@ if __name__ == "__main__":
     main()
 
 
-
 """
 
 To Run:
 
 python main.py \
-  --hours 720 \
+  --hours 672 \
   --cells 72 \
   --w 33 --h 33 \
   --boundary-mode periodic \
   --seed $(shuf -i 1-999999 -n 1) \
   --media-interval 48 \
-  --aa 1.0 --bgp 1.0 \
   --random-move --move-prob 1.0 --max-moves 1 \
   --proliferation --ob-div-prob 0.0 \
   --apoptosis --apoptosis-prob 0.00042 --apoptosis-osteo 0.000042 \
   --osteogenic-commitment \
-  --commit-growth 0.00003 \
+  --commit-base 0.0011 \
+  --commit-growth 0.00011 \
   --commit-delay 72 \
-  --secretion --nucleation --enable-nodules \
-  --spatial-every 1 --out out \
-  --nodule-window 4 --k-ha 0.0025 --k-nuc 0.0010417 \
+  --min-div-hours 38 --max-div-hours 52 \
+  --secretion --enable-nodules \
+  --spatial-every 1 --out main_out \
+  --nodule-window 5 \
+  --datafit datafitting/datafit.npz \
+  --alp-plot-hours 240 \
+  --collagen-plot-hours 336 \
+  --mineral-plot-hours 672 \
   --no-hourly-exports
+
 
 
 

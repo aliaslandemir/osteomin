@@ -134,13 +134,15 @@ class ABMManager:
             self._apoptosis_step(hour)
 
         if self.field is not None:
+            n_preob = sum(1 for c in self.cells if c.state == CellState.PRE_OB)
+            n_ob = sum(1 for c in self.cells if c.state == CellState.OSTEOBLAST)
             ob_mask = np.zeros((self.height, self.width), dtype=bool)
             for c in self.cells:
                 if c.state == CellState.OSTEOBLAST:
                     ob_mask[c.y, c.x] = True
             if hasattr(self.field, "set_ob_mask"):
                 self.field.set_ob_mask(ob_mask)
-            self.field.step_hour()
+            self.field.step_hour(hour, n_preob, n_ob)
 
     def _neighbors4(self, x: int, y: int):
         offsets = [(-1, 0), (1, 0), (0, -1), (0, 1)]
@@ -297,6 +299,8 @@ class ABMManager:
 
     def _secretion_step(self) -> None:
         if self.field is None:
+            return
+        if getattr(self.field, "datafit_schedule", None) is not None:
             return
         n_ob = sum(1 for c in self.cells if c.state == CellState.OSTEOBLAST)
         self.field.request_collagen_secretion(n_ob)

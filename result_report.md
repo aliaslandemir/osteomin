@@ -1,7 +1,7 @@
 # Sanity Check 1 Results
 
 ## Structural summary
-- Each folder under `out/sanity_check1/` mirrors the screenshot you shared: `timeseries.xlsx` (source of all plotted metrics), `run.json` (run metadata), five PNG summaries (`01_states_counts.png` … `05_supplements.png`), and the spatial grids/overlays (`grids/`, `spatial_cells/`, `collagen_ha/`).  
+- Each folder under `out/sanity_check1/` mirrors the screenshot you shared: `timeseries.xlsx` (source of all plotted metrics), `run.json` (run metadata), five PNG summaries (`01_states_counts.png` … `05_minerals_cumulative.png`), and the spatial grids/overlays (`grids/`, `spatial_cells/`, `collagen_ha/`).  
 - The workbook represents the run’s day-by-day statistics, and the harness runs a single command per toggle (use the arguments in `sanity_check1.py`) so the folders isolate the “on” vs “off” effect for the seven boolean switches.
 
 ## Timeseries summary
@@ -30,4 +30,3 @@
 - **Random movement helps OB buildup:** With movement on there are ~4.8k OBs at day 28 vs. ~4.2k when off, and a small bump in collagen/HA despite identical CA/PI usage.
 - **Commit delay influences mineral production:** Allowing a 3-day delay increases OBs (~5.6k vs. ~4.7k) and collagen (~26.9k vs. ~22.8k) while raising Ca/Pi usage (≈2.4k/1.56k vs. ≈2.1k/1.36k), implying a delayed differentiation wave lets more preOB cells proliferate before committing.
 - **The reported death/commit numbers (last two columns) confirm toggles behave as expected (e.g., `proliferation_on` logs 14 commits vs. zero when off).**
-

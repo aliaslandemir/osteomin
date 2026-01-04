@@ -9,6 +9,7 @@ from .abm_manager import ABMManager
 from .config import ABMConfig, FieldConfig
 from .field_manager import FieldManager
 from .agent import CellState
+from .datafit import DatafitSchedule
 from .io_utils import (
     cell_grids,
     coords_to_mask,
@@ -33,13 +34,13 @@ class OsteoModel:
         total_hours: int,
         abm_cfg: ABMConfig,
         field_cfg: FieldConfig,
-        supplements: dict,
         seed: Optional[int] = None,
         spatial_every: int = 0,
         spatial_days: Optional[Iterable[int]] = None,
         snapshots_enabled: bool = False,
         unique_id_tracking: bool = False,
         hourly_exports: bool = False,
+        datafit_path: Path | None = None,
     ):
         self.outdir = Path(outdir)
         self.outdir.mkdir(parents=True, exist_ok=True)
@@ -59,35 +60,22 @@ class OsteoModel:
 
         self.rng = np.random.default_rng(seed)
         self.abm = ABMManager(abm_cfg, self.rng, track_cells=self.enable_unique_ids)
+
+        datafit_schedule: DatafitSchedule | None = None
+        if datafit_path is not None:
+            resolved = Path(datafit_path)
+            if not resolved.exists():
+                raise SystemExit(f"--datafit file not found: {resolved}")
+            datafit_schedule = DatafitSchedule.from_path(resolved, self.total_hours)
+        self.datafit_schedule = datafit_schedule
+
         self.field = FieldManager(
             width=field_cfg.width,
             height=field_cfg.height,
             media_interval=field_cfg.media_interval,
-            supplements=supplements,
-            enable_nucleation=field_cfg.enable_nucleation,
             enable_nodules=getattr(field_cfg, "enable_nodules", False),
-            s_thresh=getattr(field_cfg, "s_thresh", 0.006),
-            k_nuc=getattr(field_cfg, "k_nuc", 0.05),
-            k_ha=getattr(field_cfg, "k_ha", 0.60),
             nodule_window=getattr(field_cfg, "nodule_window", 10),
-            ca0=getattr(field_cfg, "ca0", 1.0),
-            pi0=getattr(field_cfg, "pi0", 0.0),
-            alp_to_pi_rate=getattr(field_cfg, "alp_to_pi_rate", 0.01),
-            ca_per_acp=getattr(field_cfg, "ca_per_acp", 3.0),
-            pi_per_acp=getattr(field_cfg, "pi_per_acp", 2.0),
-            acp_to_ha_threshold=getattr(field_cfg, "acp_to_ha_threshold", 0.20),
-            acp_per_ha_reaction=getattr(field_cfg, "acp_per_ha_reaction", 3.0),
-            ca_per_reaction=getattr(field_cfg, "ca_per_reaction", 1.0),
-            ha_per_reaction=getattr(field_cfg, "ha_per_reaction", 2.0),
-            h_plus_per_ha=getattr(field_cfg, "h_plus_per_ha", 1.0),
-            kw=getattr(field_cfg, "kw", 1.0),
-            h_base=getattr(field_cfg, "h_base", 1.0),
-            oh_base=getattr(field_cfg, "oh_base", 1.0),
-            aa_usage_per_collagen=getattr(field_cfg, "aa_usage_per_collagen", 0.05),
-            bgp_usage_per_pi=getattr(field_cfg, "bgp_usage_per_pi", 3e-4),
-            base_collagen_rate=getattr(field_cfg, "base_collagen_rate", 0.001),
-            k_aa=getattr(field_cfg, "k_aa", 0.2),
-            collagen_nucleation_threshold=getattr(field_cfg, "collagen_nucleation_threshold", 1e-6),
+            datafit_schedule=datafit_schedule,
         )
         self.abm.attach_field(self.field)
 
@@ -114,10 +102,10 @@ class OsteoModel:
             "seed": seed,
             "abm_cfg": __import__("dataclasses").asdict(abm_cfg),
             "field_cfg": __import__("dataclasses").asdict(field_cfg),
-            "supplements": supplements,
             "spatial_every": self.spatial_every,
             "spatial_days": sorted(list(self.spatial_days)),
             "snapshots_enabled": self.snapshots_enabled,
+            "datafit_path": str(datafit_path) if datafit_path is not None else None,
         }
         (self.outdir / "run.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
@@ -339,8 +327,6 @@ class OsteoModel:
         n_preob = sum(1 for c in self.abm.cells if c.state == CellState.PRE_OB)
         n_ob = sum(1 for c in self.abm.cells if c.state == CellState.OSTEOBLAST)
 
-        supp_aa = float(getattr(self.field, "aa_pool", 0.0))
-        supp_bgp = float(getattr(self.field, "bgp_pool", 0.0))
         if day == 0:
             row = {
                 "day": int(day),
@@ -352,22 +338,13 @@ class OsteoModel:
                 "committed_today": 0,
                 "collagen_total": float(self.field.total_collagen),
                 "alp_total": float(self.field.total_alp),
-                "acp_total": 0.0,
                 "ha_total": 0.0,
-                "ca_used_total": 0.0,
-                "pi_used_total": 0.0,
-                "ca_supplied_total": float(self.field.ca_supplied_total),
-                "pi_supplied_total": float(self.field.pi_supplied_total),
-                "pi_generated_total": float(self.field.pi_generated_total),
-                "bgp_consumed_total": float(self.field.bgp_consumed_total),
-                "cell_ca": float(self.field.cell_ca),
-                "cell_pi": float(self.field.cell_pi),
-                "ca_media": float(self.field.ca.mean()),
-                "bgp_pool": float(self.field.bgp_pool),
-                "ca_free_total": float(self.field.ca.sum()),
-                "pi_free_total": float(self.field.pi.sum()),
-                "supp_aa": supp_aa,
-                "supp_bgp": supp_bgp,
+                "collagen_preob_total": float(self.field.collagen_preob_total),
+                "collagen_ob_total": float(self.field.collagen_ob_total),
+                "alp_preob_total": float(self.field.alp_preob_total),
+                "alp_ob_total": float(self.field.alp_ob_total),
+                "mineral_preob_total": float(self.field.mineral_preob_total),
+                "mineral_ob_total": float(self.field.mineral_ob_total),
             }
             row["nodule_count"] = int(
                 self.field.nodule_data_for_day(day)[0]
@@ -384,24 +361,15 @@ class OsteoModel:
             "dead_preob_today": int(dead_preob_today),
             "dead_ob_today": int(dead_ob_today),
             "committed_today": int(committed_today),
-            "cell_ca": float(scalars["cell_ca"]),
-            "cell_pi": float(scalars["cell_pi"]),
-            "ca_media": float(scalars["ca_media"]),
-            "bgp_pool": float(scalars.get("bgp_pool", 0.0)),
             "collagen_total": float(scalars["collagen_total"]),
             "alp_total": float(scalars["alp_total"]),
-            "acp_total": float(scalars.get("acp_total", 0.0)),
             "ha_total": float(scalars.get("ha_total", 0.0)),
-            "ca_used_total": float(scalars.get("ca_used_total", 0.0)),
-            "pi_used_total": float(scalars.get("pi_used_total", 0.0)),
-            "ca_supplied_total": float(scalars.get("ca_supplied_total", 0.0)),
-            "pi_supplied_total": float(scalars.get("pi_supplied_total", 0.0)),
-            "pi_generated_total": float(scalars.get("pi_generated_total", 0.0)),
-            "bgp_consumed_total": float(scalars.get("bgp_consumed_total", 0.0)),
-            "ca_free_total": float(scalars.get("ca_free_total", 0.0)),
-            "pi_free_total": float(scalars.get("pi_free_total", 0.0)),
-            "supp_aa": supp_aa,
-            "supp_bgp": supp_bgp,
+            "collagen_preob_total": float(scalars.get("collagen_preob_total", 0.0)),
+            "collagen_ob_total": float(scalars.get("collagen_ob_total", 0.0)),
+            "alp_preob_total": float(scalars.get("alp_preob_total", 0.0)),
+            "alp_ob_total": float(scalars.get("alp_ob_total", 0.0)),
+            "mineral_preob_total": float(scalars.get("mineral_preob_total", 0.0)),
+            "mineral_ob_total": float(scalars.get("mineral_ob_total", 0.0)),
         }
         row["nodule_count"] = int(
             self.field.nodule_data_for_day(day)[0]
