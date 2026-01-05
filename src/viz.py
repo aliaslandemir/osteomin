@@ -37,6 +37,8 @@ PLOT_STYLE = {
     "grid_alpha": 0.18,
 }
 
+FIGURE_SIZE_SPATIAL = (8, 7)  # Shared size to keep spatial and collagen PDFs matching.
+
 plt.rcParams.update(
     {
         "font.family": "DejaVu Serif",
@@ -378,7 +380,7 @@ def _render_spatial_image(
     n_da = int(deaths_preob_mask.sum())
     n_do = int(deaths_ob_mask.sum())
 
-    fig, ax = plt.subplots(figsize=(10, 7))
+    fig, ax = plt.subplots(figsize=FIGURE_SIZE_SPATIAL)
     ax.imshow(canvas, origin="lower", interpolation="nearest")
     ax.set_xticks([])
     ax.set_yticks([])
@@ -417,7 +419,7 @@ def export_spatial_hourly(
     dead_total_cum: int,
 ) -> None:
     target = Path(outdir) / "day_hor" / f"day{day}" / "spatial_cells"
-    img_path = target / f"hour_{hour:02d}.png"
+    img_path = target / f"hour_{hour:02d}.pdf"
     title_label = f"Day {day:02d} — Hour {hour:02d}"
     _render_spatial_image(
         img_path,
@@ -438,7 +440,7 @@ def export_spatial_for_day(
     dead_total_cum: int,
 ) -> None:
     target = Path(outdir) / "spatial_cells"
-    img_path = target / f"spatial_day_{day:03d}.png"
+    img_path = target / f"spatial_day_{day:03d}.pdf"
     _render_spatial_image(
         img_path,
         f"Day {day:02d}",
@@ -524,7 +526,7 @@ def _render_collagen_ha_overlay(
     col_norm = PowerNorm(gamma=0.7, vmin=0.0, vmax=vmax_col)
     ha_norm = PowerNorm(gamma=0.7, vmin=0.0, vmax=vmax_ha)
 
-    fig = plt.figure(figsize=(6, 6))
+    fig = plt.figure(figsize=FIGURE_SIZE_SPATIAL)
     ax = fig.add_axes([0.14, 0.12, 0.72, 0.74])
     _set_white(ax)
     ax.imshow(
@@ -670,7 +672,7 @@ def export_collagen_ha_snapshot(
     global_vmax_ha: float | None = None,
 ) -> None:
     target = Path(outdir) / "day_hor" / f"day{day}" / "collagen_ha"
-    img_path = target / f"hour_{hour:02d}.png"
+    img_path = target / f"hour_{hour:02d}.pdf"
     n_preob = int((state_grid == CellState.PRE_OB).sum())
     n_ob = int((state_grid == CellState.OSTEOBLAST).sum())
     dead_today = int(deaths_preob_mask.sum() + deaths_ob_mask.sum())
@@ -729,7 +731,7 @@ def export_overlay_collagen_ha_from_npy(
         nodule_cum = int(nodules_data["count"])
 
     export_overlay_collagen_ha(
-        img_dir / f"collagen_ha_day_{day:03d}.png",
+        img_dir / f"collagen_ha_day_{day:03d}.pdf",
         f"Day {day:02d}",
         col,
         ha,

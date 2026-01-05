@@ -1,7 +1,7 @@
 # Sanity Check 1 Results
 
 ## Structural summary
-- Each folder under `out/sanity_check1/` mirrors the screenshot you shared: `timeseries.xlsx` (source of all plotted metrics), `run.json` (run metadata), five PNG summaries (`01_states_counts.png` … `05_minerals_cumulative.png`), and the spatial grids/overlays (`grids/`, `spatial_cells/`, `collagen_ha/`).  
+- Each folder under `out/sanity_check1/` mirrors the screenshot you shared: `timeseries.xlsx` (source of all plotted metrics), `run.json` (run metadata), five PNG summaries (`01_states_counts.png` … `05_minerals_cumulative.png`), and the spatial grids/overlays (`grids/`, `spatial_cells/`, `collagen_ha/`) (PDF snapshots for `spatial_cells` and `collagen_ha`).  
 - The workbook represents the run’s day-by-day statistics, and the harness runs a single command per toggle (use the arguments in `sanity_check1.py`) so the folders isolate the “on” vs “off” effect for the seven boolean switches.
 
 ## Timeseries summary

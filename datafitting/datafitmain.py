@@ -9,7 +9,7 @@ Default values mirror the standalone example runs:
   - Matrix/mineral: collagen_C1=2740, collagen_C2=2880, ars_C1=0.65, ars_C2=50.87 (percent)
 
 
-python3 -m datafitting.datafitmain \
+python -m datafitting.datafitmain \
   --collagen_C1 2740 --collagen_C2 2880 \
   --ars_C1 0.65 --ars_C2 50.87 \
   --ars_units percent \

@@ -128,12 +128,12 @@ This command matches the configuration used in the paper; feel free to omit flag
 
 - Simulation now executes 24 hourly updates for each reported day so that the ABM and chemistry layers evolve continuously while snapshots and exports remain keyed to day indices `0..N-1`.
 - The CLI still describes parameters in day-based units, but they are converted to internal hourly rates before each solver tick (commitment growth, per-day probabilities, media interval, etc.).
-- Hourly spatial snapshots are saved inside `out/day_hor/dayX/` (e.g., `day_hor/day1/spatial_cells/hour_00.png` and `day_hor/day1/collagen_ha/hour_00.png`), giving per-hour visualizations in addition to the daily overlays and grids.
-- Enable hourly exports with `--hourly-exports` (and disable them with `--no-hourly-exports`) if you want those per-hour PNGs; the default is off to keep output size manageable.
+- Hourly spatial snapshots are saved inside `out/day_hor/dayX/` (e.g., `day_hor/day1/spatial_cells/hour_00.pdf` and `day_hor/day1/collagen_ha/hour_00.pdf`), giving per-hour PDFs in addition to the daily overlays and grids.
+- Enable hourly exports with `--hourly-exports` (and disable them with `--no-hourly-exports`) if you want those per-hour PDFs; the default is off to keep output size manageable.
 
 ## Notes
 - The entire chemistry configuration is centralized in `FieldConfig` (`src/config.py`), so any parameter you expose via CLI will propagate through `main.py` → `FieldConfig` → `FieldManager` without local edits.
-- Overlay images (`out/collagen_ha/collagen_ha_day_XXX.png`) show collagen (yellow-green) and HA (magenta/blue). Purple stars mark cumulative nodule centers derived from `out/grids/nodules_day_XXX.npz`.
+- Overlay images (`out/collagen_ha/collagen_ha_day_XXX.pdf`) show collagen (yellow-green) and HA (magenta/blue). Purple stars mark cumulative nodule centers derived from `out/grids/nodules_day_XXX.npz`.
 - Timeseries (`out/timeseries.xlsx`) always includes a `nodule_count` column (0 when nodule detection is disabled).
 
 Enjoy experimenting with the osteoblast ABM! Feel free to open issues or PRs if you need additional CLI knobs or output formats.

@@ -21,6 +21,7 @@ Outputs:
 - candidate_selection_explainer.(png/pdf)
 - sobol_endpoint_collagen.(png/pdf)  (if --sobol)
 - sobol_endpoint_mineral.(png/pdf)   (if --sobol)
+- sobol_endpoints_combined.(png/pdf) (if --sobol)
 - matrix_mineral_timeseries.csv
 - matrix_mineral_outputs.npz
 
@@ -90,12 +91,16 @@ def _set_style():
             "axes.spines.right": False,
             "lines.linewidth": 2.2,
             "axes.prop_cycle": plt.cycler(color=cycle),
-            "figure.dpi": 150,
-            "savefig.dpi": 600,
-            "pdf.fonttype": 42,
-            "ps.fonttype": 42,
-        }
-    )
+        "figure.dpi": 150,
+        "savefig.dpi": 600,
+        "pdf.fonttype": 42,
+        "ps.fonttype": 42,
+    }
+)
+
+FIGURE_SIZE_SINGLE = (5.9, 3.4)
+FIGURE_SIZE_DOUBLE = (5.9, 4.8)
+FIGURE_SIZE_SOBOL_COMBINED = (8.6, 4.1)
 
 
 def _format_axes(ax, grid: bool = False):
@@ -234,23 +239,63 @@ def _quantize_to_4(u: np.ndarray, vals4: list[float]) -> np.ndarray:
     return vals[idx]
 
 
-def _barplot_horizontal(names, S1, ST, title, outdir: Path, fname: str):
-    _set_style()
+def _draw_sobol_axes(ax, names, S1, ST, title, *, show_legend: bool = False):
     names = list(names)
     S1 = np.asarray(S1, dtype=float)
     ST = np.asarray(ST, dtype=float)
 
-    y = np.arange(len(names))[::-1]
-    fig, ax = plt.subplots(figsize=(6.6, 0.42 * len(names) + 1.0), constrained_layout=True)
-    ax.barh(y + 0.18, S1[::-1], height=0.34, label="First-order S1")
-    ax.barh(y - 0.18, ST[::-1], height=0.34, label="Total-order ST")
-    ax.set_yticks(y, names[::-1])
-    ax.set_xlim(0, 1.02)
-    ax.set_xlabel("Sensitivity index")
+    x = np.arange(len(names))
+    width = 0.28
+    ax.bar(x - width / 2, S1, width, label="First-order S1", color=COLOR_BASAL, alpha=0.9, edgecolor="none")
+    ax.bar(x + width / 2, ST, width, label="Total-order ST", color=COLOR_OSTEO, alpha=0.9, edgecolor="none")
+    ax.set_xticks(x)
+    ax.set_xticklabels(names, rotation=35, ha="right")
+    ax.set_ylim(0, 1.02)
+    ax.set_ylabel("Sensitivity index")
+    ax.set_axisbelow(True)
+    ax.margins(x=0.03)
     ax.set_title(title)
     _format_axes(ax, grid=False)
-    ax.legend(frameon=False, loc="lower right")
+    if show_legend:
+        ax.legend(frameon=False, loc="upper right", ncol=1, handlelength=1.5)
+
+
+def _barplot_horizontal(names, S1, ST, title, outdir: Path, fname: str):
+    _set_style()
+    fig, ax = plt.subplots(figsize=FIGURE_SIZE_SINGLE, constrained_layout=True)
+    _draw_sobol_axes(ax, names, S1, ST, title, show_legend=True)
     _save(fig, outdir, fname)
+    plt.close(fig)
+
+
+def plot_sobol_endpoints_combined(outdir: Path, coll_data: dict, mineral_data: dict):
+    _set_style()
+    fig, axes = plt.subplots(
+        1,
+        2,
+        figsize=FIGURE_SIZE_SOBOL_COMBINED,
+        constrained_layout=True,
+        sharey=True,
+    )
+    _draw_sobol_axes(
+        axes[0],
+        coll_data["names"],
+        coll_data["S1"],
+        coll_data["ST"],
+        "Sobol sensitivity: Collagen endpoint (day 14)",
+        show_legend=True,
+    )
+    _draw_sobol_axes(
+        axes[1],
+        mineral_data["names"],
+        mineral_data["S1"],
+        mineral_data["ST"],
+        "Sobol sensitivity: Mineral endpoint (day 28)",
+    )
+    axes[0].set_ylabel("Sensitivity index")
+    axes[1].set_ylabel("")
+    axes[1].tick_params(axis="y", labelleft=False)
+    _save(fig, outdir, "sobol_endpoints_combined")
     plt.close(fig)
 
 
@@ -370,7 +415,7 @@ def plot_collagen_timecourses_0_14(
         delta_pct=rel_pct[m14],
     )
 
-    fig, ax = plt.subplots(figsize=(4.4, 3.2), constrained_layout=True)
+    fig, ax = plt.subplots(figsize=FIGURE_SIZE_SINGLE, constrained_layout=True)
     ax.plot(t, delta[m14], color=COLOR_OSTEO, linewidth=1.7)
     ax.fill_between(t, 0, delta[m14], where=delta[m14] >= 0, interpolate=True, color=COLOR_OSTEO, alpha=0.22)
     ax.axhline(0.0, color="black", lw=0.9, linestyle="--")
@@ -432,9 +477,11 @@ def plot_km_sweep_collagen(
     delta = ends - c1_ends
 
     fig, (ax1, ax2) = plt.subplots(
-        2, 1, figsize=(4.8, 4.8),
+        2,
+        1,
+        figsize=FIGURE_SIZE_DOUBLE,
         constrained_layout=True,
-        gridspec_kw={"height_ratios": [2.2, 1.1]}
+        gridspec_kw={"height_ratios": [2.2, 1.1]},
     )
 
     # Top panel: time courses (color-mapped by Km)
@@ -501,7 +548,7 @@ def plot_mineral_timecourses(
     day_induction: float,
 ):
     _set_style()
-    fig, ax = plt.subplots(figsize=(4.6, 3.1), constrained_layout=True)
+    fig, ax = plt.subplots(figsize=FIGURE_SIZE_SINGLE, constrained_layout=True)
     ax.plot(t_days, H1 * plot_scale, label="Basal", color=COLOR_BASAL)
     ax.plot(t_days, H2 * plot_scale, label="Osteogenic", color=COLOR_OSTEO)
     ax.fill_between(t_days, H1 * plot_scale, H2 * plot_scale, color=COLOR_SHADE, alpha=0.22, zorder=1, label="Δ (osteo-basal)")
@@ -536,7 +583,7 @@ def plot_n_sweep_mineral(
     _, plot_scale, ylabel = ars_to_fraction(float(ars_C1), ars_units)
     H2_end, _, _ = ars_to_fraction(float(ars_C2), ars_units)
 
-    fig, ax = plt.subplots(figsize=(4.6, 3.1), constrained_layout=True)
+    fig, ax = plt.subplots(figsize=FIGURE_SIZE_SINGLE, constrained_layout=True)
 
     cmap = plt.cm.plasma
     n_norm = plt.Normalize(min(n_vals), max(n_vals))
@@ -960,6 +1007,8 @@ def run_matrix_mineral(args: argparse.Namespace):
             t_start_vals=list(map(float, args.t_start_vals)),
             baseN=int(args.sobol_baseN),
         )
+
+        plot_sobol_endpoints_combined(outdir, coll, mineral)
 
         sobol_out["sobol"] = {
             "collagen_C2_day14": coll,
