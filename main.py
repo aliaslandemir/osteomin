@@ -1,10 +1,33 @@
 """
-main.py — Entry point for OsteoMin ABM–field bone remodeling simulator.
+main.py — entry point for the OsteoMin ABM/field simulator.
+Hourly inputs are supported; defaults mirror README.md.
 
- The model now accepts hourly inputs and still exports daily summaries plus optional hourly snapshots.
 
-Run with:
-    python main.py --days 30 --cells 400 --w 33 --h 33 --xlsx --snapshots
+python main.py \
+  --hours 672 \
+  --cells 72 \
+  --w 33 --h 33 \
+  --boundary-mode periodic \
+  --seed $(shuf -i 1-999999 -n 1) \
+  --media-interval 48 \
+  --random-move --move-prob 1.0 --max-moves 1 \
+  --proliferation --ob-div-prob 0.0 \
+  --apoptosis --apoptosis-prob 0.00042 --apoptosis-osteo 0.000042 \
+  --osteogenic-commitment \
+  --commit-base 0.0011 \
+  --commit-growth 0.00011 \
+  --commit-delay 72 \
+  --min-div-hours 38 --max-div-hours 52 \
+  --secretion --enable-nodules \
+  --spatial-every 1 --out main_out \
+  --nodule-window 5 \
+  --datafit datafitting/datafit.npz \
+  --alp-plot-hours 240 \
+  --collagen-plot-hours 336 \
+  --mineral-plot-hours 672 \
+  --no-hourly-exports
+
+
 """
 
 from __future__ import annotations
@@ -444,37 +467,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-
-"""
-
-To Run:
-
-python main.py \
-  --hours 672 \
-  --cells 72 \
-  --w 33 --h 33 \
-  --boundary-mode periodic \
-  --seed $(shuf -i 1-999999 -n 1) \
-  --media-interval 48 \
-  --random-move --move-prob 1.0 --max-moves 1 \
-  --proliferation --ob-div-prob 0.0 \
-  --apoptosis --apoptosis-prob 0.00042 --apoptosis-osteo 0.000042 \
-  --osteogenic-commitment \
-  --commit-base 0.0011 \
-  --commit-growth 0.00011 \
-  --commit-delay 72 \
-  --min-div-hours 38 --max-div-hours 52 \
-  --secretion --enable-nodules \
-  --spatial-every 1 --out main_out \
-  --nodule-window 5 \
-  --datafit datafitting/datafit.npz \
-  --alp-plot-hours 240 \
-  --collagen-plot-hours 336 \
-  --mineral-plot-hours 672 \
-  --no-hourly-exports
-
-
-
-
-"""

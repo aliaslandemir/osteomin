@@ -1,8 +1,8 @@
-# Sanity Check 1 Results
+# Sanity Check 1 Results (snapshot)
 
-## Structural summary
-- Each folder under `out/sanity_check1/` mirrors the screenshot you shared: `timeseries.xlsx` (source of all plotted metrics), `run.json` (run metadata), five PNG summaries (`01_states_counts.png` … `05_minerals_cumulative.png`), and the spatial grids/overlays (`grids/`, `spatial_cells/`, `collagen_ha/`) (PDF snapshots for `spatial_cells` and `collagen_ha`).  
-- The workbook represents the run’s day-by-day statistics, and the harness runs a single command per toggle (use the arguments in `sanity_check1.py`) so the folders isolate the “on” vs “off” effect for the seven boolean switches.
+## What’s in each run folder
+- `timeseries.xlsx` with day-by-day metrics; `run.json` with CLI/seed; PNG summaries (`01_states_counts.png` … `05_minerals_cumulative.png`); spatial grids/overlays (`grids/`, `spatial_cells/`, `collagen_ha/`).
+- Each folder under `out/sanity_check1/` corresponds to the positive control or one toggle-off run built from `sanity_check1.py`.
 
 ## Timeseries summary
 
@@ -23,10 +23,11 @@
 | `secretion` | off | 29 | 4647 | 4676 | 0 | 0 | 0 | 0 | 0 | 5 | 16 |
 | `secretion` | on | 11 | 5120 | 5131 | 24523.97 | 547.75 | 114.70 | 2216.75 | 1439.60 | 5 | 7 |
 
-## Key observations
-- **Mineralization depends on both secretion and nucleation:** `secretion_off` leaves collagen/ALP/ACP/HA at zero, while `secretion_on` produces ~25k collagen, ~548 ACP, ~115 HA, and large Ca/Pi usage. Separately `nucleation_off` keeps ions at their baseline (zero Ca/Pi usage) but still records collagen/ALP, confirming nucleation is the chemistry gate.
-- **Commitment and proliferation reshape population balance:** Turning `osteogenic_commitment` off freezes the system at 9,908 preOB cells, zero OBs, and no matrix/mineral output, while the `on` counterpart matches other wins (≈4.7k OBs, ~23k collagen). Similarly, `proliferation_off` leaves just 658 OBs (no new preOBs) versus over 5k OBs when on.
-- **Apoptosis toggling changes death counts and matrix totals:** The `apoptosis_on` run shows 6 deaths today versus zero when off, with slightly lower OB counts and ~2k fewer Ca/Pi used, suggesting survival fosters a larger OB pool when apoptosis is disabled.
-- **Random movement helps OB buildup:** With movement on there are ~4.8k OBs at day 28 vs. ~4.2k when off, and a small bump in collagen/HA despite identical CA/PI usage.
-- **Commit delay influences mineral production:** Allowing a 3-day delay increases OBs (~5.6k vs. ~4.7k) and collagen (~26.9k vs. ~22.8k) while raising Ca/Pi usage (≈2.4k/1.56k vs. ≈2.1k/1.36k), implying a delayed differentiation wave lets more preOB cells proliferate before committing.
-- **The reported death/commit numbers (last two columns) confirm toggles behave as expected (e.g., `proliferation_on` logs 14 commits vs. zero when off).**
+## Key observations (paired comparisons)
+- **Secretion off → zero matrix/mineral:** Collagen/ALP/HA all zero; secretion on restores ~25k collagen and ~115 HA with matching Ca/Pi use.
+- **Nucleation off → ions at baseline:** Collagen/ALP still accumulate, but Ca/Pi usage stays at zero, confirming nucleation gates mineral formation.
+- **Commitment off → no OBs:** ~9,900 preOB, zero OB, no matrix/mineral. Commitment on yields ~4.7k OBs and ~23k collagen.
+- **Proliferation off → small population:** ~658 OBs vs. >5k when on; matrix/mineral scale with OB count.
+- **Apoptosis off → larger pool:** Fewer deaths, more OBs, higher matrix/mineral totals than apoptosis on.
+- **Random move on → modest OB boost:** ~4.8k vs. ~4.2k OBs and slight collagen/HA gains.
+- **Commit delay on (72 h) → higher output:** More OBs and collagen/mineral vs. immediate commitment, consistent with extra proliferation before differentiation.

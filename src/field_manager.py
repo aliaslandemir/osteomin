@@ -109,12 +109,12 @@ class FieldManager:
         collagen_osteo = max(0.0, inc.get("collagen_osteo", 0.0)) * ob_w
         alp_basal = max(0.0, inc.get("alp_basal", 0.0)) * pre_w
         alp_osteo = max(0.0, inc.get("alp_osteo", 0.0)) * ob_w
-        mineral_basal = max(0.0, inc.get("mineral_basal", 0.0)) * pre_w
+        # Mineral is osteoblast-driven; basal ARS is treated as background only.
         mineral_osteo = max(0.0, inc.get("mineral_osteo", 0.0)) * ob_w
 
         collagen_add = collagen_basal + collagen_osteo
         alp_add = alp_basal + alp_osteo
-        mineral_add = mineral_basal + mineral_osteo
+        mineral_add = mineral_osteo
 
         if collagen_add > 0.0:
             if self._ob_mask is not None and self._ob_mask.any():
@@ -131,14 +131,11 @@ class FieldManager:
             self.alp_preob_total += alp_basal
             self.alp_ob_total += alp_osteo
 
-        if mineral_add > 0.0:
+        if mineral_add > 0.0 and ob_count > 0:
             if self._ob_mask is not None and self._ob_mask.any():
                 area = int(self._ob_mask.sum())
                 self.ha[self._ob_mask] += mineral_add / max(1, area)
-            else:
-                self.ha += mineral_add / max(1.0, self.area)
-            self.mineral_preob_total += mineral_basal
-            self.mineral_ob_total += mineral_osteo
+                self.mineral_ob_total += mineral_osteo
 
     def set_ob_mask(self, ob_mask: np.ndarray | None) -> None:
         """Provide a boolean mask of current osteoblast locations (HxW)."""
