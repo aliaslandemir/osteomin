@@ -6,9 +6,11 @@ Hourly inputs are supported; defaults mirror README.md.
 python main.py \
   --hours 672 \
   --cells 72 \
+  --seed-mode grid \
+  --grid-spacing 3 \
+  --seed $(shuf -i 1-999999 -n 1) \
   --w 33 --h 33 \
   --boundary-mode periodic \
-  --seed $(shuf -i 1-999999 -n 1) \
   --media-interval 48 \
   --random-move --move-prob 1.0 --max-moves 1 \
   --proliferation --ob-div-prob 0.0 \
@@ -26,7 +28,11 @@ python main.py \
   --collagen-plot-hours 336 \
   --mineral-plot-hours 672 \
   --no-hourly-exports
+  
 
+  
+
+  
 
 """
 
@@ -57,6 +63,16 @@ def _global_field_max(grids_dir: Path, field_prefix: str, days: Iterable[int]) -
     return max(max_val, 1e-9)
 
 
+def _grid_seed_coords(w: int, h: int, spacing: int) -> list[tuple[int, int]]:
+    if spacing <= 0:
+        raise ValueError("grid spacing must be >= 1")
+    coords = []
+    for y in range(0, h, spacing):
+        for x in range(0, w, spacing):
+            coords.append((x, y))
+    return coords
+
+
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description="OsteoMin: MC3T3-E1 ABM/field bone remodeling simulator",
@@ -77,6 +93,18 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--cells", type=int, default=72, help="initial number of seeded cells"
+    )
+    p.add_argument(
+        "--seed-mode",
+        choices=["random", "grid"],
+        default="random",
+        help="initial seeding strategy: random uniform or grid-spaced then sampled",
+    )
+    p.add_argument(
+        "--grid-spacing",
+        type=int,
+        default=3,
+        help="grid spacing (n) for grid seeding; one candidate site per n×n block",
     )
     p.add_argument(
         "--media-interval",
@@ -415,7 +443,18 @@ def main() -> None:
         datafit_path=datafit_path,
     )
 
-    model.seed_random(args.cells, abm_cfg.width, abm_cfg.height)
+    if args.seed_mode == "random":
+        model.seed_random(args.cells, abm_cfg.width, abm_cfg.height)
+    else:
+        sites = _grid_seed_coords(abm_cfg.width, abm_cfg.height, args.grid_spacing)
+        if not sites:
+            raise SystemExit(
+                "grid spacing produces no seed sites; adjust --grid-spacing"
+            )
+        n = min(int(args.cells), len(sites))
+        idx = model.rng.choice(len(sites), size=n, replace=False)
+        coords = [sites[i] for i in idx]
+        model.abm.seed_from_coords(coords, day0=0)
     df = model.run()
 
     df["dead_total_today"] = df["dead_preob_today"] + df["dead_ob_today"]
