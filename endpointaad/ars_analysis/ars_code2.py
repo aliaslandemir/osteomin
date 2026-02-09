@@ -21,7 +21,7 @@ ANALYSIS (kept):
 PLOT STYLE (UPDATED to identical ALP Figure-2 master):
 - Column 1: Condition tags (two-line labels)
 - Column 2: ID (C1..C8)
-- Column 3: Horizontal violins + jitter points + mean(red circle) + median(black diamond)
+- Column 3: Mean ± SD + jittered points
 - Column 4: Δmean (vs C1 mean) with arrows
 - Column 5: Significance stars (blank = ns), dual-family: black vs C1; red vs C2
 
@@ -85,10 +85,8 @@ COND_COLORS = {
 }
 
 # ALP Figure-2 cosmetics (locked)
-VIOLIN_FACE = "#E9E9E9"
-VIOLIN_EDGE = "#B0B0B0"
 MEAN_COLOR = "#B22222"
-MEDIAN_COLOR = "#1F1F1F"
+SD_COLOR = "#5A5A5A"
 STAR_COLOR_A = "#000000"  # vs C1
 STAR_COLOR_B = "#B22222"  # vs C2
 
@@ -137,6 +135,17 @@ def cond_id_to_pretty_name(c: str) -> str:
 
 def cond_id_to_tag(c: str) -> str:
     return two_line_label(cond_id_to_pretty_name(c))
+
+def _mean_sd(vals: np.ndarray) -> Tuple[float, float]:
+    vals = np.asarray(vals, dtype=float)
+    vals = vals[np.isfinite(vals)]
+    if vals.size == 0:
+        return np.nan, np.nan
+    mean = float(np.mean(vals))
+    if vals.size < 2:
+        return mean, np.nan
+    sd = float(np.std(vals, ddof=1))
+    return mean, sd
 
 
 # ---------------- detection + IO ----------------
@@ -396,59 +405,48 @@ def plot_fig2_tags_violin_delta_sig(
     for s in axID.spines.values():
         s.set_visible(False)
 
-    # ---- Violins ----
-    vp = axV.violinplot(
-        data,
-        positions=y,
-        vert=False,
-        widths=0.80,
-        showmeans=False,
-        showmedians=True,
-        showextrema=False,
-    )
-    for body in vp["bodies"]:
-        body.set_facecolor(VIOLIN_FACE)
-        body.set_edgecolor(VIOLIN_EDGE)
-        body.set_alpha(1.0)
-        body.set_linewidth(1.0)
-    vp["cmedians"].set_color("#2b2b2b")
-    vp["cmedians"].set_linewidth(1.0)
-
+    # ---- Mean ± SD + raw points ----
     for i, (c, vals) in enumerate(zip(conds, data)):
         if vals.size == 0:
             continue
-        yj = i + rng.normal(0, 0.06, size=vals.size)
+        yj = i + rng.normal(0, 0.035, size=vals.size)
         axV.scatter(
             vals, yj,
-            s=22,
+            s=20,
             color=COND_COLORS.get(c, "#444444"),
             edgecolor="white",
             linewidth=0.6,
-            alpha=0.92,
+            alpha=0.75,
             zorder=3,
         )
-        axV.scatter(
-            float(np.mean(vals)), i,
-            s=60, marker="o",
-            color=MEAN_COLOR,
-            edgecolor="white",
-            linewidth=0.8,
-            alpha=0.70,
-            zorder=5,
-        )
-        axV.scatter(
-            float(np.median(vals)), i,
-            s=60, marker="D",
-            color=MEDIAN_COLOR,
-            edgecolor="white",
-            linewidth=0.8,
-            alpha=0.70,
-            zorder=5,
-        )
+        mean, sd = _mean_sd(vals)
+        if np.isfinite(mean):
+            if np.isfinite(sd):
+                lo = mean - sd
+                hi = mean + sd
+                axV.hlines(i, lo, hi, color=SD_COLOR, linewidth=2.2, alpha=0.45, zorder=4)
+                axV.scatter(
+                    [lo, hi],
+                    [i, i],
+                    marker="|",
+                    s=170,
+                    color=SD_COLOR,
+                    alpha=0.45,
+                    linewidths=2.2,
+                    zorder=4,
+                )
+            axV.scatter(
+                mean, i,
+                s=70, marker="o",
+                color=COND_COLORS.get(c, MEAN_COLOR),
+                edgecolor="black",
+                linewidth=0.7,
+                zorder=5,
+            )
 
     axV.set_xlim(*xlim)
     axV.set_xlabel(xlab)
-    axV.set_title("Distribution", pad=14)
+    axV.set_title("Mean ± SD", pad=14)
     axV.grid(axis="x", alpha=0.15)
     axV.set_yticks([])
     axV.yaxis.set_major_formatter(NullFormatter())
@@ -495,7 +493,7 @@ def plot_fig2_tags_violin_delta_sig(
     axS.text(0.25, -0.09, "vs C1", transform=axS.transAxes,
              ha="center", va="top", fontsize=10)
     axS.text(0.75, -0.09, "vs C2", transform=axS.transAxes,
-             ha="center", va="top", fontsize=10)
+             ha="center", va="top", fontsize=10, color=STAR_COLOR_B)
 
     for i, c in enumerate(conds):
         # vs C1
@@ -743,6 +741,23 @@ def main():
     plt.close(fig)
     print("Saved:", pdf)
     print("Saved:", png)
+
+    means_path = args.out_dir / f"{args.out_prefix}_{value_col}_means.txt"
+    with means_path.open("w", encoding="utf-8") as f:
+        f.write("Condition\tMean\tSD\tN\n")
+        for c in conds:
+            vals = cond_to_vals.get(c, np.array([]))
+            if vals.size:
+                mean_val = float(np.mean(vals))
+                sd_val = float(np.std(vals, ddof=1)) if vals.size > 1 else float("nan")
+                n_val = int(vals.size)
+            else:
+                mean_val = float("nan")
+                sd_val = float("nan")
+                n_val = 0
+            f.write(f"{c}\t{mean_val:.6g}\t{sd_val:.6g}\t{n_val}\n")
+
+    print("Saved:", means_path)
     print("Done. Output saved to:", args.out_dir)
 
 

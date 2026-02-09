@@ -184,6 +184,7 @@ class OsteoModel:
 
             dead_total_day = self._daily_dead_preob + self._daily_dead_ob
             if self.hourly_exports:
+                dead_total_cum_hour = dead_total_cum + dead_total_day
                 export_spatial_hourly(
                     self.outdir,
                     day_index,
@@ -191,7 +192,7 @@ class OsteoModel:
                     state_hour,
                     deaths_preob_mask_hour,
                     deaths_ob_mask_hour,
-                    dead_total_cum=dead_total_day,
+                    dead_total_cum=dead_total_cum_hour,
                 )
                 export_collagen_ha_snapshot(
                     self.outdir,

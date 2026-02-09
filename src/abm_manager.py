@@ -267,13 +267,15 @@ class ABMManager:
         for i, c in enumerate(self.cells):
             self.occupancy[c.y, c.x] = i
 
-    def _record_death_row(self, cell: Cell, day: int, state_before: CellState) -> None:
+    def _record_death_row(self, cell: Cell, hour: int, state_before: CellState) -> None:
         if not self.track_cells:
             return
+        day_index = int((hour - 1) // HOURS_PER_DAY + 1) if hour > 0 else 0
         self._death_rows.append(
             {
                 "cell_id": int(cell.unique_id),
-                "day": int(day),
+                "day": day_index,
+                "hour": int(hour),
                 "row": int(cell.y),
                 "col": int(cell.x),
                 "state": int(state_before),

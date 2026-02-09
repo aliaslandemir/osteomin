@@ -76,10 +76,8 @@ COND_COLORS = {
     "C8": "#8c6d31",
 }
 
-VIOLIN_FACE = "#e9e9e9"
-VIOLIN_EDGE = "#b0b0b0"
 MEAN_COLOR = "#8b1e1e"
-MEDIAN_COLOR = "#1f1f1f"
+SD_COLOR = "#5a5a5a"
 
 STAR_COLOR_A = "#000000"
 STAR_COLOR_B = "#8b1e1e"
@@ -186,6 +184,20 @@ def pairwise_vs_ref_BH(
 # =========================
 # FIGURE 2
 # =========================
+def _mean_sd(
+    vals: np.ndarray,
+) -> tuple[float, float]:
+    vals = np.asarray(vals, dtype=float)
+    vals = vals[np.isfinite(vals)]
+    if vals.size == 0:
+        return np.nan, np.nan
+    mean = float(np.mean(vals))
+    if vals.size < 2:
+        return mean, np.nan
+    sd = float(np.std(vals, ddof=1))
+    return mean, sd
+
+
 def plot_figure2_tags_violin_delta_sig(
     df: pd.DataFrame,
     value_col: str,
@@ -299,64 +311,65 @@ def plot_figure2_tags_violin_delta_sig(
         s.set_visible(False)
 
     # ======================
-    # Violins
+    # Mean ± SD + raw points
     # ======================
-    vp = axV.violinplot(
-        data,
-        positions=y,
-        vert=False,
-        widths=0.80,
-        showmeans=False,
-        showmedians=True,
-        showextrema=False,
-    )
-    for body in vp["bodies"]:
-        body.set_facecolor(VIOLIN_FACE)
-        body.set_edgecolor(VIOLIN_EDGE)
-        body.set_alpha(1.0)
-        body.set_linewidth(1.0)
-    vp["cmedians"].set_color("#2b2b2b")
-    vp["cmedians"].set_linewidth(1.0)
-
     for i, (c, vals) in enumerate(zip(conds, data)):
         if vals.size == 0:
             continue
-        yj = i + rng.normal(0, 0.06, size=vals.size)
+        yj = i + rng.normal(0, 0.035, size=vals.size)
         axV.scatter(
             vals,
             yj,
-            s=22,
+            s=20,
             color=COND_COLORS.get(c, "#444444"),
             edgecolor="white",
             linewidth=0.6,
-            alpha=0.92,
+            alpha=0.75,
             zorder=3,
         )
-        axV.scatter(
-            float(np.mean(vals)),
-            i,
-            s=60,
-            marker="o",
-            color=MEAN_COLOR,
-            edgecolor="white",
-            linewidth=0.8,
-            alpha=0.70,
-            zorder=5,
-        )
-        axV.scatter(
-            float(np.median(vals)),
-            i,
-            s=60,
-            marker="D",
-            color=MEDIAN_COLOR,
-            edgecolor="white",
-            linewidth=0.8,
-            alpha=0.70,
-            zorder=5,
-        )
+        mean, sd = _mean_sd(vals)
+        if np.isfinite(mean):
+            if np.isfinite(sd):
+                lo = mean - sd
+                hi = mean + sd
+                axV.hlines(
+                    i, lo, hi, color=SD_COLOR, linewidth=2.2, alpha=0.45, zorder=4
+                )
+                axV.scatter(
+                    [lo, hi],
+                    [i, i],
+                    marker="|",
+                    s=170,
+                    color=SD_COLOR,
+                    alpha=0.45,
+                    linewidths=2.2,
+                    zorder=4,
+                )
+                axV.scatter(
+                    mean,
+                    i,
+                    s=70,
+                    marker="o",
+                    color=COND_COLORS.get(c, MEAN_COLOR),
+                    edgecolor="black",
+                    linewidth=0.7,
+                    zorder=5,
+                )
+            else:
+                axV.scatter(
+                    mean,
+                    i,
+                    s=60,
+                    marker="o",
+                    color=COND_COLORS.get(c, MEAN_COLOR),
+                    edgecolor="black",
+                    linewidth=0.7,
+                    alpha=0.90,
+                    zorder=5,
+                )
 
     axV.set_xlabel(xlab)
-    axV.set_title("ALP Distribution (pNPP assay 30 min / mU·mL$^{-1}$)", pad=14)
+    axV.set_title("ALP Mean ± SD (pNPP assay 30 min / mU·mL$^{-1}$)", pad=14)
     axV.grid(axis="x", alpha=0.15)
     axV.set_yticks([])
     axV.yaxis.set_major_formatter(NullFormatter())
@@ -518,6 +531,19 @@ def main():
         for c in conds
     }
 
+    means_txt = []
+    for c in conds:
+        vals = cond_to_vals.get(c, np.array([]))
+        if vals.size:
+            mean_val = float(np.mean(vals))
+            sd_val = float(np.std(vals, ddof=1)) if vals.size > 1 else float("nan")
+            n_val = int(vals.size)
+        else:
+            mean_val = float("nan")
+            sd_val = float("nan")
+            n_val = 0
+        means_txt.append((c, mean_val, sd_val, n_val))
+
     famA = pairwise_vs_ref_BH(
         cond_to_vals,
         ref=FAM_A_REF,
@@ -548,8 +574,15 @@ def main():
     fig2.savefig(out_png)
     plt.close(fig2)
 
+    out_txt = args.out_dir / f"{args.out_prefix}_ALP_means.txt"
+    with out_txt.open("w", encoding="utf-8") as f:
+        f.write("Condition\tMean\tSD\tN\n")
+        for c, mean_val, sd_val, n_val in means_txt:
+            f.write(f"{c}\t{mean_val:.6g}\t{sd_val:.6g}\t{n_val}\n")
+
     print(f"Saved: {out_pdf}")
     print(f"Saved: {out_png}")
+    print(f"Saved: {out_txt}")
 
 
 if __name__ == "__main__":
