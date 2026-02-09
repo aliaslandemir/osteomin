@@ -41,6 +41,7 @@ class OsteoModel:
         unique_id_tracking: bool = False,
         hourly_exports: bool = False,
         datafit_path: Path | None = None,
+        datafit_condition: str | int | None = None,
     ):
         self.outdir = Path(outdir)
         self.outdir.mkdir(parents=True, exist_ok=True)
@@ -66,7 +67,9 @@ class OsteoModel:
             resolved = Path(datafit_path)
             if not resolved.exists():
                 raise SystemExit(f"--datafit file not found: {resolved}")
-            datafit_schedule = DatafitSchedule.from_path(resolved, self.total_hours)
+            datafit_schedule = DatafitSchedule.from_path(
+                resolved, self.total_hours, condition=datafit_condition
+            )
         self.datafit_schedule = datafit_schedule
 
         self.field = FieldManager(
@@ -106,6 +109,7 @@ class OsteoModel:
             "spatial_days": sorted(list(self.spatial_days)),
             "snapshots_enabled": self.snapshots_enabled,
             "datafit_path": str(datafit_path) if datafit_path is not None else None,
+            "datafit_condition": datafit_condition,
         }
         (self.outdir / "run.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
 

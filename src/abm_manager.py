@@ -137,11 +137,16 @@ class ABMManager:
             n_preob = sum(1 for c in self.cells if c.state == CellState.PRE_OB)
             n_ob = sum(1 for c in self.cells if c.state == CellState.OSTEOBLAST)
             ob_mask = np.zeros((self.height, self.width), dtype=bool)
+            preob_mask = np.zeros((self.height, self.width), dtype=bool)
             for c in self.cells:
                 if c.state == CellState.OSTEOBLAST:
                     ob_mask[c.y, c.x] = True
+                elif c.state == CellState.PRE_OB:
+                    preob_mask[c.y, c.x] = True
             if hasattr(self.field, "set_ob_mask"):
                 self.field.set_ob_mask(ob_mask)
+            if hasattr(self.field, "set_preob_mask"):
+                self.field.set_preob_mask(preob_mask)
             self.field.step_hour(hour, n_preob, n_ob)
 
     def _neighbors4(self, x: int, y: int):

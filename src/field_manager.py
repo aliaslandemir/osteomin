@@ -49,6 +49,7 @@ class FieldManager:
         self.mineral_ob_total = 0.0
 
         self._ob_mask: Optional[np.ndarray] = None
+        self._preob_mask: Optional[np.ndarray] = None
 
         self._pending_secretion_ob_count: int = 0
 
@@ -92,50 +93,61 @@ class FieldManager:
         self.total_alp += amount
 
     def _apply_datafit(self, hour: int, preob_count: int, ob_count: int) -> None:
-        """Blend basal/osteo hourly increments from datafit.npz by cell mix."""
+        """Apply hourly increments from datafit.npz per site (preOB vs OB)."""
         if self.datafit_schedule is None:
             return
-        total_cells = preob_count + ob_count
-        if total_cells <= 0:
-            return
         inc = self.datafit_schedule.hourly_increments(hour)
-        pre_w = preob_count / total_cells
-        ob_w = ob_count / total_cells
+        pre_mask = self._preob_mask
+        ob_mask = self._ob_mask
 
-        def _blend(basal_key: str, osteo_key: str) -> float:
-            return inc.get(basal_key, 0.0) * pre_w + inc.get(osteo_key, 0.0) * ob_w
+        collagen_preob = max(0.0, inc.get("collagen_basal", 0.0))
+        collagen_ob = max(0.0, inc.get("collagen_osteo_ob", inc.get("collagen_osteo", 0.0)))
+        alp_preob = max(0.0, inc.get("alp_basal", 0.0))
+        alp_ob = max(0.0, inc.get("alp_osteo_ob", inc.get("alp_osteo", 0.0)))
+        mineral_ob = max(0.0, inc.get("mineral_osteo_ob", inc.get("mineral_osteo", 0.0)))
 
-        collagen_basal = max(0.0, inc.get("collagen_basal", 0.0)) * pre_w
-        collagen_osteo = max(0.0, inc.get("collagen_osteo", 0.0)) * ob_w
-        alp_basal = max(0.0, inc.get("alp_basal", 0.0)) * pre_w
-        alp_osteo = max(0.0, inc.get("alp_osteo", 0.0)) * ob_w
-        # Mineral is osteoblast-driven; basal ARS is treated as background only.
-        mineral_osteo = max(0.0, inc.get("mineral_osteo", 0.0)) * ob_w
+        if pre_mask is not None and pre_mask.any():
+            area = int(pre_mask.sum())
+            if collagen_preob > 0.0:
+                self.collagen[pre_mask] += collagen_preob / max(1, area)
+                self.total_collagen += collagen_preob
+                self.collagen_preob_total += collagen_preob
+            if alp_preob > 0.0:
+                self.alp[pre_mask] += alp_preob / max(1, area)
+                self.total_alp += alp_preob
+                self.alp_preob_total += alp_preob
+        else:
+            if collagen_preob > 0.0:
+                self.collagen += collagen_preob / max(1.0, self.area)
+                self.total_collagen += collagen_preob
+                self.collagen_preob_total += collagen_preob
+            if alp_preob > 0.0:
+                self.alp += alp_preob / max(1.0, self.area)
+                self.total_alp += alp_preob
+                self.alp_preob_total += alp_preob
 
-        collagen_add = collagen_basal + collagen_osteo
-        alp_add = alp_basal + alp_osteo
-        mineral_add = mineral_osteo
-
-        if collagen_add > 0.0:
-            if self._ob_mask is not None and self._ob_mask.any():
-                area = int(self._ob_mask.sum())
-                self.collagen[self._ob_mask] += collagen_add / max(1, area)
-            else:
-                self.collagen += collagen_add / max(1.0, self.area)
-            self.total_collagen += collagen_add
-            self.collagen_preob_total += collagen_basal
-            self.collagen_ob_total += collagen_osteo
-
-        if alp_add > 0.0:
-            self.add_alp(alp_add, ob_count=ob_count)
-            self.alp_preob_total += alp_basal
-            self.alp_ob_total += alp_osteo
-
-        if mineral_add > 0.0 and ob_count > 0:
-            if self._ob_mask is not None and self._ob_mask.any():
-                area = int(self._ob_mask.sum())
-                self.ha[self._ob_mask] += mineral_add / max(1, area)
-                self.mineral_ob_total += mineral_osteo
+        if ob_mask is not None and ob_mask.any():
+            area = int(ob_mask.sum())
+            if collagen_ob > 0.0:
+                self.collagen[ob_mask] += collagen_ob / max(1, area)
+                self.total_collagen += collagen_ob
+                self.collagen_ob_total += collagen_ob
+            if alp_ob > 0.0:
+                self.alp[ob_mask] += alp_ob / max(1, area)
+                self.total_alp += alp_ob
+                self.alp_ob_total += alp_ob
+            if mineral_ob > 0.0:
+                self.ha[ob_mask] += mineral_ob / max(1, area)
+                self.mineral_ob_total += mineral_ob
+        else:
+            if collagen_ob > 0.0:
+                self.collagen += collagen_ob / max(1.0, self.area)
+                self.total_collagen += collagen_ob
+                self.collagen_ob_total += collagen_ob
+            if alp_ob > 0.0:
+                self.alp += alp_ob / max(1.0, self.area)
+                self.total_alp += alp_ob
+                self.alp_ob_total += alp_ob
 
     def set_ob_mask(self, ob_mask: np.ndarray | None) -> None:
         """Provide a boolean mask of current osteoblast locations (HxW)."""
@@ -148,6 +160,18 @@ class FieldManager:
                 f"ob_mask has shape {m.shape}, expected {(self.height, self.width)}"
             )
         self._ob_mask = m
+
+    def set_preob_mask(self, preob_mask: np.ndarray | None) -> None:
+        """Provide a boolean mask of current pre-osteoblast locations (HxW)."""
+        if preob_mask is None:
+            self._preob_mask = None
+            return
+        m = np.asarray(preob_mask, dtype=bool)
+        if m.shape != (self.height, self.width):
+            raise ValueError(
+                f"preob_mask has shape {m.shape}, expected {(self.height, self.width)}"
+            )
+        self._preob_mask = m
 
     def detect_nodules(
         self, day: int, ob_mask: np.ndarray

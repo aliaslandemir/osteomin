@@ -49,11 +49,40 @@ python main.py \
   --secretion --enable-nodules \
   --spatial-every 1 --out main_out \
   --nodule-window 5 \
-  --datafit datafitting/datafit.npz \
+  --datafit datafitting/endpointresults/fit_outputs/datafit_endpoint.npz \
   --alp-plot-hours 240 \
   --collagen-plot-hours 336 \
   --mineral-plot-hours 672 \
-  --no-hourly-exports
+  --no-hourly-exports \
+  --datafit-all
+
+
+
+python main.py \
+  --hours 672 \
+  --cells 72 \
+  --seed-mode random \
+  --seed 12345 \
+  --w 33 --h 33 \
+  --boundary-mode periodic \
+  --media-interval 48 \
+  --random-move --move-prob 1.0 --max-moves 1 \
+  --proliferation --ob-div-prob 0.0 \
+  --apoptosis --apoptosis-prob 0.00042 --apoptosis-osteo 0.000042 \
+  --osteogenic-commitment \
+  --commit-base 0.0011 \
+  --commit-growth 0.00011 \
+  --commit-delay 72 \
+  --min-div-hours 38 --max-div-hours 52 \
+  --secretion --enable-nodules \
+  --spatial-every 1 --out main_out \
+  --nodule-window 5 \
+  --datafit datafitting/endpointresults/fit_outputs/datafit_endpoint.npz \
+  --alp-plot-hours 240 \
+  --collagen-plot-hours 336 \
+  --mineral-plot-hours 672 \
+  --no-hourly-exports \
+  --datafit-all
   
 
   
@@ -382,6 +411,17 @@ def parse_args() -> argparse.Namespace:
         help="path to datafit.npz bundle with hourly basal/osteo ALP, collagen, and mineral values",
     )
     p.add_argument(
+        "--datafit-condition",
+        type=str,
+        default="C2",
+        help="condition to use from datafit_endpoint.npz (C1..C8). Default C2.",
+    )
+    p.add_argument(
+        "--datafit-all",
+        action="store_true",
+        help="run all conditions present in datafit_endpoint.npz (C1..C8) and write subfolders",
+    )
+    p.add_argument(
         "--alp-plot-hours",
         type=int,
         default=240,
@@ -453,79 +493,96 @@ def main() -> None:
 
     datafit_path = Path(args.datafit) if args.datafit else None
 
-    model = OsteoModel(
-        outdir=outdir,
-        total_hours=total_hours,
-        abm_cfg=abm_cfg,
-        field_cfg=field_cfg,
-        seed=args.seed,
-        spatial_every=args.spatial_every,
-        spatial_days=spatial_days,
-        snapshots_enabled=args.snapshots,
-        unique_id_tracking=args.unique_id,
-        hourly_exports=args.hourly_exports,
-        datafit_path=datafit_path,
-    )
-
-    if args.seed_mode == "random":
-        model.seed_random(args.cells, abm_cfg.width, abm_cfg.height)
-    else:
-        sites = _grid_seed_coords(abm_cfg.width, abm_cfg.height, args.grid_spacing)
-        if not sites:
-            raise SystemExit(
-                "grid spacing produces no seed sites; adjust --grid-spacing"
-            )
-        n = min(int(args.cells), len(sites))
-        idx = model.rng.choice(len(sites), size=n, replace=False)
-        coords = [sites[i] for i in idx]
-        model.abm.seed_from_coords(coords, day0=0)
-    df = model.run()
-
-    df["dead_total_today"] = df["dead_preob_today"] + df["dead_ob_today"]
-    df["dead_preob_cum"] = df["dead_preob_today"].cumsum()
-    df["dead_ob_cum"] = df["dead_ob_today"].cumsum()
-    df["dead_total_cum"] = df["dead_total_today"].cumsum()
-
-    if args.xlsx:
-        model.save_timeseries_excel(df, "timeseries")
-    if args.csv:
-        model.save_timeseries_csv(df, "timeseries")
-    if args.unique_id:
-        model.save_cell_history_excel("cell_history")
-
-    plot_summary(
-        df,
-        outdir,
-        alp_plot_hours=args.alp_plot_hours,
-        collagen_plot_hours=args.collagen_plot_hours,
-        mineral_plot_hours=args.mineral_plot_hours,
-    )
-
-    total_days = model.days
-    overlay_days = sorted({d for d in model.spatial_days if 0 <= d < total_days})
-    if args.spatial_every > 0:
-        overlay_days = sorted(
-            {
-                *overlay_days,
-                *{day for day in range(0, total_days, args.spatial_every)},
-            }
+    def _run_condition(cond: str, cond_outdir: Path) -> None:
+        model = OsteoModel(
+            outdir=cond_outdir,
+            total_hours=total_hours,
+            abm_cfg=abm_cfg,
+            field_cfg=field_cfg,
+            seed=args.seed,
+            spatial_every=args.spatial_every,
+            spatial_days=spatial_days,
+            snapshots_enabled=args.snapshots,
+            unique_id_tracking=args.unique_id,
+            hourly_exports=args.hourly_exports,
+            datafit_path=datafit_path,
+            datafit_condition=cond,
         )
-    if not args.snapshots:
-        print("snapshots disabled; skipping collagen/HA overlays")
-    else:
-        all_days = range(total_days)
-        collagen_vmax = _global_field_max(model.grids_dir, "collagen", all_days)
-        ha_vmax = _global_field_max(model.grids_dir, "ha", all_days)
-        for day in overlay_days:
-            export_overlay_collagen_ha_from_npy(
-                model.grids_dir,
-                outdir,
-                day,
-                global_vmax_col=collagen_vmax,
-                global_vmax_ha=ha_vmax,
-            )
 
-    print(df.tail(5))
+        if args.seed_mode == "random":
+            model.seed_random(args.cells, abm_cfg.width, abm_cfg.height)
+        else:
+            sites = _grid_seed_coords(abm_cfg.width, abm_cfg.height, args.grid_spacing)
+            if not sites:
+                raise SystemExit(
+                    "grid spacing produces no seed sites; adjust --grid-spacing"
+                )
+            n = min(int(args.cells), len(sites))
+            idx = model.rng.choice(len(sites), size=n, replace=False)
+            coords = [sites[i] for i in idx]
+            model.abm.seed_from_coords(coords, day0=0)
+        df = model.run()
+
+        df["dead_total_today"] = df["dead_preob_today"] + df["dead_ob_today"]
+        df["dead_preob_cum"] = df["dead_preob_today"].cumsum()
+        df["dead_ob_cum"] = df["dead_ob_today"].cumsum()
+        df["dead_total_cum"] = df["dead_total_today"].cumsum()
+
+        if args.xlsx:
+            model.save_timeseries_excel(df, "timeseries")
+        if args.csv:
+            model.save_timeseries_csv(df, "timeseries")
+        if args.unique_id:
+            model.save_cell_history_excel("cell_history")
+
+        plot_summary(
+            df,
+            cond_outdir,
+            alp_plot_hours=args.alp_plot_hours,
+            collagen_plot_hours=args.collagen_plot_hours,
+            mineral_plot_hours=args.mineral_plot_hours,
+        )
+
+        total_days = model.days
+        overlay_days = sorted({d for d in model.spatial_days if 0 <= d < total_days})
+        if args.spatial_every > 0:
+            overlay_days = sorted(
+                {
+                    *overlay_days,
+                    *{day for day in range(0, total_days, args.spatial_every)},
+                }
+            )
+        if not args.snapshots:
+            print("snapshots disabled; skipping collagen/HA overlays")
+        else:
+            all_days = range(total_days)
+            collagen_vmax = _global_field_max(model.grids_dir, "collagen", all_days)
+            ha_vmax = _global_field_max(model.grids_dir, "ha", all_days)
+            for day in overlay_days:
+                export_overlay_collagen_ha_from_npy(
+                    model.grids_dir,
+                    cond_outdir,
+                    day,
+                    global_vmax_col=collagen_vmax,
+                    global_vmax_ha=ha_vmax,
+                )
+
+        print(f"[{cond}]")
+        print(df.tail(5))
+
+    if args.datafit_all and datafit_path and Path(datafit_path).exists():
+        data = np.load(datafit_path)
+        conds = (
+            data["conditions"].tolist()
+            if "conditions" in data.files
+            else ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8"]
+        )
+        for cond in conds:
+            cond_out = outdir / str(cond)
+            cond_out.mkdir(parents=True, exist_ok=True)
+            _run_condition(str(cond), cond_out)
+    else:
+        _run_condition(args.datafit_condition, outdir)
 
 
 if __name__ == "__main__":

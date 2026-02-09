@@ -1,0 +1,42 @@
+{
+  "total_hours": 672,
+  "hours_per_day": 24,
+  "days": 29,
+  "seed": 12345,
+  "abm_cfg": {
+    "width": 33,
+    "height": 33,
+    "boundary_mode": "periodic",
+    "enable_random_move": true,
+    "enable_commitment": true,
+    "enable_apoptosis": true,
+    "enable_proliferation": true,
+    "enable_secretion": true,
+    "base_commit_prob": 0.0011,
+    "commit_prob_growth": 0.00011,
+    "commit_delay": 72,
+    "apoptosis_prob": 0.00042,
+    "ob_apoptosis_prob": 4.2e-05,
+    "min_div_hours": 38,
+    "max_div_hours": 52,
+    "alp_per_ob": 1.2,
+    "move_prob": 1.0,
+    "max_moves_per_hour": 1,
+    "ob_division_prob": 0.0,
+    "proliferation_chance": 1.0
+  },
+  "field_cfg": {
+    "width": 33,
+    "height": 33,
+    "media_interval": 48,
+    "enable_nodules": true,
+    "nodule_window": 5
+  },
+  "spatial_every": 1,
+  "spatial_days": [
+    28
+  ],
+  "snapshots_enabled": true,
+  "datafit_path": "datafitting/endpointresults/fit_outputs/datafit_endpoint.npz",
+  "datafit_condition": "C8"
+}
