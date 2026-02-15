@@ -3,58 +3,7 @@ main.py — entry point for the OsteoMin ABM/field simulator.
 Hourly inputs are supported; defaults mirror README.md.
 
 
-python main.py \
-  --hours 672 \
-  --cells 72 \
-  --seed-mode grid \
-  --grid-spacing 3 \
-  --seed $(shuf -i 1-999999 -n 1) \
-  --w 33 --h 33 \
-  --boundary-mode periodic \
-  --media-interval 48 \
-  --random-move --move-prob 1.0 --max-moves 1 \
-  --proliferation --ob-div-prob 0.0 \
-  --apoptosis --apoptosis-prob 0.00042 --apoptosis-osteo 0.000042 \
-  --osteogenic-commitment \
-  --commit-base 0.0011 \
-  --commit-growth 0.00011 \
-  --commit-delay 72 \
-  --min-div-hours 38 --max-div-hours 52 \
-  --secretion --enable-nodules \
-  --spatial-every 1 --out main_out \
-  --nodule-window 5 \
-  --datafit datafitting/datafit.npz \
-  --alp-plot-hours 240 \
-  --collagen-plot-hours 336 \
-  --mineral-plot-hours 672 \
-  --no-hourly-exports
-  
 
-python main.py \
-  --hours 672 \
-  --cells 72 \
-  --seed-mode random \
-  --seed $(shuf -i 1-999999 -n 1) \
-  --w 33 --h 33 \
-  --boundary-mode periodic \
-  --media-interval 48 \
-  --random-move --move-prob 1.0 --max-moves 1 \
-  --proliferation --ob-div-prob 0.0 \
-  --apoptosis --apoptosis-prob 0.00042 --apoptosis-osteo 0.000042 \
-  --osteogenic-commitment \
-  --commit-base 0.0011 \
-  --commit-growth 0.00011 \
-  --commit-delay 72 \
-  --min-div-hours 38 --max-div-hours 52 \
-  --secretion --enable-nodules \
-  --spatial-every 1 --out main_out \
-  --nodule-window 5 \
-  --datafit datafitting/endpointresults/fit_outputs/datafit_endpoint.npz \
-  --alp-plot-hours 240 \
-  --collagen-plot-hours 336 \
-  --mineral-plot-hours 672 \
-  --no-hourly-exports \
-  --datafit-all
 
 
 

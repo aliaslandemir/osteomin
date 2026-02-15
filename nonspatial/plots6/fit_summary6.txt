@@ -1,0 +1,56 @@
+=== Fit Summary (iterative6) ===
+Method: simple global least-squares fit (no stage locking)
+Optimizer: scipy least_squares with multiple starts
+Selected drive mode: hybrid
+K_AC fixed value: 0.1 mM
+Mineral gate h(t): tau=14 day, n=4, h(ARS_DAY)=0.9412
+Endpoint days: ALP=10, Collagen=14, ARS=28
+Final local cost: 42.548793
+Converged: True (`ftol` termination condition is satisfied.)
+Selected objective value: 58.986251
+
+Endpoint cells: ALP(pre=503.00, ob=420.00), Coll(pre=73.00, ob=1010.00), ARS(pre=0.00, ob=1065.00)
+C1 drive mode: ALP=total_from_csv (pre frac=0.545), Coll=total_from_csv (pre frac=0.067), ARS=total_from_csv (pre frac=0.000)
+
+R2 ALP: 0.9516
+R2 Collagen: 0.8857
+R2 ARS: 0.6506
+
+Drive mode candidates:
+  hybrid: objective=58.986251, R2(ALP/Coll/ARS)=(0.9516/0.8857/0.6506), R2_mean=0.8293, cost=42.548793
+  integral: objective=58.986251, R2(ALP/Coll/ARS)=(0.9516/0.8857/0.6506), R2_mean=0.8293, cost=42.548793
+  endpoint: objective=58.986333, R2(ALP/Coll/ARS)=(0.9516/0.8857/0.6506), R2_mean=0.8293, cost=42.548878
+
+Initial seed (selected mode):
+r_basal_P init = 7.554713e-04
+r_osteo_P init = 1.010456e-03
+k_DP init = -1.151969e+00
+k_KP init = -1.066535e+00
+k_DKP init = 0.000000e+00
+r_basal_C init = 6.893790e-01
+r_osteo_C init = 7.049854e-02
+k_DC init = 4.000000e+00
+k_KC init = 4.000000e+00
+k_DKC init = 0.000000e+00
+r_basal_H init = 3.420862e-05
+r_osteo_H init = 5.644943e-03
+k_DH init = -4.875097e-01
+k_KH init = -5.054659e-01
+k_DKH init = 0.000000e+00
+
+Parameters (estimate +/- approx SE)
+r_basal_P = 7.018022e-04 +/- 6.759e-05 [fitted_simple_ls]
+r_osteo_P = 1.055275e-03 +/- 2.273e-04 [fitted_simple_ls]
+k_DP = -1.025180e+00 +/- 1.869e-01 [fitted_simple_ls]
+k_KP = -9.090170e-01 +/- 2.014e-01 [fitted_simple_ls]
+k_DKP = 8.008142e-01 +/- 3.317e-01 [fitted_simple_ls]
+r_basal_C = 6.624772e-01 +/- 6.686e-02 [fitted_simple_ls]
+r_osteo_C = 1.818526e-01 +/- 1.861e-01 [fitted_simple_ls]
+k_DC = 1.098238e+00 +/- 1.956e+00 [fitted_simple_ls]
+k_KC = 6.000000e+00 +/- 6.744e+00 [fitted_simple_ls]
+k_DKC = -4.509665e+00 +/- 5.528e+00 [fitted_simple_ls]
+r_basal_H = 3.415240e-05 +/- 2.527e-04 [fitted_simple_ls]
+r_osteo_H = 5.989123e-03 +/- 8.515e-04 [fitted_simple_ls]
+k_DH = -4.416332e-01 +/- 1.292e-01 [fitted_simple_ls]
+k_KH = -3.997890e-01 +/- 1.321e-01 [fitted_simple_ls]
+k_DKH = 5.057387e-01 +/- 2.256e-01 [fitted_simple_ls]

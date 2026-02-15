@@ -1,0 +1,6 @@
+mode,run,cost,success,nfev
+hybrid,1,42.548793166886746,True,16
+hybrid,2,42.5487931668867,True,30
+hybrid,3,42.548793166958376,True,32
+hybrid,4,42.548793166886725,True,53
+hybrid,5,42.5487931668993,True,24
