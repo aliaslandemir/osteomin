@@ -9,9 +9,31 @@ from pathlib import Path
 import numpy as np
 
 
-T_DAYS = np.array([3, 7, 14, 21], dtype=float)
-ALP_CON = np.array([58.2210, 79.2453, 84.0970, 85.7143], dtype=float)
-ALP_OS = np.array([80.8625, 253.9084, 352.5606, 511.0512], dtype=float)
+T_DAYS = np.array([0, 3, 5, 7, 10, 14], dtype=float)
+
+ALP_CON = np.array(
+    [
+        55.0000,  # day 0 (approx baseline)
+        58.2210,  # day 3
+        70.0000,  # day 5 (interpolated)
+        79.2453,  # day 7
+        82.0000,  # day 10 (interpolated)
+        84.0970,  # day 14
+    ],
+    dtype=float,
+)
+
+ALP_OS = np.array(
+    [
+        60.0000,  # day 0 (approx baseline)
+        80.8625,  # day 3
+        200.0000,  # day 5 (estimated from figure trend)
+        253.9084,  # day 7
+        430.0000,  # day 10 (estimated)
+        511.0512,  # day 14
+    ],
+    dtype=float,
+)
 
 
 def model(
@@ -126,7 +148,7 @@ def save_outputs(
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--t_max_day", type=float, default=21.0)
+    ap.add_argument("--t_max_day", type=float, default=14.0)
     ap.add_argument("--dt_day", type=float, default=0.1)
     ap.add_argument(
         "--out_dir", type=Path, default=Path(__file__).resolve().parent / "alp"

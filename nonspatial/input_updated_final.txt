@@ -1,0 +1,91 @@
+Fixed (known) parameters ✅
+Osteogenic induction + media handling
+- u_osteo(t): step at t_osteo (timing fixed by protocol)
+- Media refresh interval: Δt_med (fixed by protocol)
+
+Ascorbic acid pulse model (fixed)
+- Initial AA after refresh: A0 = 0.284 mM (50 μg/mL)
+- First-order AA decay in medium (Chepda 2001 midpoint-based):
+    k_A ≈ 0.11 h^-1  (half-life ≈ 6 h)
+
+Ascorbic-acid gate (fixed form + fixed K_AC)
+- AA enters only via the osteogenic rate r_osteo, using:
+    g_A(A) = A_eff / (K_AC + A_eff)
+  Here K_AC is FIXED (not fit).
+
+Dex and MK gates (fixed form; EC50 fixed if you keep them fixed)
+- g_D(Dex) = Dex / (DEX_EC50 + Dex)
+- g_K(MK4) = MK4 / (MK_EC50 + MK4)
+
+Mineralization activation time gate (fixed)
+- We model mineralization activation using a Hill function:
+    h(t_eff) = t_eff^n / (τ^n + t_eff^n)
+  with τ = 16 days and n = 4 (both FIXED).
+
+Any other fixed parts
+- Cell dynamics / cell trajectory terms
+- Any additional protocol-timed switches
+
+
+Free (unknown) parameters to fit 🎯
+Note: Because AA is introduced via r_osteo * g_A(A), AA-specific κ_A terms are NOT included (redundant).
+
+ALP: 4 parameters
+- r_basal_P : basal ALP production
+- r_osteo_P : osteogenic ALP amplitude (multiplies g_A)
+- κ_DP      : Dex modifier on osteogenic ALP
+- κ_KP      : MK-4 modifier on osteogenic ALP
+
+Collagen: 4 parameters
+- r_basal_C : basal collagen production
+- r_osteo_C : osteogenic collagen amplitude (multiplies g_A)
+- κ_DC      : Dex modifier on osteogenic collagen
+- κ_KC      : MK-4 modifier on osteogenic collagen
+
+Mineral / ARS: 3 parameters
+- r_osteo_H : osteogenic mineral amplitude (multiplies g_A and the fixed Hill time gate)
+- κ_DH      : Dex modifier on osteogenic mineral
+- κ_KH      : MK-4 modifier on osteogenic mineral
+
+✅ Total free parameters
+4 + 4 + 3 = 11
+
+One compact list (free parameter vector)
+A typical ordering:
+θ = [
+  r_basal_P, r_osteo_P, κ_DP, κ_KP,
+  r_basal_C, r_osteo_C, κ_DC, κ_KC,
+  r_osteo_H, κ_DH, κ_KH
+]
+
+
+
+Final free (fit) parameters 🎯
+The following production/amplitude terms are FIXED from literature fitting:
+- r_basal_P, r_osteo_P
+- r_basal_C, r_osteo_C
+- r_osteo_H
+
+
+
+
+
+Therefore, the final free parameters to fit are the drug modifiers only:
+
+ALP modifiers (2)
+- κ_DP  : Dex modifier on osteogenic ALP
+- κ_KP  : MK-4 modifier on osteogenic ALP
+
+Collagen modifiers (2)
+- κ_DC  : Dex modifier on osteogenic collagen
+- κ_KC  : MK-4 modifier on osteogenic collagen
+
+Mineral / ARS modifiers (2)
+- κ_DH  : Dex modifier on osteogenic mineral
+- κ_KH  : MK-4 modifier on osteogenic mineral
+
+✅ Total free parameters = 6
+
+Free parameter vector
+θ_free = [ κ_DP, κ_KP, κ_DC, κ_KC, κ_DH, κ_KH ]
+
