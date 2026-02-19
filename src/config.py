@@ -29,7 +29,7 @@ class ABMConfig:
     min_div_hours: int = 38  # hours between divisions
     max_div_hours: int = 52  # hours between divisions
     alp_per_ob: float = 1.2
-    move_prob: float = 0.67  # per hour; legacy MC3T3-E1 motility baseline
+    move_prob: float = 0.27  # per hour; Refaaq2020
     max_moves_per_hour: int = 1  # max moves per hour
     ob_division_prob: float = 0.0  # per hour
     proliferation_chance: float = 1.0  # per hour
