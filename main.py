@@ -39,6 +39,7 @@ python main.py \
 
 from __future__ import annotations
 import argparse
+from dataclasses import replace
 from pathlib import Path
 from typing import Iterable
 
@@ -421,10 +422,16 @@ def main() -> None:
     datafit_path = Path(args.datafit) if args.datafit else None
 
     def _run_condition(cond: str, cond_outdir: Path) -> None:
+        cond_label = str(cond).strip().upper()
+        cond_abm_cfg = (
+            replace(abm_cfg, enable_commitment=False)
+            if cond_label == "C1"
+            else abm_cfg
+        )
         model = OsteoModel(
             outdir=cond_outdir,
             total_hours=total_hours,
-            abm_cfg=abm_cfg,
+            abm_cfg=cond_abm_cfg,
             field_cfg=field_cfg,
             seed=args.seed,
             spatial_every=args.spatial_every,

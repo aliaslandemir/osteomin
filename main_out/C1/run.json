@@ -8,7 +8,7 @@
     "height": 33,
     "boundary_mode": "periodic",
     "enable_random_move": true,
-    "enable_commitment": true,
+    "enable_commitment": false,
     "enable_apoptosis": true,
     "enable_proliferation": true,
     "enable_secretion": true,
