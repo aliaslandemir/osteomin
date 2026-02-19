@@ -125,11 +125,11 @@ class ABMManager:
                     c.mark_committed(hour)
                     self.committed_today += 1
 
-        if self.cfg.enable_secretion:
-            self._secretion_step()
-
         if self.cfg.enable_apoptosis:
             self._apoptosis_step(hour)
+
+        if self.cfg.enable_secretion:
+            self._secretion_step()
 
         if self.field is not None:
             n_preob = sum(1 for c in self.cells if c.state == CellState.PRE_OB)
