@@ -100,11 +100,8 @@ BASE_ARGS = [
     "--max-div-hours",
     "52",
     "--secretion",
-    "--enable-nodules",
     "--spatial-every",
     "1",
-    "--nodule-window",
-    "5",
     "--no-hourly-exports",
 ]
 

@@ -28,9 +28,7 @@
   "field_cfg": {
     "width": 33,
     "height": 33,
-    "media_interval": 48,
-    "enable_nodules": true,
-    "nodule_window": 5
+    "media_interval": 48
   },
   "spatial_every": 1,
   "spatial_days": [

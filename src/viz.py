@@ -470,14 +470,10 @@ def _render_collagen_ha_overlay(
     n_preob: int | None = None,
     n_ob: int | None = None,
     dead_today: int | None = None,
-    nodule_positions: np.ndarray | None = None,
-    nodule_cum: int = 0,
     global_vmax_col: float | None = None,
     global_vmax_ha: float | None = None,
 ) -> None:
     img_path.parent.mkdir(parents=True, exist_ok=True)
-    if nodule_positions is None:
-        nodule_positions = np.empty((0, 2), dtype=float)
 
     if not col.any() and not ha.any():
         fig = plt.figure(figsize=(6, 6))
@@ -489,24 +485,6 @@ def _render_collagen_ha_overlay(
         ax.set_xticks([])
         ax.set_yticks([])
         ax.set_title(f"{title_label} — No collagen/HA", fontsize=12, pad=10)
-        if nodule_cum:
-            stats_bits: list[str] = []
-            if n_preob is not None and n_ob is not None:
-                stats_bits.append(f"preOB: {n_preob}")
-                stats_bits.append(f"OB: {n_ob}")
-            if dead_today is not None:
-                stats_bits.append(f"Dead: {dead_today}")
-            stats_bits.append(f"Nodules: {nodule_cum}")
-            ax.text(
-                0.5,
-                0.08,
-                " | ".join(stats_bits),
-                transform=ax.transAxes,
-                ha="center",
-                va="bottom",
-                fontsize=9,
-                color=COLORS["text"],
-            )
         fig.savefig(img_path, dpi=300, bbox_inches="tight")
         plt.close(fig)
         return
@@ -557,24 +535,6 @@ def _render_collagen_ha_overlay(
         fontsize=12,
         y=0.97,
     )
-    hx: list[float] = []
-    hy: list[float] = []
-    if nodule_positions.size:
-        hx.extend(nodule_positions[:, 0].tolist())
-        hy.extend(nodule_positions[:, 1].tolist())
-    nodule_handle = None
-    if hx:
-        nodule_handle = ax.scatter(
-            hx,
-            hy,
-            marker="*",
-            s=45,
-            c="#8b1d8b",
-            edgecolors="#ffffff",
-            linewidths=0.5,
-            alpha=0.85,
-            zorder=5,
-        )
 
     stats_bits: list[str] = []
     if n_preob is not None and n_ob is not None:
@@ -582,7 +542,6 @@ def _render_collagen_ha_overlay(
         stats_bits.append(f"OB: {n_ob}")
     if dead_today is not None:
         stats_bits.append(f"Dead: {dead_today}")
-    stats_bits.append(f"Nodules: {nodule_cum}")
     ax.text(
         0.5,
         1.05,
@@ -605,23 +564,6 @@ def _render_collagen_ha_overlay(
     cbar_right = fig.colorbar(im_ha, cax=cax_right, orientation="vertical")
     cbar_right.set_label("Hydroxyapatite (a.u.)", fontsize=9)
     cbar_right.ax.tick_params(labelsize=8, colors="black")
-    legend_handle = None
-    if nodule_handle is not None:
-        legend_handle = matplotlib.lines.Line2D(
-            [],
-            [],
-            marker="*",
-            linestyle="None",
-            markersize=6,
-            color="#8b1d8b",
-            label="Nodule",
-        )
-    if legend_handle is not None:
-        legend = ax.legend(
-            handles=[legend_handle], loc="lower left", frameon=True, fontsize=8
-        )
-        legend.get_frame().set_edgecolor("#333333")
-        legend.get_frame().set_linewidth(0.6)
 
     fig.savefig(img_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
@@ -636,8 +578,6 @@ def export_overlay_collagen_ha(
     n_preob: int | None = None,
     n_ob: int | None = None,
     dead_today: int | None = None,
-    nodule_positions: np.ndarray | None = None,
-    nodule_cum: int = 0,
     global_vmax_col: float | None = None,
     global_vmax_ha: float | None = None,
 ) -> None:
@@ -649,8 +589,6 @@ def export_overlay_collagen_ha(
         n_preob=n_preob,
         n_ob=n_ob,
         dead_today=dead_today,
-        nodule_positions=nodule_positions,
-        nodule_cum=nodule_cum,
         global_vmax_col=global_vmax_col,
         global_vmax_ha=global_vmax_ha,
     )
@@ -666,8 +604,6 @@ def export_collagen_ha_snapshot(
     deaths_preob_mask: np.ndarray,
     deaths_ob_mask: np.ndarray,
     *,
-    nodule_positions: np.ndarray | None = None,
-    nodule_cum: int = 0,
     global_vmax_col: float | None = None,
     global_vmax_ha: float | None = None,
 ) -> None:
@@ -684,8 +620,6 @@ def export_collagen_ha_snapshot(
         n_preob=n_preob,
         n_ob=n_ob,
         dead_today=dead_today,
-        nodule_positions=nodule_positions,
-        nodule_cum=nodule_cum,
         global_vmax_col=global_vmax_col,
         global_vmax_ha=global_vmax_ha,
     )
@@ -719,16 +653,6 @@ def export_overlay_collagen_ha_from_npy(
     if deaths_path.exists():
         deaths_grid = np.load(deaths_path)
         dead_today = int(np.asarray(deaths_grid).sum())
-    nodules_path = grids_dir / f"nodules_day_{day:03d}.npz"
-    nodule_positions = np.empty((0, 2), dtype=float)
-    nodule_cum = 0
-
-    if nodules_path.exists():
-        nodules_data = np.load(nodules_path, allow_pickle=False)
-        positions = np.asarray(nodules_data["positions"], dtype=float)
-        if positions.size:
-            nodule_positions = positions.reshape(-1, 2)
-        nodule_cum = int(nodules_data["count"])
 
     export_overlay_collagen_ha(
         img_dir / f"collagen_ha_day_{day:03d}.pdf",
@@ -738,8 +662,6 @@ def export_overlay_collagen_ha_from_npy(
         n_preob=n_preob,
         n_ob=n_ob,
         dead_today=dead_today,
-        nodule_positions=nodule_positions,
-        nodule_cum=nodule_cum,
         global_vmax_col=global_vmax_col,
         global_vmax_ha=global_vmax_ha,
     )

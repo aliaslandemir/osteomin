@@ -23,9 +23,8 @@ python main.py \
   --commit-growth 0.00011 \
   --commit-delay 72 \
   --min-div-hours 38 --max-div-hours 52 \
-  --secretion --enable-nodules \
+  --secretion \
   --spatial-every 1 --out main_out \
-  --nodule-window 5 \
   --datafit datafitting/endpointresults/fit_outputs/datafit_endpoint.npz \
   --alp-plot-hours 240 \
   --collagen-plot-hours 336 \
@@ -146,7 +145,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--move-prob",
         type=float,
-        default=1.0,
+        default=ABMConfig.move_prob,
         help="probability a preOB cell attempts a move per hour",
     )
     p.add_argument(
@@ -270,25 +269,6 @@ def parse_args() -> argparse.Namespace:
     )
     p.set_defaults(secretion=True)
 
-    p.add_argument(
-        "--enable-nodules",
-        dest="nodules",
-        action="store_true",
-        help="detect nodules via window scan",
-    )
-    p.add_argument(
-        "--no-nodules",
-        dest="nodules",
-        action="store_false",
-        help="disable nodule scanning/overlays",
-    )
-    p.set_defaults(nodules=True)
-    p.add_argument(
-        "--nodule-window",
-        type=int,
-        default=4,
-        help="window size (in lattice cells) for nodule detection",
-    )
     p.add_argument(
         "--spatial-every",
         type=int,
@@ -428,8 +408,6 @@ def main() -> None:
         width=args.w,
         height=args.h,
         media_interval=args.media_interval,
-        enable_nodules=args.nodules,
-        nodule_window=max(1, int(args.nodule_window)),
     )
     spatial_days = [int(x) for x in args.spatial_days.split(",") if x.strip()]
 

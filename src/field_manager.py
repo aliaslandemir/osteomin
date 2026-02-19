@@ -1,7 +1,6 @@
 from __future__ import annotations
-from typing import List, Optional, Tuple
+from typing import Optional
 import numpy as np
-from numpy.lib.stride_tricks import sliding_window_view
 from .datafit import DatafitSchedule
 
 __all__ = ["FieldManager"]
@@ -14,7 +13,6 @@ class FieldManager:
     Design notes
     ------------
     - Collagen/ALP accumulate persistently and deposits are distributed over osteoblast-rich regions.
-    - Optional nodule detection uses a sliding window over mineralized regions.
     """
 
     def __init__(
@@ -22,8 +20,6 @@ class FieldManager:
         width: int,
         height: int,
         media_interval: int,
-        enable_nodules: bool = True,
-        nodule_window: int = 5,
         base_collagen_rate: float = 0.001,
         datafit_schedule: DatafitSchedule | None = None,
     ):
@@ -52,12 +48,6 @@ class FieldManager:
         self._preob_mask: Optional[np.ndarray] = None
 
         self._pending_secretion_ob_count: int = 0
-
-        self.enable_nodules = bool(enable_nodules)
-        self.nodule_window = int(max(1, nodule_window))
-        self._nodule_counts: dict[int, int] = {}
-        self._nodule_positions: dict[int, List[Tuple[float, float]]] = {}
-        self._latest_nodule_count: int = 0
 
 
     def request_collagen_secretion(self, ob_count: int) -> None:
@@ -173,95 +163,6 @@ class FieldManager:
             )
         self._preob_mask = m
 
-    def detect_nodules(
-        self, day: int, ob_mask: np.ndarray
-    ) -> Tuple[int, List[Tuple[float, float]]]:
-        """
-        Scan the grid with a window of size `nodule_window` and record nodules that meet:
-          - every site is occupied by an osteoblast
-          - each site contains mineral (HA > 0) so the window is mineralized.
-        """
-        if not self.enable_nodules:
-            self._latest_nodule_count = 0
-            return 0, []
-
-        mask = np.asarray(ob_mask, dtype=bool)
-        if mask.shape != (self.height, self.width):
-            raise ValueError(
-                f"ob_mask has shape {mask.shape}, expected {(self.height, self.width)}"
-            )
-        win = self.nodule_window
-        h, w = mask.shape
-        positions: List[Tuple[float, float]] = []
-        if h >= win and w >= win:
-            ob_view = sliding_window_view(mask.astype(np.uint8), (win, win))
-            ob_counts = ob_view.sum(axis=(-2, -1))
-            ha_view = sliding_window_view(self.ha, (win, win))
-            min_ha = ha_view.min(axis=(-2, -1))
-            required_ob = win * win
-            hits = (ob_counts == required_ob) & (min_ha > 0.0)
-            if hits.any():
-                positions = self._cluster_nodule_hits(hits)
-
-        count = len(positions)
-        self._nodule_counts[day] = count
-        self._nodule_positions[day] = positions
-        self._latest_nodule_count = count
-        return count, positions
-
-    def _cluster_nodule_hits(self, hits: np.ndarray) -> List[Tuple[float, float]]:
-        """
-        Merge overlapping positive windows (8-neighbour connectivity) and return
-        the approximate center of each nodule as (x, y) floats.
-        """
-        win = self.nodule_window
-        visited = np.zeros_like(hits, dtype=bool)
-        positions: List[Tuple[float, float]] = []
-        offsets = [
-            (-1, 0),
-            (1, 0),
-            (0, -1),
-            (0, 1),
-            (-1, -1),
-            (-1, 1),
-            (1, -1),
-            (1, 1),
-        ]
-        for y in range(hits.shape[0]):
-            for x in range(hits.shape[1]):
-                if not hits[y, x] or visited[y, x]:
-                    continue
-                queue = [(y, x)]
-                visited[y, x] = True
-                members: List[Tuple[int, int]] = []
-                while queue:
-                    cy, cx = queue.pop()
-                    members.append((cy, cx))
-                    for dy, dx in offsets:
-                        ny = cy + dy
-                        nx = cx + dx
-                        if (
-                            0 <= ny < hits.shape[0]
-                            and 0 <= nx < hits.shape[1]
-                            and hits[ny, nx]
-                            and not visited[ny, nx]
-                        ):
-                            visited[ny, nx] = True
-                            queue.append((ny, nx))
-                if not members:
-                    continue
-                avg_top = sum(m[0] for m in members) / len(members)
-                avg_left = sum(m[1] for m in members) / len(members)
-                center_y = avg_top + win / 2 - 0.5
-                center_x = avg_left + win / 2 - 0.5
-                positions.append((center_x, center_y))
-        return positions
-
-    def nodule_data_for_day(self, day: int) -> Tuple[int, List[Tuple[float, float]]]:
-        count = self._nodule_counts.get(day, 0)
-        positions = self._nodule_positions.get(day, [])
-        return count, positions
-
     def step_hour(self, hour: int, preob_count: int, ob_count: int) -> None:
         """
         Update fields for a single hour.
@@ -287,5 +188,4 @@ class FieldManager:
             "alp_ob_total": float(self.alp_ob_total),
             "mineral_preob_total": float(self.mineral_preob_total),
             "mineral_ob_total": float(self.mineral_ob_total),
-            "nodule_count": int(self._latest_nodule_count),
         }

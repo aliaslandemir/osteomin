@@ -30,8 +30,6 @@ class ABMManager:
         self.track_cells = bool(track_cells)
         self._next_cell_id = 0
         self._death_rows: List[Dict[str, Any]] = []
-        self._move_prob = 0.67  # ~20 µm/h on a 30 µm lattice, matching MC3T3-E1 controls
-
         self._direction_offsets = [
             (-1, 0),
             (1, 0),
@@ -44,7 +42,7 @@ class ABMManager:
         ]
 
         base_axial = 1.0
-        base_diag = 1.0 / np.sqrt(2)
+        base_diag = 0.5
 
         direction_weights = [base_axial] * 4 + [base_diag] * 4
         total = sum(direction_weights)
@@ -179,12 +177,25 @@ class ABMManager:
         return None
 
     def _movement_target(self, x: int, y: int) -> Tuple[int, int] | None:
-        if self.rng.random() >= self._move_prob:
+        candidates: List[Tuple[int, int]] = []
+        weights: List[float] = []
+        for (dx, dy), weight in zip(self._direction_offsets, self._direction_probs):
+            resolved = self._resolve_offset(x, y, dx, dy)
+            if resolved is None:
+                continue
+            nx, ny = resolved
+            if nx == x and ny == y:
+                continue
+            candidates.append((nx, ny))
+            weights.append(weight)
+
+        if not candidates:
             return None
 
-        idx = self.rng.choice(len(self._direction_offsets), p=self._direction_probs)
-        dx, dy = self._direction_offsets[idx]
-        return self._resolve_offset(x, y, dx, dy)
+        probs = np.array(weights, dtype=np.float64)
+        probs /= probs.sum()
+        idx = int(self.rng.choice(len(candidates), p=probs))
+        return candidates[idx]
 
     def _random_move_step(self) -> None:
         for idx, c in enumerate(self.cells):

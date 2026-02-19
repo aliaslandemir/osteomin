@@ -76,14 +76,11 @@ class OsteoModel:
             width=field_cfg.width,
             height=field_cfg.height,
             media_interval=field_cfg.media_interval,
-            enable_nodules=getattr(field_cfg, "enable_nodules", False),
-            nodule_window=getattr(field_cfg, "nodule_window", 10),
             datafit_schedule=datafit_schedule,
         )
         self.abm.attach_field(self.field)
 
         self._rows: List[Dict] = []
-        self._nodule_history: dict[int, dict] = {}
         self._cell_history: List[Dict[str, Any]] = []
         self._daily_dead_preob = 0
         self._daily_dead_ob = 0
@@ -143,7 +140,6 @@ class OsteoModel:
             np.save(self.grids_dir / f"collagen_day_000.npy", self.field.collagen.astype(np.float32))
             np.save(self.grids_dir / f"ha_day_000.npy",       self.field.ha.astype(np.float32))
 
-        self._handle_nodules(0, state)
         self._append_row(0)
         dead_total_cum = 0
         if self._should_export_spatial(0):
@@ -259,7 +255,6 @@ class OsteoModel:
                     self.field.ha.astype(np.float32),
                 )
 
-            self._handle_nodules(day_index, final_state)
             self._append_row(
                 day_index,
                 dead_preob_today=self._daily_dead_preob,
@@ -351,9 +346,6 @@ class OsteoModel:
                 "mineral_preob_total": float(self.field.mineral_preob_total),
                 "mineral_ob_total": float(self.field.mineral_ob_total),
             }
-            row["nodule_count"] = int(
-                self.field.nodule_data_for_day(day)[0]
-            ) if hasattr(self.field, "nodule_data_for_day") else 0
             self._rows.append(row)
             return
 
@@ -376,59 +368,7 @@ class OsteoModel:
             "mineral_preob_total": float(scalars.get("mineral_preob_total", 0.0)),
             "mineral_ob_total": float(scalars.get("mineral_ob_total", 0.0)),
         }
-        row["nodule_count"] = int(
-            self.field.nodule_data_for_day(day)[0]
-        ) if hasattr(self.field, "nodule_data_for_day") else 0
         self._rows.append(row)
-
-
-    def _handle_nodules(self, day: int, state_grid: np.ndarray) -> None:
-        if not getattr(self.field, "enable_nodules", False):
-            return
-        ob_mask = state_grid == CellState.OSTEOBLAST
-        count, positions = self.field.detect_nodules(day, ob_mask)
-        self._nodule_history[day] = {"count": count, "positions": positions}
-        self._save_nodules_snapshot(day, positions)
-
-    def _save_nodules_snapshot(
-        self, day: int, positions: List[Tuple[float, float]]
-    ) -> None:
-        if not getattr(self.field, "enable_nodules", False):
-            return
-        path = self.grids_dir / f"nodules_day_{day:03d}.npz"
-        prev_positions = np.empty((0, 2), dtype=np.float32)
-        prev_path = self.grids_dir / f"nodules_day_{day-1:03d}.npz"
-        if day > 0 and prev_path.exists():
-            prev = np.load(prev_path, allow_pickle=False)
-            prev_positions = np.asarray(prev["positions"], dtype=np.float32)
-        arr = np.asarray(positions, dtype=np.float32)
-        if arr.size == 0:
-            arr = arr.reshape(0, 2)
-        combined = arr
-        if prev_positions.size:
-            if combined.size:
-                combined = np.vstack([prev_positions, combined])
-            else:
-                combined = prev_positions
-        if combined.size:
-            tol = max(1.0, float(getattr(self.field, "nodule_window", 1)) * 0.5)
-            unique: List[Tuple[float, float]] = []
-            for x, y in combined:
-                keep = True
-                for ux, uy in unique:
-                    if abs(float(ux) - float(x)) <= tol and abs(float(uy) - float(y)) <= tol:
-                        keep = False
-                        break
-                if keep:
-                    unique.append((x, y))
-            combined = np.asarray(unique, dtype=np.float32)
-        else:
-            combined = combined.reshape(0, 2)
-        np.savez(
-            path,
-            count=np.int32(len(combined)),
-            positions=combined,
-        )
 
     def save_timeseries_excel(self, df: pd.DataFrame, basename: str = "timeseries") -> Path:
         out = self.outdir / f"{basename}.xlsx"

@@ -62,13 +62,6 @@ python main.py
 |------|---------|
 | `--datafit` | `datafitting/datafit.npz` (hourly basal/osteo ALP, collagen, mineral curves) |
 
-### Field / chemistry
-| Parameter | Default |
-|-----------|---------|
-| `--enable-nodules` | enabled (runs the sliding-window nodule scanner) |
-| `--nodule-window` | 4 (lattice cells per side) |
-| Nodule logic | every site in the window must be OB with HA ≥ `--ha-threshold` |
-
 ### Output
 | Flag | Default |
 |------|---------|
@@ -103,9 +96,8 @@ python main.py \
   --apoptosis --apoptosis-prob 0.00042 --apoptosis-osteo 0.000042 \
   --osteogenic-commitment --commit-growth 0.00001736 --commit-delay 72 \
   --min-div-hours 38 --max-div-hours 52 \
-  --secretion --enable-nodules \
+  --secretion \
   --spatial-every 1 --out out \
-  --nodule-window 4 \
   --datafit datafitting/datafit.npz \
   --no-hourly-exports
 ```
@@ -119,7 +111,6 @@ This command matches the configuration used in the paper; feel free to omit flag
 - **Geometry & time:** `--days`, `--cells`, `--w`, `--h`, `--boundary-mode`, `--media-interval`, `--seed`.
 - **Datafit forcing:** `--datafit` points to `datafitting/datafit.npz`; preOB use basal curves, OB use osteogenic curves, and hourly increments are blended by the live mix.
 - **Cell events:** toggles for movement, proliferation, apoptosis, secretion, and commitment determine whether the ABM executes the corresponding steps each day. Per-process probabilities are adjustable via the associated flags.
-- **Nodule detection:** `--nodule-window` and `--enable-nodules` control how dynamic clusters are reported; each window must consist solely of OBs that have deposited mineral so the HA field is positive across the block.
 - All per-day flags listed above are internally scaled to hourly values so the CLI stays familiar even though the solver now runs on 1-hour ticks.
 
 ---
@@ -133,8 +124,7 @@ This command matches the configuration used in the paper; feel free to omit flag
 
 ## Notes
 - The entire chemistry configuration is centralized in `FieldConfig` (`src/config.py`), so any parameter you expose via CLI will propagate through `main.py` → `FieldConfig` → `FieldManager` without local edits.
-- Overlay images (`out/collagen_ha/collagen_ha_day_XXX.pdf`) show collagen (yellow-green) and HA (magenta/blue). Purple stars mark cumulative nodule centers derived from `out/grids/nodules_day_XXX.npz`.
-- Timeseries (`out/timeseries.xlsx`) always includes a `nodule_count` column (0 when nodule detection is disabled).
+- Overlay images (`out/collagen_ha/collagen_ha_day_XXX.pdf`) show collagen (yellow-green) and HA (magenta/blue), with live-cell/death stats in the header.
 
 Enjoy experimenting with the osteoblast ABM! Feel free to open issues or PRs if you need additional CLI knobs or output formats.
 

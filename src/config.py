@@ -29,16 +29,16 @@ class ABMConfig:
     min_div_hours: int = 38  # hours between divisions
     max_div_hours: int = 52  # hours between divisions
     alp_per_ob: float = 1.2
-    move_prob: float = 1.0  # per hour
+    move_prob: float = 0.67  # per hour; legacy MC3T3-E1 motility baseline
     max_moves_per_hour: int = 1  # max moves per hour
     ob_division_prob: float = 0.0  # per hour
     proliferation_chance: float = 1.0  # per hour
 
     # Mineralization thresholds/kinetics (legacy; FieldManager now owns them)
+
+
 @dataclass(slots=True)
 class FieldConfig:
     width: int = 33
     height: int = 33
     media_interval: int = 48  # hours between media refresh (legacy default 2 days)
-    enable_nodules: bool = True
-    nodule_window: int = 4
