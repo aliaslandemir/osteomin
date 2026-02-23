@@ -19,6 +19,7 @@ from .io_utils import (
 )
 from .time_utils import HOURS_PER_DAY
 from .viz import (
+    detect_nodules,
     export_spatial_for_day,
     export_spatial_hourly,
     export_collagen_ha_snapshot,
@@ -42,6 +43,7 @@ class OsteoModel:
         hourly_exports: bool = False,
         datafit_path: Path | None = None,
         datafit_condition: str | int | None = None,
+        nodule_connectivity: str = "8n",
     ):
         self.outdir = Path(outdir)
         self.outdir.mkdir(parents=True, exist_ok=True)
@@ -77,6 +79,10 @@ class OsteoModel:
             height=field_cfg.height,
             media_interval=field_cfg.media_interval,
             datafit_schedule=datafit_schedule,
+            ha_model=field_cfg.ha_model,
+            ha_tau_hours=field_cfg.ha_tau_hours,
+            ha_hill_n=field_cfg.ha_hill_n,
+            ha_t_commit_hours=field_cfg.ha_t_commit_hours,
         )
         self.abm.attach_field(self.field)
 
@@ -89,10 +95,16 @@ class OsteoModel:
         self._daily_dead_preob_coords: List[Tuple[int, int]] = []
         self._daily_dead_ob_coords: List[Tuple[int, int]] = []
         self.hourly_exports = bool(hourly_exports)
+        self.nodule_connectivity = str(nodule_connectivity).lower()
+        self.nodule_boundary_mode = str(abm_cfg.boundary_mode).lower()
+        self.nodule_centers_by_day: Dict[int, List[Tuple[float, float]]] = {}
+        self.nodule_count_by_day: Dict[int, int] = {}
+        self._persistent_nodule_centers: List[Tuple[float, float]] = []
+        self._nodule_merge_radius: float = 4.0
 
         self.spatial_every = max(0, int(spatial_every))
         base_days = set((spatial_days or []))
-        base_days.add(self.days - 1)  # always export the latest day index
+        base_days.add(self.days - 1)
         self.spatial_days = {d for d in base_days if 0 <= d < self.days}
 
         meta = {
@@ -107,6 +119,8 @@ class OsteoModel:
             "snapshots_enabled": self.snapshots_enabled,
             "datafit_path": str(datafit_path) if datafit_path is not None else None,
             "datafit_condition": datafit_condition,
+            "nodule_connectivity": self.nodule_connectivity,
+            "nodule_boundary_mode": self.nodule_boundary_mode,
         }
         (self.outdir / "run.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
@@ -140,7 +154,7 @@ class OsteoModel:
             np.save(self.grids_dir / f"collagen_day_000.npy", self.field.collagen.astype(np.float32))
             np.save(self.grids_dir / f"ha_day_000.npy",       self.field.ha.astype(np.float32))
 
-        self._append_row(0)
+        self._append_row(0, state_grid=state)
         dead_total_cum = 0
         if self._should_export_spatial(0):
             export_spatial_for_day(
@@ -203,6 +217,8 @@ class OsteoModel:
                     state_hour,
                     deaths_preob_mask_hour,
                     deaths_ob_mask_hour,
+                    nodule_connectivity=self.nodule_connectivity,
+                    boundary_mode=self.nodule_boundary_mode,
                 )
 
             final_dens, final_state = dens_hour, state_hour
@@ -260,6 +276,7 @@ class OsteoModel:
                 dead_preob_today=self._daily_dead_preob,
                 dead_ob_today=self._daily_dead_ob,
                 committed_today=self._daily_committed,
+                state_grid=final_state,
             )
 
             dead_total_cum += daily_dead_total
@@ -323,9 +340,22 @@ class OsteoModel:
         dead_preob_today: int = 0,
         dead_ob_today: int = 0,
         committed_today: int = 0,
+        state_grid: np.ndarray | None = None,
     ) -> None:
         n_preob = sum(1 for c in self.abm.cells if c.state == CellState.PRE_OB)
         n_ob = sum(1 for c in self.abm.cells if c.state == CellState.OSTEOBLAST)
+        if state_grid is None:
+            _, state_grid = cell_grids(self.abm.height, self.abm.width, self.abm.cells)
+        nodule_centers, _ = detect_nodules(
+            state_grid,
+            self.field.ha,
+            connectivity=self.nodule_connectivity,
+            boundary_mode=self.nodule_boundary_mode,
+        )
+        persistent_centers = self._update_persistent_nodules(nodule_centers)
+        nodule_count = int(len(persistent_centers))
+        self.nodule_centers_by_day[int(day)] = list(persistent_centers)
+        self.nodule_count_by_day[int(day)] = nodule_count
 
         if day == 0:
             row = {
@@ -345,6 +375,7 @@ class OsteoModel:
                 "alp_ob_total": float(self.field.alp_ob_total),
                 "mineral_preob_total": float(self.field.mineral_preob_total),
                 "mineral_ob_total": float(self.field.mineral_ob_total),
+                "nodule_count": nodule_count,
             }
             self._rows.append(row)
             return
@@ -367,8 +398,37 @@ class OsteoModel:
             "alp_ob_total": float(scalars.get("alp_ob_total", 0.0)),
             "mineral_preob_total": float(scalars.get("mineral_preob_total", 0.0)),
             "mineral_ob_total": float(scalars.get("mineral_ob_total", 0.0)),
+            "nodule_count": nodule_count,
         }
         self._rows.append(row)
+
+    def _update_persistent_nodules(
+        self, centers_now: List[Tuple[float, float]]
+    ) -> List[Tuple[float, float]]:
+        if not centers_now:
+            return list(self._persistent_nodule_centers)
+        if not self._persistent_nodule_centers:
+            self._persistent_nodule_centers = list(centers_now)
+            return list(self._persistent_nodule_centers)
+
+        r2 = float(self._nodule_merge_radius) ** 2
+        for cx, cy in centers_now:
+            matched = False
+            for px, py in self._persistent_nodule_centers:
+                if self.nodule_boundary_mode == "periodic":
+                    dx = abs(cx - px)
+                    dy = abs(cy - py)
+                    dx = min(dx, float(self.abm.width) - dx)
+                    dy = min(dy, float(self.abm.height) - dy)
+                else:
+                    dx = cx - px
+                    dy = cy - py
+                if (dx * dx + dy * dy) <= r2:
+                    matched = True
+                    break
+            if not matched:
+                self._persistent_nodule_centers.append((float(cx), float(cy)))
+        return list(self._persistent_nodule_centers)
 
     def save_timeseries_excel(self, df: pd.DataFrame, basename: str = "timeseries") -> Path:
         out = self.outdir / f"{basename}.xlsx"

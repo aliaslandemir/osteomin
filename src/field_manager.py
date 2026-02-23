@@ -22,6 +22,10 @@ class FieldManager:
         media_interval: int,
         base_collagen_rate: float = 0.001,
         datafit_schedule: DatafitSchedule | None = None,
+        ha_model: str = "minimal",
+        ha_tau_hours: float = 384.0,
+        ha_hill_n: float = 4.0,
+        ha_t_commit_hours: float = 72.0,
     ):
         self.width = int(width)
         self.height = int(height)
@@ -31,6 +35,10 @@ class FieldManager:
         self.hours_since_media = 0
         self.datafit_schedule = datafit_schedule
         self.BASE_COLLAGEN_RATE = float(base_collagen_rate)
+        self.ha_model = str(ha_model).lower().strip()
+        self.ha_tau_hours = max(1e-9, float(ha_tau_hours))
+        self.ha_hill_n = max(1.0, float(ha_hill_n))
+        self.ha_t_commit_hours = max(0.0, float(ha_t_commit_hours))
         self.collagen = np.zeros((self.height, self.width), dtype=float)
         self.alp = np.zeros((self.height, self.width), dtype=float)
         self.ha = np.zeros((self.height, self.width), dtype=float)
@@ -49,6 +57,33 @@ class FieldManager:
 
         self._pending_secretion_ob_count: int = 0
 
+    def _apply_minimal_ha(self, hour: int, ob_count: int) -> None:
+        """Minimal HA model using Hill-like effective-time activation."""
+        if ob_count <= 0:
+            return
+        if self._ob_mask is None or not self._ob_mask.any():
+            return
+
+        u_osteo = 1.0
+        r0 = 1.0
+        kappa_d = 1.0
+        kappa_k = 1.0
+        c_d = 1.0
+        c_k = 1.0
+
+        t_eff = max(0.0, float(hour) - self.ha_t_commit_hours)
+        tau_n = self.ha_tau_hours ** self.ha_hill_n
+        teff_n = t_eff ** self.ha_hill_n
+        hill = teff_n / max(tau_n + teff_n, 1e-12)
+
+        dH_dt = u_osteo * float(ob_count) * (r0 + kappa_d * c_d + kappa_k * c_k) * hill
+        delta_h = max(0.0, dH_dt)
+        if delta_h <= 0.0:
+            return
+
+        area = int(self._ob_mask.sum())
+        self.ha[self._ob_mask] += delta_h / max(1, area)
+        self.mineral_ob_total += delta_h
 
     def request_collagen_secretion(self, ob_count: int) -> None:
         """Queue the number of OBs that should secrete collagen this day."""
@@ -94,7 +129,12 @@ class FieldManager:
         collagen_ob = max(0.0, inc.get("collagen_osteo_ob", inc.get("collagen_osteo", 0.0)))
         alp_preob = max(0.0, inc.get("alp_basal", 0.0))
         alp_ob = max(0.0, inc.get("alp_osteo_ob", inc.get("alp_osteo", 0.0)))
-        mineral_ob = max(0.0, inc.get("mineral_osteo_ob", inc.get("mineral_osteo", 0.0)))
+        mineral_preob = 0.0
+        if self.ha_model == "datafit":
+            mineral_preob = max(0.0, inc.get("mineral_basal", 0.0))
+        mineral_ob = 0.0
+        if self.ha_model == "datafit":
+            mineral_ob = max(0.0, inc.get("mineral_osteo_ob", inc.get("mineral_osteo", 0.0)))
 
         if pre_mask is not None and pre_mask.any():
             area = int(pre_mask.sum())
@@ -106,6 +146,9 @@ class FieldManager:
                 self.alp[pre_mask] += alp_preob / max(1, area)
                 self.total_alp += alp_preob
                 self.alp_preob_total += alp_preob
+            if mineral_preob > 0.0:
+                self.ha[pre_mask] += mineral_preob / max(1, area)
+                self.mineral_preob_total += mineral_preob
         else:
             if collagen_preob > 0.0:
                 self.collagen += collagen_preob / max(1.0, self.area)
@@ -115,6 +158,9 @@ class FieldManager:
                 self.alp += alp_preob / max(1.0, self.area)
                 self.total_alp += alp_preob
                 self.alp_preob_total += alp_preob
+            if mineral_preob > 0.0:
+                self.ha += mineral_preob / max(1.0, self.area)
+                self.mineral_preob_total += mineral_preob
 
         if ob_mask is not None and ob_mask.any():
             area = int(ob_mask.sum())
@@ -171,6 +217,8 @@ class FieldManager:
             self._apply_datafit(hour, preob_count, ob_count)
         else:
             self._apply_collagen_secretion()
+        if self.ha_model == "minimal":
+            self._apply_minimal_ha(hour, ob_count)
 
         self._hour += 1
         if self.media_interval_hours > 0:

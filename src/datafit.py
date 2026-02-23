@@ -32,14 +32,12 @@ class DatafitSchedule:
         data = np.load(path)
         files = set(data.files)
 
-        # New endpoint format: per-hour increments, per-condition, preOB/OB
         if "alp_preob_hourly" in files and "alp_ob_hourly" in files:
             hours = np.arange(max(0, int(total_hours)) + 1, dtype=float)
             src_t = np.asarray(data["time_hours"], dtype=float)
 
-            # resolve condition index
             if condition is None:
-                cond_idx = 1  # default C2
+                cond_idx = 1
             elif isinstance(condition, int):
                 cond_idx = int(condition)
             else:
@@ -75,7 +73,6 @@ class DatafitSchedule:
                 "mineral_basal": min_preob,
                 "mineral_osteo_ob": min_ob,
             }
-            # arrays already represent hourly increments
             increments = {k: np.asarray(v, dtype=float) for k, v in series.items()}
 
             return cls(
@@ -114,7 +111,6 @@ class DatafitSchedule:
             "mineral_osteo": _interp("mineral_C2"),
         }
         increments = {k: np.diff(v, prepend=v[0]) for k, v in series.items()}
-        # ensure hour 0 contributes nothing (diff above may add initial offset)
         for v in increments.values():
             if v.size:
                 v[0] = 0.0

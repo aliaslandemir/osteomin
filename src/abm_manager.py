@@ -49,9 +49,9 @@ class ABMManager:
 
         self._direction_probs = [w / total for w in direction_weights]
 
-        self.dead_cells: List[Tuple[int, int]] = []  # (row, col)
-        self.dead_preob_coords: List[Tuple[int, int]] = []  # died while preOB
-        self.dead_ob_coords: List[Tuple[int, int]] = []  # died while OB
+        self.dead_cells: List[Tuple[int, int]] = []
+        self.dead_preob_coords: List[Tuple[int, int]] = []
+        self.dead_ob_coords: List[Tuple[int, int]] = []
         self.committed_today: int = 0
         self._move_prob_hourly = min(1.0, max(0.0, float(self.cfg.move_prob)))
         self._max_moves_per_step = max(0, int(self.cfg.max_moves_per_hour))

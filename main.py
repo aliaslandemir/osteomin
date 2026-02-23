@@ -1,41 +1,4 @@
-"""
-main.py — entry point for the OsteoMin ABM/field simulator.
-Hourly inputs are supported; defaults mirror README.md.
-
-
-
-
-
-
-python main.py \
-  --hours 672 \
-  --cells 72 \
-  --seed-mode random \
-  --seed 12345 \
-  --w 33 --h 33 \
-  --boundary-mode periodic \
-  --media-interval 48 \
-  --random-move --move-prob 1.0 --max-moves 1 \
-  --proliferation --ob-div-prob 0.0 \
-  --apoptosis --apoptosis-prob 0.00042 --apoptosis-osteo 0.000042 \
-  --osteogenic-commitment \
-  --commit-base 0.0011 \
-  --commit-growth 0.00011 \
-  --commit-delay 72 \
-  --min-div-hours 38 --max-div-hours 52 \
-  --secretion \
-  --spatial-every 1 --out main_out \
-  --datafit datafitting/endpointresults/fit_outputs/datafit_endpoint.npz \
-  --alp-plot-hours 240 \
-  --collagen-plot-hours 336 \
-  --mineral-plot-hours 672 \
-  --no-hourly-exports \
-  --datafit-all
-  
-
-  
-
-"""
+"""Entry point for OsteoMin."""
 
 from __future__ import annotations
 import argparse
@@ -48,7 +11,7 @@ import numpy as np
 from src.model import OsteoModel
 from src.config import FieldConfig, ABMConfig
 from src.time_utils import HOURS_PER_DAY
-from src.viz import plot_summary, export_overlay_collagen_ha_from_npy
+from src.viz import plot_summary, export_overlay_collagen_ha
 
 
 def _global_field_max(grids_dir: Path, field_prefix: str, days: Iterable[int]) -> float:
@@ -76,6 +39,7 @@ def _grid_seed_coords(w: int, h: int, spacing: int) -> list[tuple[int, int]]:
 
 
 def parse_args() -> argparse.Namespace:
+    default_abm = ABMConfig()
     p = argparse.ArgumentParser(
         description="OsteoMin: MC3T3-E1 ABM/field bone remodeling simulator",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -115,6 +79,25 @@ def parse_args() -> argparse.Namespace:
         help="hours between media changes (legacy 2 days = 48 hours)",
     )
     p.add_argument(
+        "--ha-model",
+        type=str,
+        choices=["minimal", "datafit"],
+        default="minimal",
+        help="HA production model: minimal Hill-time rule or legacy datafit mineral increments",
+    )
+    p.add_argument(
+        "--ha-tau",
+        type=float,
+        default=384.0,
+        help="tau (hours) for minimal HA Hill activation",
+    )
+    p.add_argument(
+        "--ha-hill-n",
+        type=float,
+        default=4.0,
+        help="Hill exponent n for minimal HA activation",
+    )
+    p.add_argument(
         "--seed", type=int, default=None, help="random seed for reproducibility"
     )
 
@@ -146,7 +129,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--move-prob",
         type=float,
-        default=ABMConfig.move_prob,
+        default=default_abm.move_prob,
         help="probability a preOB cell attempts a move per hour",
     )
     p.add_argument(
@@ -158,13 +141,13 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--min-div-hours",
         type=int,
-        default=ABMConfig.min_div_hours,
+        default=default_abm.min_div_hours,
         help="minimum hours between divisions for a cell",
     )
     p.add_argument(
         "--max-div-hours",
         type=int,
-        default=ABMConfig.max_div_hours,
+        default=default_abm.max_div_hours,
         help="maximum hours between divisions for a cell",
     )
 
@@ -198,7 +181,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--commit-base",
         type=float,
-        default=ABMConfig.base_commit_prob,
+        default=default_abm.base_commit_prob,
         help="base per-hour osteogenic commitment probability",
     )
 
@@ -270,6 +253,13 @@ def parse_args() -> argparse.Namespace:
     )
     p.set_defaults(secretion=True)
 
+    p.add_argument(
+        "--nodules",
+        type=str,
+        choices=["4n", "8n", "24n", "40n", "60n", "84n", "112n", "144n"],
+        default="8n",
+        help="nodule connectivity rule: 4n (Manhattan r=1), 8n (Moore r=1), 24n (Moore r=2), 40n (Manhattan r=4), 60n (Manhattan r=5), 84n (Manhattan r=6), 112n (Manhattan r=7), 144n (Manhattan r=8)",
+    )
     p.add_argument(
         "--spatial-every",
         type=int,
@@ -409,6 +399,10 @@ def main() -> None:
         width=args.w,
         height=args.h,
         media_interval=args.media_interval,
+        ha_model=args.ha_model,
+        ha_tau_hours=args.ha_tau,
+        ha_hill_n=args.ha_hill_n,
+        ha_t_commit_hours=args.commit_delay,
     )
     spatial_days = [int(x) for x in args.spatial_days.split(",") if x.strip()]
 
@@ -424,9 +418,7 @@ def main() -> None:
     def _run_condition(cond: str, cond_outdir: Path) -> None:
         cond_label = str(cond).strip().upper()
         cond_abm_cfg = (
-            replace(abm_cfg, enable_commitment=False)
-            if cond_label == "C1"
-            else abm_cfg
+            replace(abm_cfg, enable_commitment=False) if cond_label == "C1" else abm_cfg
         )
         model = OsteoModel(
             outdir=cond_outdir,
@@ -441,6 +433,7 @@ def main() -> None:
             hourly_exports=args.hourly_exports,
             datafit_path=datafit_path,
             datafit_condition=cond,
+            nodule_connectivity=args.nodules,
         )
 
         if args.seed_mode == "random":
@@ -492,11 +485,54 @@ def main() -> None:
             all_days = range(total_days)
             collagen_vmax = _global_field_max(model.grids_dir, "collagen", all_days)
             ha_vmax = _global_field_max(model.grids_dir, "ha", all_days)
+            prev_col: np.ndarray | None = None
+            prev_ha: np.ndarray | None = None
+            prev_meta: tuple | None = None
+            df_by_day = df.set_index("day")
             for day in overlay_days:
-                export_overlay_collagen_ha_from_npy(
-                    model.grids_dir,
-                    cond_outdir,
-                    day,
+                col = np.load(model.grids_dir / f"collagen_day_{day:03d}.npy")
+                ha = np.load(model.grids_dir / f"ha_day_{day:03d}.npy")
+
+                n_preob = n_ob = dead_today = nodule_count = None
+                nodule_centers = None
+                if day in df_by_day.index:
+                    row = df_by_day.loc[day]
+                    n_preob = int(row["n_preob"])
+                    n_ob = int(row["n_osteoblast"])
+                    dead_today = int(row["dead_total_today"])
+                    nodule_count = int(row["nodule_count"])
+                if day in model.nodule_centers_by_day:
+                    nodule_centers = model.nodule_centers_by_day[day]
+                centers_sig = ()
+                if nodule_centers:
+                    centers_sig = tuple(
+                        (round(float(x), 3), round(float(y), 3))
+                        for x, y in nodule_centers
+                    )
+                meta_sig = (n_preob, n_ob, dead_today, nodule_count, centers_sig)
+                if (
+                    prev_col is not None
+                    and prev_ha is not None
+                    and prev_meta is not None
+                    and np.array_equal(col, prev_col)
+                    and np.array_equal(ha, prev_ha)
+                    and meta_sig == prev_meta
+                ):
+                    continue
+                prev_col = col
+                prev_ha = ha
+                prev_meta = meta_sig
+
+                export_overlay_collagen_ha(
+                    cond_outdir / "collagen_ha" / f"collagen_ha_day_{day:03d}.pdf",
+                    f"Day {day:02d}",
+                    col,
+                    ha,
+                    n_preob=n_preob,
+                    n_ob=n_ob,
+                    dead_today=dead_today,
+                    nodule_count=nodule_count,
+                    nodule_centers=nodule_centers,
                     global_vmax_col=collagen_vmax,
                     global_vmax_ha=ha_vmax,
                 )

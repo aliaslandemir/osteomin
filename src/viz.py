@@ -1,18 +1,24 @@
 from __future__ import annotations
 from pathlib import Path
+from functools import lru_cache
 import numpy as np
 import pandas as pd
 import matplotlib
+from scipy import ndimage as ndi
+from scipy.sparse import coo_matrix
+from scipy.sparse.csgraph import connected_components
 
-matplotlib.use("Agg")  # safe non-GUI backend
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 from matplotlib.colors import to_rgb, PowerNorm
+from matplotlib.cm import ScalarMappable
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from .agent import CellState
 
 __all__ = [
     "plot_summary",
+    "detect_nodules",
     "export_spatial_for_day",
     "export_spatial_hourly",
     "export_overlay_collagen_ha",
@@ -21,8 +27,8 @@ __all__ = [
 ]
 
 COLORS = {
-    "preob": "#0072B2",  # colorblind-safe blue
-    "ob": "#D55E00",  # colorblind-safe vermillion
+    "preob": "#0072B2",
+    "ob": "#D55E00",
     "dead_preob": "#E69F00",
     "dead_ob": "#CC79A7",
     "text": "#111111",
@@ -37,7 +43,7 @@ PLOT_STYLE = {
     "grid_alpha": 0.18,
 }
 
-FIGURE_SIZE_SPATIAL = (8, 7)  # Shared size to keep spatial and collagen PDFs matching.
+FIGURE_SIZE_SPATIAL = (8, 7)
 
 plt.rcParams.update(
     {
@@ -82,7 +88,6 @@ def _format_xlabel(ax: plt.Axes, days: np.ndarray) -> None:
     max_day = float(np.max(days))
     max_hours = max_day * 24.0
     ax.set_xlabel(f"Day (0–{int(round(max_day))}; {int(round(max_hours))} h)")
-    # force integer day ticks including last day
     end_tick = int(np.ceil(max_day))
     if end_tick <= 0:
         ax.set_xticks([0])
@@ -101,6 +106,167 @@ def _save_figure(fig: plt.Figure, outdir: Path, basename: str) -> None:
     pdf_path = pdf_dir / f"{basename}.pdf"
     fig.savefig(png_path, dpi=100, bbox_inches="tight")
     fig.savefig(pdf_path, dpi=300, bbox_inches="tight")
+
+
+def detect_nodules(
+    state_grid: np.ndarray,
+    ha: np.ndarray,
+    *,
+    connectivity: str = "8n",
+    boundary_mode: str = "clamp",
+) -> tuple[list[tuple[float, float]], np.ndarray]:
+    """
+    Detect nodule-core candidates where center + required neighbors are all
+    osteoblast and mineralized (HA > 0), then return one center per connected
+    component under the selected neighborhood connectivity.
+    Returns:
+      - marker centers (x, y in pixel coords)
+      - a bool mask of candidate nodule-core cells
+    """
+    conn = str(connectivity).lower().strip()
+    bmode = str(boundary_mode).lower().strip()
+    ob_ha = (state_grid == CellState.OSTEOBLAST) & (ha > 0.0)
+    structure, offsets = _kernel_and_offsets(conn)
+    if bmode == "periodic":
+        neighbor_count = ndi.convolve(
+            ob_ha.astype(np.uint8), structure, mode="wrap"
+        )
+        required = np.full_like(neighbor_count, int(structure.sum()), dtype=np.int32)
+    else:
+        neighbor_count = ndi.convolve(
+            ob_ha.astype(np.uint8), structure, mode="constant", cval=0
+        )
+        valid = np.ones_like(ob_ha, dtype=np.uint8)
+        required = ndi.convolve(valid, structure, mode="constant", cval=0).astype(np.int32)
+    candidate_core = ob_ha & (neighbor_count == required)
+
+    centers = _component_centers(candidate_core, offsets, bmode)
+    return centers, candidate_core
+
+
+@lru_cache(maxsize=None)
+def _kernel_and_offsets(connectivity: str) -> tuple[np.ndarray, tuple[tuple[int, int], ...]]:
+    conn = str(connectivity).lower().strip()
+
+    def _manhattan_structure(radius: int) -> np.ndarray:
+        size = 2 * radius + 1
+        cy = cx = radius
+        st = np.zeros((size, size), dtype=np.uint8)
+        for yy in range(size):
+            for xx in range(size):
+                if abs(yy - cy) + abs(xx - cx) <= radius:
+                    st[yy, xx] = 1
+        return st
+
+    manhattan_radius_map = {
+        "4n": 1,
+        "40n": 4,
+        "60n": 5,
+        "84n": 6,
+        "112n": 7,
+        "144n": 8,
+    }
+    if conn in manhattan_radius_map:
+        structure = _manhattan_structure(manhattan_radius_map[conn])
+    elif conn == "8n":
+        structure = np.ones((3, 3), dtype=np.uint8)
+    elif conn == "24n":
+        structure = np.ones((5, 5), dtype=np.uint8)
+    else:
+        raise ValueError(
+            f"Unsupported nodule connectivity '{connectivity}'. Choose one of: 4n, 8n, 24n, 40n, 60n, 84n, 112n, 144n."
+        )
+
+    cy = structure.shape[0] // 2
+    cx = structure.shape[1] // 2
+    offsets: list[tuple[int, int]] = []
+    for oy, ox in zip(*np.where(structure > 0)):
+        dy = int(oy - cy)
+        dx = int(ox - cx)
+        if dy == 0 and dx == 0:
+            continue
+        if dy > 0 or (dy == 0 and dx > 0):
+            offsets.append((dy, dx))
+    return structure, tuple(offsets)
+
+
+def _component_centers(
+    mask: np.ndarray,
+    offsets: tuple[tuple[int, int], ...],
+    boundary_mode: str,
+) -> list[tuple[float, float]]:
+    h, w = mask.shape
+    ys, xs = np.where(mask)
+    n_nodes = xs.size
+    if n_nodes == 0:
+        return []
+
+    id_grid = np.full((h, w), -1, dtype=np.int32)
+    id_grid[ys, xs] = np.arange(n_nodes, dtype=np.int32)
+    rows: list[np.ndarray] = []
+    cols: list[np.ndarray] = []
+
+    for dy, dx in offsets:
+        if boundary_mode == "periodic":
+            src_mask = mask & np.roll(mask, shift=(-dy, -dx), axis=(0, 1))
+            if not src_mask.any():
+                continue
+            src_ids = id_grid[src_mask]
+            dst_ids = np.roll(id_grid, shift=(-dy, -dx), axis=(0, 1))[src_mask]
+        else:
+            ys0 = max(0, -dy)
+            ys1 = min(h, h - dy)
+            xs0 = max(0, -dx)
+            xs1 = min(w, w - dx)
+            src = mask[ys0:ys1, xs0:xs1]
+            dst = mask[ys0 + dy:ys1 + dy, xs0 + dx:xs1 + dx]
+            both = src & dst
+            if not both.any():
+                continue
+            src_ids = id_grid[ys0:ys1, xs0:xs1][both]
+            dst_ids = id_grid[ys0 + dy:ys1 + dy, xs0 + dx:xs1 + dx][both]
+        rows.append(src_ids)
+        cols.append(dst_ids)
+
+    if rows:
+        r = np.concatenate(rows + cols)
+        c = np.concatenate(cols + rows)
+        data = np.ones(r.shape[0], dtype=np.uint8)
+        graph = coo_matrix((data, (r, c)), shape=(n_nodes, n_nodes))
+    else:
+        graph = coo_matrix((n_nodes, n_nodes), dtype=np.uint8)
+
+    _, labels = connected_components(graph, directed=False, return_labels=True)
+    n_comp = int(labels.max()) + 1 if labels.size else 0
+
+    def _circular_mean(vals: np.ndarray, period: int) -> float:
+        if vals.size == 0:
+            return 0.0
+        ang = (2.0 * np.pi * vals) / float(period)
+        s = float(np.mean(np.sin(ang)))
+        c = float(np.mean(np.cos(ang)))
+        if abs(s) < 1e-12 and abs(c) < 1e-12:
+            return float(np.mean(vals) % float(period))
+        theta = float(np.arctan2(s, c))
+        if theta < 0.0:
+            theta += 2.0 * np.pi
+        return float((theta / (2.0 * np.pi)) * float(period))
+
+    centers: list[tuple[float, float]] = []
+    for i in range(n_comp):
+        sel = labels == i
+        if not np.any(sel):
+            continue
+        x_comp = xs[sel].astype(float)
+        y_comp = ys[sel].astype(float)
+        if boundary_mode == "periodic":
+            cx = _circular_mean(x_comp, w)
+            cy = _circular_mean(y_comp, h)
+        else:
+            cx = float(np.mean(x_comp))
+            cy = float(np.mean(y_comp))
+        centers.append((cx, cy))
+    return centers
 
 def _plot_cumulative_components(
     df: pd.DataFrame,
@@ -354,6 +520,29 @@ def plot_summary(
             ylabel="Fraction of total",
         )
 
+    if "nodule_count" in df.columns:
+        fig, ax = plt.subplots(figsize=(6.2, 3.6))
+        _set_white(ax)
+        ax.plot(
+            days,
+            df["nodule_count"],
+            label="Nodules",
+            color="#0891b2",
+            lw=PLOT_STYLE["line_width"],
+            marker="o",
+            markersize=4,
+            markerfacecolor="#0891b2",
+            markeredgecolor="#0e7490",
+        )
+        ax.set_xlabel("Day")
+        ax.set_ylabel("Count")
+        ax.set_title("Nodule count over time", pad=10)
+        ax.legend(frameon=False, loc="upper left")
+        _format_xlabel(ax, days)
+        fig.tight_layout(pad=0.6)
+        _save_figure(fig, outdir, "08_nodule_count")
+        plt.close(fig)
+
 
 def _render_spatial_image(
     img_path: Path,
@@ -470,6 +659,8 @@ def _render_collagen_ha_overlay(
     n_preob: int | None = None,
     n_ob: int | None = None,
     dead_today: int | None = None,
+    nodule_count: int | None = None,
+    nodule_centers: list[tuple[float, float]] | None = None,
     global_vmax_col: float | None = None,
     global_vmax_ha: float | None = None,
 ) -> None:
@@ -503,35 +694,47 @@ def _render_collagen_ha_overlay(
 
     col_norm = PowerNorm(gamma=0.7, vmin=0.0, vmax=vmax_col)
     ha_norm = PowerNorm(gamma=0.7, vmin=0.0, vmax=vmax_ha)
+    col_scaled = col_norm(col)
+    ha_scaled = ha_norm(ha)
+
+    bg = 0.96
+    mix = np.zeros((*col.shape, 3), dtype=float)
+    mix[..., 0] = bg - 0.78 * col_scaled + 0.76 * ha_scaled
+    mix[..., 1] = bg + 0.82 * col_scaled - 0.72 * ha_scaled
+    mix[..., 2] = bg - 0.76 * col_scaled + 0.78 * ha_scaled
+    mix = np.clip(mix, 0.0, 1.0)
 
     fig = plt.figure(figsize=FIGURE_SIZE_SPATIAL)
     ax = fig.add_axes([0.14, 0.12, 0.72, 0.74])
     _set_white(ax)
-    ax.imshow(
-        np.ones((*col.shape, 3)) * 0.97,
-        origin="lower",
-        interpolation="nearest",
-    )
-    im_col = ax.imshow(
-        col,
-        cmap="YlGn",
-        norm=col_norm,
-        origin="lower",
-        interpolation="nearest",
-        alpha=0.9,
-    )
-    im_ha = ax.imshow(
-        ha,
-        cmap="PuRd",
-        norm=ha_norm,
-        origin="lower",
-        interpolation="nearest",
-        alpha=0.65,
-    )
+    ax.imshow(mix, origin="lower", interpolation="nearest")
+    if nodule_centers:
+        xs = [c[0] for c in nodule_centers]
+        ys = [c[1] for c in nodule_centers]
+        ax.scatter(
+            xs,
+            ys,
+            s=52,
+            c="#00c2ff",
+            edgecolors="#083344",
+            linewidths=0.8,
+            marker="o",
+            label="Nodule center",
+            zorder=6,
+        )
+        legend = ax.legend(
+            loc="upper right",
+            frameon=True,
+            fontsize=9,
+            borderpad=0.4,
+            handletextpad=0.4,
+        )
+        legend.get_frame().set_edgecolor("black")
+        legend.get_frame().set_linewidth(0.6)
     ax.set_xticks([])
     ax.set_yticks([])
     fig.suptitle(
-        f"{title_label} — Collagen (yellow-green), HA (magenta/purple)",
+        f"{title_label} — Collagen (green), HA (magenta), overlap (bright), nodules (cyan)",
         fontsize=12,
         y=0.97,
     )
@@ -542,6 +745,8 @@ def _render_collagen_ha_overlay(
         stats_bits.append(f"OB: {n_ob}")
     if dead_today is not None:
         stats_bits.append(f"Dead: {dead_today}")
+    if nodule_count is not None:
+        stats_bits.append(f"Nodules: {nodule_count}")
     ax.text(
         0.5,
         1.05,
@@ -556,12 +761,14 @@ def _render_collagen_ha_overlay(
     divider = make_axes_locatable(ax)
     cax_left = divider.append_axes("left", size="2.5%", pad=0.02)
     cax_right = divider.append_axes("right", size="2.5%", pad=0.02)
-    cbar_left = fig.colorbar(im_col, cax=cax_left, orientation="vertical")
+    sm_col = ScalarMappable(norm=col_norm, cmap="YlGn")
+    sm_ha = ScalarMappable(norm=ha_norm, cmap="PuRd")
+    cbar_left = fig.colorbar(sm_col, cax=cax_left, orientation="vertical")
     cbar_left.ax.yaxis.set_label_position("left")
     cbar_left.ax.yaxis.set_ticks_position("left")
     cbar_left.set_label("Collagen-I (a.u.)", fontsize=9)
     cbar_left.ax.tick_params(labelsize=8, colors="black")
-    cbar_right = fig.colorbar(im_ha, cax=cax_right, orientation="vertical")
+    cbar_right = fig.colorbar(sm_ha, cax=cax_right, orientation="vertical")
     cbar_right.set_label("Hydroxyapatite (a.u.)", fontsize=9)
     cbar_right.ax.tick_params(labelsize=8, colors="black")
 
@@ -578,6 +785,8 @@ def export_overlay_collagen_ha(
     n_preob: int | None = None,
     n_ob: int | None = None,
     dead_today: int | None = None,
+    nodule_count: int | None = None,
+    nodule_centers: list[tuple[float, float]] | None = None,
     global_vmax_col: float | None = None,
     global_vmax_ha: float | None = None,
 ) -> None:
@@ -589,6 +798,8 @@ def export_overlay_collagen_ha(
         n_preob=n_preob,
         n_ob=n_ob,
         dead_today=dead_today,
+        nodule_count=nodule_count,
+        nodule_centers=nodule_centers,
         global_vmax_col=global_vmax_col,
         global_vmax_ha=global_vmax_ha,
     )
@@ -604,6 +815,8 @@ def export_collagen_ha_snapshot(
     deaths_preob_mask: np.ndarray,
     deaths_ob_mask: np.ndarray,
     *,
+    nodule_connectivity: str = "8n",
+    boundary_mode: str = "clamp",
     global_vmax_col: float | None = None,
     global_vmax_ha: float | None = None,
 ) -> None:
@@ -612,6 +825,12 @@ def export_collagen_ha_snapshot(
     n_preob = int((state_grid == CellState.PRE_OB).sum())
     n_ob = int((state_grid == CellState.OSTEOBLAST).sum())
     dead_today = int(deaths_preob_mask.sum() + deaths_ob_mask.sum())
+    nodule_centers, _ = detect_nodules(
+        state_grid,
+        ha,
+        connectivity=nodule_connectivity,
+        boundary_mode=boundary_mode,
+    )
     export_overlay_collagen_ha(
         img_path,
         f"Day {day:02d} — Hour {hour:02d}",
@@ -620,6 +839,8 @@ def export_collagen_ha_snapshot(
         n_preob=n_preob,
         n_ob=n_ob,
         dead_today=dead_today,
+        nodule_count=len(nodule_centers),
+        nodule_centers=nodule_centers,
         global_vmax_col=global_vmax_col,
         global_vmax_ha=global_vmax_ha,
     )
@@ -629,6 +850,8 @@ def export_overlay_collagen_ha_from_npy(
     grids_dir: str | Path,
     outdir: str | Path,
     day: int,
+    nodule_connectivity: str = "8n",
+    boundary_mode: str = "clamp",
     global_vmax_col: float | None = None,
     global_vmax_ha: float | None = None,
 ) -> None:
@@ -645,11 +868,19 @@ def export_overlay_collagen_ha_from_npy(
     ha = np.load(grids_dir / f"ha_day_{day:03d}.npy")
     state_path = grids_dir / f"state_day_{day:03d}.npy"
     deaths_path = grids_dir / f"deaths_day_{day:03d}.npy"
-    n_preob = n_ob = dead_today = None
+    n_preob = n_ob = dead_today = nodule_count = None
+    nodule_centers: list[tuple[float, float]] | None = None
     if state_path.exists():
         state_grid = np.load(state_path)
         n_preob = int((state_grid == CellState.PRE_OB).sum())
         n_ob = int((state_grid == CellState.OSTEOBLAST).sum())
+        nodule_centers, _ = detect_nodules(
+            state_grid,
+            ha,
+            connectivity=nodule_connectivity,
+            boundary_mode=boundary_mode,
+        )
+        nodule_count = len(nodule_centers)
     if deaths_path.exists():
         deaths_grid = np.load(deaths_path)
         dead_today = int(np.asarray(deaths_grid).sum())
@@ -662,6 +893,8 @@ def export_overlay_collagen_ha_from_npy(
         n_preob=n_preob,
         n_ob=n_ob,
         dead_today=dead_today,
+        nodule_count=nodule_count,
+        nodule_centers=nodule_centers,
         global_vmax_col=global_vmax_col,
         global_vmax_ha=global_vmax_ha,
     )
