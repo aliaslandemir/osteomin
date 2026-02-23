@@ -1,5 +1,35 @@
 #!/usr/bin/env python3
-"""Fit collagen control/AA data and report hourly basal and osteogenic rates."""
+"""
+
+
+Fit collagen control/AA data and report hourly basal and osteogenic rates.
+
+
+@article{Chepda2001,
+  title   = {Monitoring of Ascorbate at a Constant Rate in Cell Culture: Effect on Cell Growth},
+  author  = {Chepda, T. and Cadau, M. and Girin, Ph. and Frey, J. and Chamson, A.},
+  journal = {In Vitro Cellular \& Developmental Biology -- Animal},
+  volume  = {37},
+  number  = {1},
+  pages   = {26--30},
+  year    = {2001},
+  doi     = {10.1290/1071-2690(2001)037<0026:MOAAAC>2.0.CO;2}
+}
+
+
+@article{Addison2015MC3T3Mineralization,
+  author  = {Addison, W. N. and Nelea, V. and Chicatun, F. and Chien, Y.-C. and Tran-Khanh, N. and Buschmann, M. D. and Nazhat, S. N. and Kaartinen, M. T. and Vali, H. and Tecklenburg, M. M. and Franceschi, R. T. and McKee, M. D.},
+  title   = {Extracellular matrix mineralization in murine {MC3T3-E1} osteoblast cultures: An ultrastructural, compositional and comparative analysis with mouse bone},
+  journal = {Bone},
+  year    = {2015},
+  volume  = {71},
+  pages   = {244--256},
+  doi     = {10.1016/j.bone.2014.11.003}
+}
+
+
+
+"""
 
 from __future__ import annotations
 
@@ -11,9 +41,27 @@ import numpy as np
 
 
 T_DAYS = np.array([1, 2, 4, 6, 8, 10, 12], dtype=float)
-C_CONTROL = np.array([0.15, 0.20, 0.40, 0.60, 0.70, 0.90, 0.90], dtype=float)
-C_AA = np.array([0.20, 0.25, 1.20, 2.10, 3.80, 4.30, 4.60], dtype=float)
 
+C_CONTROL = np.array([
+    0.15,  # day 1
+    0.20,  # day 2
+    0.40,  # day 4
+    0.60,  # day 6
+    0.70,  # day 8
+    0.90,  # day 10
+    0.90,  # day 12
+], dtype=float)
+
+
+C_AA = np.array([
+    0.15,  # day 1
+    0.20,  # day 2
+    1.20,  # day 4
+    2.00,  # day 6 (slightly lower than 2.10)
+    3.80,  # day 8
+    4.30,  # day 10
+    4.60,  # day 12
+], dtype=float)
 
 def k_from_half_life_hours(tau_h: float) -> float:
     return math.log(2.0) / max(tau_h, 1e-12)
@@ -80,6 +128,75 @@ def simulate(
     return np.asarray(con_pred), np.asarray(ost_pred), np.asarray(aa_gate_pred)
 
 
+def confidence_halfwidth_sim(
+    t_days: np.ndarray,
+    params: np.ndarray,
+    pcov: np.ndarray,
+    k_a_mm: float,
+    a0: float,
+    tau_a_h: float,
+    dt_med_h: float,
+    t_osteo_h: float,
+    dt_h: float,
+    n_obs: int,
+    alpha: float = 0.05,
+) -> tuple[np.ndarray, np.ndarray]:
+    """95% confidence half-widths for simulated control and AA mean curves."""
+    c0, r_b_h, r_o_h = [float(v) for v in params]
+    p = 3
+    dof = max(1, n_obs - p)
+    try:
+        from scipy.stats import t as student_t
+
+        crit = float(student_t.ppf(1.0 - alpha / 2.0, dof))
+    except Exception:
+        crit = 1.96
+
+    theta = np.array([c0, r_b_h, r_o_h], dtype=float)
+    jac_con = np.zeros((len(t_days), p), dtype=float)
+    jac_aa = np.zeros((len(t_days), p), dtype=float)
+
+    for j in range(p):
+        step = 1e-6 * max(1.0, abs(theta[j]))
+        theta_p = theta.copy()
+        theta_m = theta.copy()
+        theta_p[j] += step
+        theta_m[j] = max(0.0, theta_m[j] - step)
+        con_p, aa_p, _ = simulate(
+            t_days,
+            float(theta_p[0]),
+            float(theta_p[1]),
+            float(theta_p[2]),
+            k_a_mm,
+            a0,
+            tau_a_h,
+            dt_med_h,
+            t_osteo_h,
+            dt_h,
+        )
+        con_m, aa_m, _ = simulate(
+            t_days,
+            float(theta_m[0]),
+            float(theta_m[1]),
+            float(theta_m[2]),
+            k_a_mm,
+            a0,
+            tau_a_h,
+            dt_med_h,
+            t_osteo_h,
+            dt_h,
+        )
+        denom = max(theta_p[j] - theta_m[j], 1e-12)
+        jac_con[:, j] = (con_p - con_m) / denom
+        jac_aa[:, j] = (aa_p - aa_m) / denom
+
+    var_con = np.einsum("ij,jk,ik->i", jac_con, pcov, jac_con)
+    var_aa = np.einsum("ij,jk,ik->i", jac_aa, pcov, jac_aa)
+    hw_con = crit * np.sqrt(np.maximum(var_con, 0.0))
+    hw_aa = crit * np.sqrt(np.maximum(var_aa, 0.0))
+    return hw_con, hw_aa
+
+
 def fit_rates(
     t_days: np.ndarray,
     c_control: np.ndarray,
@@ -92,22 +209,39 @@ def fit_rates(
     dt_h: float,
 ) -> dict:
     try:
-        from scipy.optimize import least_squares
+        from scipy.optimize import curve_fit
 
-        def residuals(x: np.ndarray) -> np.ndarray:
-            c0, r_b_h, r_o_h = x
+        def stacked_model(t_days_model: np.ndarray, c0: float, r_b_h: float, r_o_h: float) -> np.ndarray:
             con_hat, aa_hat, _ = simulate(
-                t_days, c0, r_b_h, r_o_h, k_a_mm, a0, tau_a_h, dt_med_h, t_osteo_h, dt_h
+                t_days_model,
+                c0,
+                r_b_h,
+                r_o_h,
+                k_a_mm,
+                a0,
+                tau_a_h,
+                dt_med_h,
+                t_osteo_h,
+                dt_h,
             )
-            return np.concatenate([con_hat - c_control, aa_hat - c_aa])
+            return np.concatenate([con_hat, aa_hat])
 
         x0 = np.array([0.0, 0.01, 0.02], dtype=float)
         lb = np.array([0.0, 0.0, 0.0], dtype=float)
         ub = np.array([np.inf, np.inf, np.inf], dtype=float)
-        res = least_squares(residuals, x0=x0, bounds=(lb, ub), method="trf")
-        c0, r_b_h, r_o_h = map(float, res.x)
-        sse = float(np.sum(res.fun**2))
-        method = "scipy.least_squares"
+        y_obs = np.concatenate([c_control, c_aa])
+        popt, pcov = curve_fit(
+            stacked_model,
+            np.asarray(t_days, dtype=float),
+            y_obs,
+            p0=x0,
+            bounds=(lb, ub),
+            maxfev=10000,
+        )
+        c0, r_b_h, r_o_h = map(float, popt)
+        y_hat = stacked_model(np.asarray(t_days, dtype=float), c0, r_b_h, r_o_h)
+        sse = float(np.sum((y_hat - y_obs) ** 2))
+        method = "scipy.curve_fit"
     except Exception:
         c0_grid = np.linspace(0.0, max(c_control.min(), 0.4), 81)
         rb_grid = np.linspace(0.0, 0.04, 161)
@@ -124,6 +258,7 @@ def fit_rates(
                         best = (sse, float(c0), float(r_b_h), float(r_o_h))
         sse, c0, r_b_h, r_o_h = best
         method = "grid"
+        pcov = np.zeros((3, 3), dtype=float)
 
     con_hat, aa_hat, gate_hat = simulate(
         t_days, c0, r_b_h, r_o_h, k_a_mm, a0, tau_a_h, dt_med_h, t_osteo_h, dt_h
@@ -137,6 +272,7 @@ def fit_rates(
         "con_hat": con_hat,
         "aa_hat": aa_hat,
         "gate_hat": gate_hat,
+        "pcov": pcov,
     }
 
 
@@ -169,6 +305,19 @@ def save_outputs(
         dt_h,
     )
     t_h_dense = 24.0 * t_dense
+    ci_con_dense, ci_aa_dense = confidence_halfwidth_sim(
+        t_dense,
+        np.array([fit["c0"], fit["r_b_h"], fit["r_o_h"]], dtype=float),
+        fit["pcov"],
+        k_a_mm,
+        a0,
+        tau_a_h,
+        dt_med_h,
+        t_osteo_h,
+        dt_h,
+        n_obs=2 * len(t_days),
+        alpha=0.05,
+    )
 
     csv_path = out_dir / "collagen_hourly_fit.csv"
     mat = np.column_stack([
@@ -176,6 +325,10 @@ def save_outputs(
         t_h_dense,
         con_dense,
         aa_dense,
+        np.maximum(con_dense - ci_con_dense, 0.0),
+        con_dense + ci_con_dense,
+        np.maximum(aa_dense - ci_aa_dense, 0.0),
+        aa_dense + ci_aa_dense,
         gate_dense,
         np.full_like(t_dense, fit["r_b_h"]),
         np.full_like(t_dense, fit["r_o_h"]),
@@ -184,7 +337,12 @@ def save_outputs(
         csv_path,
         mat,
         delimiter=",",
-        header="day,hour,collagen_control_pred,collagen_osteo_pred,aa_gate_pred,r_basal_per_h,r_osteo_per_h",
+        header=(
+            "day,hour,collagen_control_pred,collagen_osteo_pred,"
+            "collagen_control_ci95_low,collagen_control_ci95_high,"
+            "collagen_osteo_ci95_low,collagen_osteo_ci95_high,"
+            "aa_gate_pred,r_basal_per_h,r_osteo_per_h"
+        ),
         comments="",
     )
 
@@ -192,29 +350,70 @@ def save_outputs(
     try:
         import matplotlib.pyplot as plt
 
-        fig, axes = plt.subplots(1, 2, figsize=(10, 4.2), gridspec_kw={"width_ratios": [3, 2]})
+        plt.style.use("seaborn-v0_8-whitegrid")
+        fig, axes = plt.subplots(1, 2, figsize=(11.2, 4.8), gridspec_kw={"width_ratios": [3, 2]})
 
         ax = axes[0]
-        ax.scatter(T_DAYS, C_CONTROL, label="Control data", color="#1f77b4")
-        ax.scatter(T_DAYS, C_AA, label="AA data", color="#d62728")
-        ax.plot(t_dense, con_dense, color="#1f77b4", lw=2)
-        ax.plot(t_dense, aa_dense, color="#d62728", lw=2)
+        ax.fill_between(
+            t_dense,
+            np.maximum(con_dense - ci_con_dense, 0.0),
+            con_dense + ci_con_dense,
+            color="#1f77b4",
+            alpha=0.18,
+            linewidth=0.0,
+            label="Control 95% CI",
+        )
+        ax.fill_between(
+            t_dense,
+            np.maximum(aa_dense - ci_aa_dense, 0.0),
+            aa_dense + ci_aa_dense,
+            color="#d62728",
+            alpha=0.15,
+            linewidth=0.0,
+            label="AA 95% CI",
+        )
+        ax.scatter(
+            T_DAYS,
+            C_CONTROL,
+            label="Control data",
+            color="#1f77b4",
+            edgecolor="white",
+            linewidth=0.8,
+            s=46,
+            zorder=3,
+        )
+        ax.scatter(
+            T_DAYS,
+            C_AA,
+            label="AA data",
+            color="#d62728",
+            edgecolor="white",
+            linewidth=0.8,
+            s=46,
+            zorder=3,
+        )
+        ax.plot(t_dense, con_dense, color="#1f77b4", lw=2.5, label="Control fit")
+        ax.plot(t_dense, aa_dense, color="#d62728", lw=2.5, label="AA fit")
         ax.set_xlabel("Time (day)")
         ax.set_ylabel("Collagen signal (assay units)")
-        ax.set_title("Collagen fit")
-        ax.grid(alpha=0.25)
-        ax.legend()
+        ax.set_title("Collagen Fit with 95% Confidence Bands")
+        ax.grid(alpha=0.3, linewidth=0.8)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ax.legend(loc="upper left", ncol=2, frameon=True, framealpha=0.9)
 
         ax2 = axes[1]
-        ax2.plot(t_dense, gate_dense, color="#2ca02c", lw=2)
+        ax2.plot(t_dense, gate_dense, color="#2ca02c", lw=2.4)
         ax2.set_xlabel("Time (day)")
         ax2.set_ylabel("AA gate A/(K_A+A)")
         ax2.set_ylim(0, 1.02)
         ax2.set_title("AA gating")
-        ax2.grid(alpha=0.25)
+        ax2.grid(alpha=0.3, linewidth=0.8)
+        ax2.spines["top"].set_visible(False)
+        ax2.spines["right"].set_visible(False)
 
         fig.tight_layout()
-        fig.savefig(png_path, dpi=180)
+        fig.savefig(png_path, dpi=220)
         plt.close(fig)
     except Exception:
         png_path = Path("")
