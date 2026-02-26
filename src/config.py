@@ -17,7 +17,10 @@ class ABMConfig:
 
     base_commit_prob: float = 0.0005
     commit_prob_growth: float = 0.00003
-    commit_delay: int = 72
+    osteo_induction_hours: int = 72
+    commit_delay: int = 48
+    commit_k_day: float = 0.06
+    commit_k_growth_per_hour: float = 0.0
     apoptosis_prob: float = 0.01 / 24
     ob_apoptosis_prob: float = 0.001 / 24
     min_div_hours: int = 38
@@ -37,4 +40,4 @@ class FieldConfig:
     ha_model: str = "minimal"
     ha_tau_hours: float = 384.0
     ha_hill_n: float = 4.0
-    ha_t_commit_hours: float = 72.0
+    ha_t_commit_hours: float = 120.0

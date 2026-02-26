@@ -12,11 +12,14 @@
     "enable_apoptosis": true,
     "enable_proliferation": true,
     "enable_secretion": true,
-    "base_commit_prob": 0.0011,
-    "commit_prob_growth": 0.00011,
-    "commit_delay": 72,
+    "base_commit_prob": 0.0005,
+    "commit_prob_growth": 1.736111111111111e-05,
+    "osteo_induction_hours": 72,
+    "commit_delay": 48,
+    "commit_k_day": 0.07,
+    "commit_k_growth_per_hour": 0.0007,
     "apoptosis_prob": 0.00042,
-    "ob_apoptosis_prob": 4.2e-05,
+    "ob_apoptosis_prob": 4.1666666666666665e-05,
     "min_div_hours": 38,
     "max_div_hours": 52,
     "alp_per_ob": 1.2,
@@ -32,7 +35,7 @@
     "ha_model": "minimal",
     "ha_tau_hours": 384.0,
     "ha_hill_n": 4.0,
-    "ha_t_commit_hours": 72
+    "ha_t_commit_hours": 120
   },
   "spatial_every": 1,
   "spatial_days": [
@@ -41,6 +44,6 @@
   "snapshots_enabled": true,
   "datafit_path": "datafitting/endpointresults/fit_outputs/datafit_endpoint.npz",
   "datafit_condition": "C2",
-  "nodule_connectivity": "84n",
+  "nodule_connectivity": "24n",
   "nodule_boundary_mode": "periodic"
 }

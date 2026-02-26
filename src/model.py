@@ -352,10 +352,11 @@ class OsteoModel:
             connectivity=self.nodule_connectivity,
             boundary_mode=self.nodule_boundary_mode,
         )
+        nodule_count_current = int(len(nodule_centers))
         persistent_centers = self._update_persistent_nodules(nodule_centers)
-        nodule_count = int(len(persistent_centers))
-        self.nodule_centers_by_day[int(day)] = list(persistent_centers)
-        self.nodule_count_by_day[int(day)] = nodule_count
+        nodule_count_ever = int(len(persistent_centers))
+        self.nodule_centers_by_day[int(day)] = list(nodule_centers)
+        self.nodule_count_by_day[int(day)] = nodule_count_ever
 
         if day == 0:
             row = {
@@ -375,7 +376,9 @@ class OsteoModel:
                 "alp_ob_total": float(self.field.alp_ob_total),
                 "mineral_preob_total": float(self.field.mineral_preob_total),
                 "mineral_ob_total": float(self.field.mineral_ob_total),
-                "nodule_count": nodule_count,
+                "nodule_count_current": nodule_count_current,
+                "nodule_count_ever": nodule_count_ever,
+                "nodule_count": nodule_count_ever,
             }
             self._rows.append(row)
             return
@@ -398,7 +401,9 @@ class OsteoModel:
             "alp_ob_total": float(scalars.get("alp_ob_total", 0.0)),
             "mineral_preob_total": float(scalars.get("mineral_preob_total", 0.0)),
             "mineral_ob_total": float(scalars.get("mineral_ob_total", 0.0)),
-            "nodule_count": nodule_count,
+            "nodule_count_current": nodule_count_current,
+            "nodule_count_ever": nodule_count_ever,
+            "nodule_count": nodule_count_ever,
         }
         self._rows.append(row)
 

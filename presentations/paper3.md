@@ -40,7 +40,11 @@
 ### 3.2 Rules
 - Motility (pre-OB)
 - Proliferation (timer)
-- Stochastic commitment
+- Stochastic commitment (delay-gated)
+  - Osteogenic induction baseline: day 3 (`t_osteo = 72 h`)
+  - Commitment gate: `t >= t_osteo + t_d`, with default `t_d = 48 h`
+  - Time-varying hazard: `k(t) = k0 + gk * (t - t_osteo - t_d)`, defaults `k0 = 0.06 day^-1`, `gk = 0`
+  - Hourly commitment probability: `p_hour(t) = 1 - exp(-k(t)/24)`
 - Apoptosis
 - OBs deposit matrix/mineral
 

@@ -117,8 +117,8 @@ def detect_nodules(
 ) -> tuple[list[tuple[float, float]], np.ndarray]:
     """
     Detect nodule-core candidates where center + required neighbors are all
-    osteoblast and mineralized (HA > 0), then return one center per connected
-    component under the selected neighborhood connectivity.
+    osteoblast and mineralized (HA > 0), then return representative centers.
+    Large merged components are split into multiple peak-separated centers.
     Returns:
       - marker centers (x, y in pixel coords)
       - a bool mask of candidate nodule-core cells
@@ -140,7 +140,7 @@ def detect_nodules(
         required = ndi.convolve(valid, structure, mode="constant", cval=0).astype(np.int32)
     candidate_core = ob_ha & (neighbor_count == required)
 
-    centers = _component_centers(candidate_core, offsets, bmode)
+    centers = _component_centers(candidate_core, offsets, bmode, score_map=ha)
     return centers, candidate_core
 
 
@@ -194,6 +194,7 @@ def _component_centers(
     mask: np.ndarray,
     offsets: tuple[tuple[int, int], ...],
     boundary_mode: str,
+    score_map: np.ndarray | None = None,
 ) -> list[tuple[float, float]]:
     h, w = mask.shape
     ys, xs = np.where(mask)
@@ -252,6 +253,54 @@ def _component_centers(
             theta += 2.0 * np.pi
         return float((theta / (2.0 * np.pi)) * float(period))
 
+    def _dist2(
+        x1: float,
+        y1: float,
+        x2: float,
+        y2: float,
+        *,
+        periodic: bool,
+    ) -> float:
+        dx = x1 - x2
+        dy = y1 - y2
+        if periodic:
+            dx = abs(dx)
+            dy = abs(dy)
+            dx = min(dx, float(w) - dx)
+            dy = min(dy, float(h) - dy)
+        return dx * dx + dy * dy
+
+    def _split_component_centers(
+        x_comp: np.ndarray,
+        y_comp: np.ndarray,
+    ) -> list[tuple[float, float]]:
+        comp_size = int(x_comp.size)
+        if comp_size == 0:
+            return []
+        split_min_cells = 36
+        cells_per_center = 90
+        min_sep_px = 3.0
+        if comp_size < split_min_cells:
+            return []
+        target = max(1, int(np.ceil(comp_size / float(cells_per_center))))
+        if score_map is None:
+            scores = np.ones(comp_size, dtype=float)
+        else:
+            scores = score_map[y_comp.astype(int), x_comp.astype(int)].astype(float)
+        order = np.argsort(scores)[::-1]
+        picked: list[tuple[float, float]] = []
+        periodic = boundary_mode == "periodic"
+        min_sep2 = min_sep_px * min_sep_px
+        for idx in order:
+            cx = float(x_comp[idx])
+            cy = float(y_comp[idx])
+            if any(_dist2(cx, cy, px, py, periodic=periodic) < min_sep2 for px, py in picked):
+                continue
+            picked.append((cx, cy))
+            if len(picked) >= target:
+                break
+        return picked
+
     centers: list[tuple[float, float]] = []
     for i in range(n_comp):
         sel = labels == i
@@ -259,6 +308,10 @@ def _component_centers(
             continue
         x_comp = xs[sel].astype(float)
         y_comp = ys[sel].astype(float)
+        split = _split_component_centers(x_comp, y_comp)
+        if split:
+            centers.extend(split)
+            continue
         if boundary_mode == "periodic":
             cx = _circular_mean(x_comp, w)
             cy = _circular_mean(y_comp, h)
@@ -523,10 +576,15 @@ def plot_summary(
     if "nodule_count" in df.columns:
         fig, ax = plt.subplots(figsize=(6.2, 3.6))
         _set_white(ax)
+        nodule_series = (
+            df["nodule_count_ever"]
+            if "nodule_count_ever" in df.columns
+            else df["nodule_count"]
+        )
         ax.plot(
             days,
-            df["nodule_count"],
-            label="Nodules",
+            nodule_series,
+            label="Nodules (ever formed)",
             color="#0891b2",
             lw=PLOT_STYLE["line_width"],
             marker="o",
@@ -534,6 +592,15 @@ def plot_summary(
             markerfacecolor="#0891b2",
             markeredgecolor="#0e7490",
         )
+        if "nodule_count_current" in df.columns:
+            ax.plot(
+                days,
+                df["nodule_count_current"],
+                label="Nodules (current day)",
+                color="#64748b",
+                lw=1.4,
+                ls="--",
+            )
         ax.set_xlabel("Day")
         ax.set_ylabel("Count")
         ax.set_title("Nodule count over time", pad=10)

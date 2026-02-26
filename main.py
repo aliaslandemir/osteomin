@@ -1,4 +1,43 @@
-"""Entry point for OsteoMin."""
+"""
+
+
+
+Entry point for OsteoMin.
+
+
+python3 main.py \
+  --hours 672 \
+  --cells 72 \
+  --seed-mode random \
+  --seed 12345 \
+  --w 33 --h 33 \
+  --nodules 24n \
+  --ha-model minimal \
+  --ha-tau 384 \
+  --ha-hill-n 4 \
+  --boundary-mode periodic \
+  --media-interval 48 \
+  --random-move --move-prob 1.0 --max-moves 1 \
+  --proliferation --ob-div-prob 0.0 \
+  --apoptosis --apoptosis-prob 0.00042 \
+  --osteogenic-commitment \
+  --osteo-induction-day 3 \
+  --commit-delay 48 \
+  --commit-k 0.07 \
+  --commit-k-growth 0.0007 \
+  --min-div-hours 38 --max-div-hours 52 \
+  --secretion \
+  --spatial-every 1 --out main_out \
+  --datafit datafitting/endpointresults/fit_outputs/datafit_endpoint.npz \
+  --alp-plot-hours 240 \
+  --collagen-plot-hours 336 \
+  --mineral-plot-hours 672 \
+  --no-hourly-exports \
+  --datafit-condition C2
+
+
+
+"""
 
 from __future__ import annotations
 import argparse
@@ -176,20 +215,38 @@ def parse_args() -> argparse.Namespace:
         "--commit-growth",
         type=float,
         default=0.01 / (24 * 24),
-        help="per-hour increase in osteogenic commitment probability (legacy 0.01/day slope)",
+        help="legacy per-hour increase in commitment probability (used only when --commit-k and --commit-k-growth are both 0)",
     )
     p.add_argument(
         "--commit-base",
         type=float,
         default=default_abm.base_commit_prob,
-        help="base per-hour osteogenic commitment probability",
+        help="legacy base per-hour commitment probability (used only when --commit-k and --commit-k-growth are both 0)",
     )
 
     p.add_argument(
         "--commit-delay",
         type=int,
-        default=72,
-        help="hours before preOB cells can start committing to osteoblasts (legacy 3 days)",
+        default=48,
+        help="hours after osteogenic induction before preOB cells can start committing (default 2 days)",
+    )
+    p.add_argument(
+        "--osteo-induction-day",
+        type=float,
+        default=3.0,
+        help="day of osteogenic induction (baseline day 3 -> 72 hours)",
+    )
+    p.add_argument(
+        "--commit-k",
+        type=float,
+        default=0.06,
+        help="commitment hazard rate k in day^-1 after induction+delay gate",
+    )
+    p.add_argument(
+        "--commit-k-growth",
+        type=float,
+        default=0.0,
+        help="hourly increase of commitment hazard k (day^-1 per hour) after induction+delay gate",
     )
 
     p.add_argument(
@@ -215,7 +272,7 @@ def parse_args() -> argparse.Namespace:
         dest="ob_apoptosis_prob",
         type=float,
         default=0.001 / 24,
-        help="per-osteoblast apoptosis probability each hour (legacy 0.001/day)",
+        help="legacy argument (ignored): osteoblast apoptosis is disabled",
     )
 
     p.add_argument(
@@ -374,6 +431,10 @@ def main() -> None:
     args.apoptosis_prob = max(0.0, min(1.0, args.apoptosis_prob))
     args.ob_apoptosis_prob = max(0.0, min(1.0, args.ob_apoptosis_prob))
     args.commit_delay = max(0, args.commit_delay)
+    args.osteo_induction_day = max(0.0, float(args.osteo_induction_day))
+    args.commit_k = max(0.0, float(args.commit_k))
+    args.commit_k_growth = max(0.0, float(args.commit_k_growth))
+    induction_hours = int(round(args.osteo_induction_day * HOURS_PER_DAY))
     abm_cfg = ABMConfig(
         width=args.w,
         height=args.h,
@@ -391,7 +452,10 @@ def main() -> None:
         proliferation_chance=args.proliferation_chance,
         base_commit_prob=args.commit_base,
         commit_prob_growth=args.commit_growth,
+        osteo_induction_hours=induction_hours,
         commit_delay=args.commit_delay,
+        commit_k_day=args.commit_k,
+        commit_k_growth_per_hour=args.commit_k_growth,
         min_div_hours=max(1, int(args.min_div_hours)),
         max_div_hours=max(int(args.min_div_hours), int(args.max_div_hours)),
     )
@@ -402,7 +466,7 @@ def main() -> None:
         ha_model=args.ha_model,
         ha_tau_hours=args.ha_tau,
         ha_hill_n=args.ha_hill_n,
-        ha_t_commit_hours=args.commit_delay,
+        ha_t_commit_hours=induction_hours + args.commit_delay,
     )
     spatial_days = [int(x) for x in args.spatial_days.split(",") if x.strip()]
 
@@ -500,7 +564,10 @@ def main() -> None:
                     n_preob = int(row["n_preob"])
                     n_ob = int(row["n_osteoblast"])
                     dead_today = int(row["dead_total_today"])
-                    nodule_count = int(row["nodule_count"])
+                    if "nodule_count_ever" in row:
+                        nodule_count = int(row["nodule_count_ever"])
+                    else:
+                        nodule_count = int(row["nodule_count"])
                 if day in model.nodule_centers_by_day:
                     nodule_centers = model.nodule_centers_by_day[day]
                 centers_sig = ()

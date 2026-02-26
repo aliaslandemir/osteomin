@@ -53,7 +53,7 @@ python main.py
 | Random movement | enabled (`--random-move`), `--move-prob 1.0`, `--max-moves 1` |
 | Proliferation | enabled (`--proliferation`), `--proliferation-chance 1.0`, `--ob-div-prob 0.0` |
 | Apoptosis | enabled (`--apoptosis`), `--apoptosis-prob 0.01`, `--apoptosis-osteo 0.001` |
-| Osteogenic commitment | enabled, `--commit-growth 0.01`, `--commit-delay 3` |
+| Osteogenic commitment | enabled, `--osteo-induction-day 3`, `--commit-delay 48`, `--commit-k 0.06`, `--commit-k-growth 0.0` |
 | Secretion | enabled (`--secretion`) |
 | Division interval | `--min-div-hours 38`, `--max-div-hours 52` |
 
@@ -94,7 +94,7 @@ python main.py \
   --random-move --move-prob 1.0 --max-moves 1 \
   --proliferation --ob-div-prob 0.0 \
   --apoptosis --apoptosis-prob 0.00042 --apoptosis-osteo 0.000042 \
-  --osteogenic-commitment --commit-growth 0.00001736 --commit-delay 72 \
+  --osteogenic-commitment --osteo-induction-day 3 --commit-delay 48 --commit-k 0.06 --commit-k-growth 0.0 \
   --min-div-hours 38 --max-div-hours 52 \
   --secretion \
   --spatial-every 1 --out out \
