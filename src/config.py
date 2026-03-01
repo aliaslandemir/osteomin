@@ -59,3 +59,5 @@ class FieldConfig:
     ha_tau_hours: float = 384.0
     ha_hill_n: float = 4.0
     ha_t_commit_hours: float = 120.0
+    ha_collagen_maturation_tau_hours: float = 48.0
+    ha_collagen_half_sat: float = 1.0

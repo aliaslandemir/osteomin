@@ -22,7 +22,7 @@ The current non-legacy workflow is:
 
 - ALP: basal preOB contribution plus osteogenic OB contribution
 - Collagen: basal preOB contribution plus AA-gated osteogenic OB contribution
-- HAp: osteogenic OB contribution with Hill activation based on post-commitment time
+- HAp: osteogenic OB contribution with Hill activation based on post-commitment time and a matured-collagen gate that lags behind total collagen accumulation
 
 The corresponding controls exposed in `main.py` are:
 
@@ -30,6 +30,7 @@ The corresponding controls exposed in `main.py` are:
 - `--collagen-rb`, `--collagen-ro`
 - `--aa0`, `--aa-half-life`, `--collagen-aa-km`
 - `--ha-ro`, `--ha-tau`, `--ha-hill-n`
+- `--ha-collagen-maturation-tau`, `--ha-collagen-km`
 - `--dex-conc`, `--mk4-conc`
 
 ## Main run products

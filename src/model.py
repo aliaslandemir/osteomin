@@ -105,6 +105,8 @@ class OsteoModel:
             ha_tau_hours=field_cfg.ha_tau_hours,
             ha_hill_n=field_cfg.ha_hill_n,
             ha_t_commit_hours=field_cfg.ha_t_commit_hours,
+            ha_collagen_maturation_tau_hours=field_cfg.ha_collagen_maturation_tau_hours,
+            ha_collagen_half_sat=field_cfg.ha_collagen_half_sat,
         )
         self.abm.attach_field(self.field)
 

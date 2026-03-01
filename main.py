@@ -4,8 +4,7 @@
 
 Entry point for OsteoMin.
 
-
-python main.py \
+python3 main.py \
   --hours 672 \
   --cells 72 \
   --seed-mode random \
@@ -30,19 +29,24 @@ python main.py \
   --osteogenic-commitment \
   --osteo-induction-day 3 \
   --commit-delay 48 \
-  --commit-k 0.07 \
+  --commit-k 0.08 \
   --commit-k-growth 0.0008 \
   --aa0 1.0 \
   --aa-half-life 6 \
   --collagen-aa-km 1.0 \
   --min-div-hours 38 --max-div-hours 52 \
   --secretion \
-  --spatial-every 1 --out main_out \
+  --spatial-every 1 \
+  --out main_out \
   --alp-plot-hours 240 \
   --collagen-plot-hours 336 \
   --mineral-plot-hours 672 \
   --no-hourly-exports \
   --runtime
+
+
+
+
 
 
 
@@ -243,6 +247,18 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=4.0,
         help="Hill exponent n for minimal HAp activation",
+    )
+    p.add_argument(
+        "--ha-collagen-maturation-tau",
+        type=float,
+        default=48.0,
+        help="tau_col in hours for first-order collagen maturation before mineralization",
+    )
+    p.add_argument(
+        "--ha-collagen-km",
+        type=float,
+        default=1.0,
+        help="K_col half-saturation constant for matured-collagen mineral support",
     )
     p.add_argument(
         "--seed", type=int, default=None, help="random seed for reproducibility"
@@ -604,6 +620,8 @@ def main() -> None:
         ha_tau_hours=args.ha_tau,
         ha_hill_n=args.ha_hill_n,
         ha_t_commit_hours=induction_hours + args.commit_delay,
+        ha_collagen_maturation_tau_hours=args.ha_collagen_maturation_tau,
+        ha_collagen_half_sat=args.ha_collagen_km,
     )
     spatial_days = [int(x) for x in args.spatial_days.split(",") if x.strip()]
 

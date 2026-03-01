@@ -36,6 +36,8 @@ class FieldManager:
         ha_tau_hours: float = 384.0,
         ha_hill_n: float = 4.0,
         ha_t_commit_hours: float = 72.0,
+        ha_collagen_maturation_tau_hours: float = 48.0,
+        ha_collagen_half_sat: float = 1.0,
     ):
         self.width = int(width)
         self.height = int(height)
@@ -67,8 +69,13 @@ class FieldManager:
         self.ha_tau_hours = max(1e-9, float(ha_tau_hours))
         self.ha_hill_n = max(1.0, float(ha_hill_n))
         self.ha_t_commit_hours = max(0.0, float(ha_t_commit_hours))
+        self.ha_collagen_maturation_tau_hours = max(
+            1e-9, float(ha_collagen_maturation_tau_hours)
+        )
+        self.ha_collagen_half_sat = max(1e-9, float(ha_collagen_half_sat))
         self._ha_tau_n = self.ha_tau_hours ** self.ha_hill_n
         self.collagen = np.zeros((self.height, self.width), dtype=float)
+        self.collagen_mature = np.zeros((self.height, self.width), dtype=float)
         self.alp = np.zeros((self.height, self.width), dtype=float)
         self.ha = np.zeros((self.height, self.width), dtype=float)
 
@@ -119,6 +126,13 @@ class FieldManager:
         field[mask] += amount_per_site
         return float(amount_per_site * int(mask.sum()))
 
+    def _update_collagen_maturation(self, dt: float) -> None:
+        lag = self.collagen - self.collagen_mature
+        if not np.any(lag > 0.0):
+            return
+        self.collagen_mature += (dt / self.ha_collagen_maturation_tau_hours) * lag
+        np.minimum(self.collagen_mature, self.collagen, out=self.collagen_mature)
+
     def _apply_equation_dynamics(self, hour: int) -> None:
         if not self.enable_secretion:
             return
@@ -148,6 +162,7 @@ class FieldManager:
                 self.collagen_preob_total += collagen_added
 
         if ob_mask is None or not ob_mask.any() or u_osteo <= 0.0:
+            self._update_collagen_maturation(dt)
             return
 
         alp_rate_ob = max(
@@ -177,6 +192,8 @@ class FieldManager:
             self.total_collagen += collagen_added
             self.collagen_ob_total += collagen_added
 
+        self._update_collagen_maturation(dt)
+
         if self.ha_model != "minimal":
             return
         if self._ob_commit_hours is None:
@@ -199,7 +216,15 @@ class FieldManager:
         hill = np.zeros_like(t_eff, dtype=float)
         denom = self._ha_tau_n + teff_n
         np.divide(teff_n, denom, out=hill, where=denom > 0.0)
-        delta = dt * base_rate * hill
+        collagen_gate = np.zeros_like(self.collagen_mature, dtype=float)
+        collagen_denom = self.ha_collagen_half_sat + self.collagen_mature
+        np.divide(
+            self.collagen_mature,
+            collagen_denom,
+            out=collagen_gate,
+            where=collagen_denom > 0.0,
+        )
+        delta = dt * base_rate * hill * collagen_gate
         delta[~valid] = 0.0
         added = float(delta.sum())
         if added <= 0.0:

@@ -54,7 +54,32 @@ Both fixed from independent ARS time-course fitting.
 
 ---
 
-## 1.5 Fixed Production Amplitudes
+## 1.5 Collagen Maturation Gate (Fixed)
+
+Newly deposited collagen is not assumed to become mineralizable
+immediately. Instead, each lattice site carries a matured-collagen state
+that relaxes toward total collagen with a first-order maturation timescale:
+
+[
+\frac{d C^{\mathrm{mat}}}{dt}
+=
+\frac{C - C^{\mathrm{mat}}}{\tau_{\mathrm{col}}}
+]
+
+Mineralization is then modulated by a local matrix-readiness gate:
+
+[
+g_{\mathrm{col}}(C^{\mathrm{mat}})
+=
+\frac{C^{\mathrm{mat}}}{K_{\mathrm{col}} + C^{\mathrm{mat}}}
+]
+
+* **τ_col** : collagen maturation timescale
+* **K_col** : matured-collagen half-saturation constant for mineralization
+
+---
+
+## 1.6 Fixed Production Amplitudes
 
 The following amplitudes are fixed from literature calibration:
 

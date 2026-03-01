@@ -39,7 +39,7 @@ python3 main.py \
   --seed-mode random \
   --seed 12345 \
   --w 33 --h 33 \
-  --nodules 24n \
+  --nodules 40n \
   --dex-conc 0 \
   --mk4-conc 0 \
   --alp-rb 0.001 \
@@ -50,6 +50,8 @@ python3 main.py \
   --ha-ro 0.075 \
   --ha-tau 384 \
   --ha-hill-n 4 \
+  --ha-collagen-maturation-tau 48 \
+  --ha-collagen-km 1.0 \
   --boundary-mode periodic \
   --media-interval 48 \
   --random-move --move-prob 0.27 --max-moves 1 \
@@ -58,8 +60,8 @@ python3 main.py \
   --osteogenic-commitment \
   --osteo-induction-day 3 \
   --commit-delay 48 \
-  --commit-k 0.07 \
-  --commit-k-growth 0.0007 \
+  --commit-k 0.08 \
+  --commit-k-growth 0.0008 \
   --aa0 1.0 \
   --aa-half-life 6 \
   --collagen-aa-km 1.0 \
@@ -81,7 +83,7 @@ python3 main.py \
 - Update order each hour: movement, proliferation, commitment, apoptosis, field deposition
 - Field outputs: cumulative ALP, collagen, HAp
 - Collagen osteogenic term: AA pulse/decay with Michaelis-Menten gating
-- HAp term: post-commitment Hill activation with `--ha-tau` and `--ha-hill-n`
+- HAp term: post-commitment Hill activation with `--ha-tau` and `--ha-hill-n`, multiplied by a matured-collagen gate with `--ha-collagen-maturation-tau` and `--ha-collagen-km`
 
 ## Important CLI groups
 
@@ -125,6 +127,8 @@ Field dynamics:
 - `--ha-ro`
 - `--ha-tau`
 - `--ha-hill-n`
+- `--ha-collagen-maturation-tau`
+- `--ha-collagen-km`
 
 Outputs:
 
