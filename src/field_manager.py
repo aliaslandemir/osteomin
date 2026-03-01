@@ -7,22 +7,32 @@ __all__ = ["FieldManager"]
 
 
 class FieldManager:
-    """
-    Tracks collagen/ALP totals and spatial HA accumulation via datafit input.
-
-    Design notes
-    ------------
-    - Collagen/ALP accumulate persistently and deposits are distributed over osteoblast-rich regions.
-    """
-
     def __init__(
         self,
         width: int,
         height: int,
+        total_hours: int,
         media_interval: int,
-        base_collagen_rate: float = 0.001,
+        enable_secretion: bool = True,
+        osteo_induction_hours: int = 72,
+        dex_conc: float = 0.0,
+        mk4_conc: float = 0.0,
+        alp_basal_rate: float = 0.0,
+        alp_osteo_rate: float = 0.0,
+        alp_kappa_d: float = 0.0,
+        alp_kappa_k: float = 0.0,
+        collagen_basal_rate: float = 0.0,
+        collagen_osteo_rate: float = 0.0,
+        collagen_kappa_d: float = 0.0,
+        collagen_kappa_k: float = 0.0,
+        aa_initial: float = 1.0,
+        aa_half_life_hours: float = 6.0,
+        collagen_aa_half_sat: float = 1.0,
         datafit_schedule: DatafitSchedule | None = None,
         ha_model: str = "minimal",
+        ha_osteo_rate: float = 0.0,
+        ha_kappa_d: float = 0.0,
+        ha_kappa_k: float = 0.0,
         ha_tau_hours: float = 384.0,
         ha_hill_n: float = 4.0,
         ha_t_commit_hours: float = 72.0,
@@ -30,15 +40,34 @@ class FieldManager:
         self.width = int(width)
         self.height = int(height)
         self.area = float(self.width * self.height)
+        self.total_hours = max(0, int(total_hours))
         self._hour = 0
         self.media_interval_hours = max(0, int(media_interval))
         self.hours_since_media = 0
+        self.enable_secretion = bool(enable_secretion)
+        self.osteo_induction_hours = max(0, int(osteo_induction_hours))
+        self.dex_conc = float(dex_conc)
+        self.mk4_conc = float(mk4_conc)
+        self.alp_basal_rate = float(alp_basal_rate)
+        self.alp_osteo_rate = float(alp_osteo_rate)
+        self.alp_kappa_d = float(alp_kappa_d)
+        self.alp_kappa_k = float(alp_kappa_k)
+        self.collagen_basal_rate = float(collagen_basal_rate)
+        self.collagen_osteo_rate = float(collagen_osteo_rate)
+        self.collagen_kappa_d = float(collagen_kappa_d)
+        self.collagen_kappa_k = float(collagen_kappa_k)
+        self.aa_initial = max(0.0, float(aa_initial))
+        self.aa_half_life_hours = max(1e-9, float(aa_half_life_hours))
+        self.collagen_aa_half_sat = max(1e-9, float(collagen_aa_half_sat))
         self.datafit_schedule = datafit_schedule
-        self.BASE_COLLAGEN_RATE = float(base_collagen_rate)
         self.ha_model = str(ha_model).lower().strip()
+        self.ha_osteo_rate = float(ha_osteo_rate)
+        self.ha_kappa_d = float(ha_kappa_d)
+        self.ha_kappa_k = float(ha_kappa_k)
         self.ha_tau_hours = max(1e-9, float(ha_tau_hours))
         self.ha_hill_n = max(1.0, float(ha_hill_n))
         self.ha_t_commit_hours = max(0.0, float(ha_t_commit_hours))
+        self._ha_tau_n = self.ha_tau_hours ** self.ha_hill_n
         self.collagen = np.zeros((self.height, self.width), dtype=float)
         self.alp = np.zeros((self.height, self.width), dtype=float)
         self.ha = np.zeros((self.height, self.width), dtype=float)
@@ -54,59 +83,131 @@ class FieldManager:
 
         self._ob_mask: Optional[np.ndarray] = None
         self._preob_mask: Optional[np.ndarray] = None
+        self._ob_commit_hours: Optional[np.ndarray] = None
+        self._aa_hourly = self._build_aa_schedule()
 
-        self._pending_secretion_ob_count: int = 0
+    def _osteo_active(self, hour: int) -> float:
+        return 1.0 if int(hour) >= self.osteo_induction_hours else 0.0
 
-    def _apply_minimal_ha(self, hour: int, ob_count: int) -> None:
-        """Minimal HA model using Hill-like effective-time activation."""
-        if ob_count <= 0:
+    def _build_aa_schedule(self) -> np.ndarray:
+        aa = np.zeros(self.total_hours + 1, dtype=float)
+        if self.aa_initial <= 0.0:
+            return aa
+        k = np.log(2.0) / self.aa_half_life_hours
+        for hour in range(self.total_hours + 1):
+            if hour < self.osteo_induction_hours:
+                continue
+            if self.media_interval_hours <= 0:
+                since = max(0.0, float(hour) - self.osteo_induction_hours)
+            else:
+                since = float((hour - self.osteo_induction_hours) % self.media_interval_hours)
+            aa[hour] = self.aa_initial * np.exp(-k * since)
+        return aa
+
+    def _aa_concentration(self, hour: int) -> float:
+        idx = min(max(0, int(hour)), self.total_hours)
+        return float(self._aa_hourly[idx])
+
+    def _deposit_uniform_to_mask(
+        self,
+        field: np.ndarray,
+        mask: np.ndarray | None,
+        amount_per_site: float,
+    ) -> float:
+        if mask is None or not mask.any() or amount_per_site <= 0.0:
+            return 0.0
+        field[mask] += amount_per_site
+        return float(amount_per_site * int(mask.sum()))
+
+    def _apply_equation_dynamics(self, hour: int) -> None:
+        if not self.enable_secretion:
             return
-        if self._ob_mask is None or not self._ob_mask.any():
+
+        dt = 1.0
+        pre_mask = self._preob_mask
+        ob_mask = self._ob_mask
+        u_osteo = self._osteo_active(hour)
+
+        if pre_mask is not None and pre_mask.any():
+            alp_added = self._deposit_uniform_to_mask(
+                self.alp,
+                pre_mask,
+                dt * max(0.0, self.alp_basal_rate),
+            )
+            if alp_added > 0.0:
+                self.total_alp += alp_added
+                self.alp_preob_total += alp_added
+
+            collagen_added = self._deposit_uniform_to_mask(
+                self.collagen,
+                pre_mask,
+                dt * max(0.0, self.collagen_basal_rate),
+            )
+            if collagen_added > 0.0:
+                self.total_collagen += collagen_added
+                self.collagen_preob_total += collagen_added
+
+        if ob_mask is None or not ob_mask.any() or u_osteo <= 0.0:
             return
 
-        u_osteo = 1.0
-        r0 = 1.0
-        kappa_d = 1.0
-        kappa_k = 1.0
-        c_d = 1.0
-        c_k = 1.0
+        alp_rate_ob = max(
+            0.0,
+            self.alp_osteo_rate + self.alp_kappa_d * self.dex_conc + self.alp_kappa_k * self.mk4_conc,
+        )
+        alp_added = self._deposit_uniform_to_mask(self.alp, ob_mask, dt * alp_rate_ob)
+        if alp_added > 0.0:
+            self.total_alp += alp_added
+            self.alp_ob_total += alp_added
 
-        t_eff = max(0.0, float(hour) - self.ha_t_commit_hours)
-        tau_n = self.ha_tau_hours ** self.ha_hill_n
-        teff_n = t_eff ** self.ha_hill_n
-        hill = teff_n / max(tau_n + teff_n, 1e-12)
+        aa_t = self._aa_concentration(hour)
+        aa_gate = aa_t / (self.collagen_aa_half_sat + aa_t) if aa_t > 0.0 else 0.0
+        collagen_rate_ob = max(
+            0.0,
+            (
+                self.collagen_osteo_rate
+                + self.collagen_kappa_d * self.dex_conc
+                + self.collagen_kappa_k * self.mk4_conc
+            )
+            * aa_gate,
+        )
+        collagen_added = self._deposit_uniform_to_mask(
+            self.collagen, ob_mask, dt * collagen_rate_ob
+        )
+        if collagen_added > 0.0:
+            self.total_collagen += collagen_added
+            self.collagen_ob_total += collagen_added
 
-        dH_dt = u_osteo * float(ob_count) * (r0 + kappa_d * c_d + kappa_k * c_k) * hill
-        delta_h = max(0.0, dH_dt)
-        if delta_h <= 0.0:
+        if self.ha_model != "minimal":
+            return
+        if self._ob_commit_hours is None:
             return
 
-        area = int(self._ob_mask.sum())
-        self.ha[self._ob_mask] += delta_h / max(1, area)
-        self.mineral_ob_total += delta_h
-
-    def request_collagen_secretion(self, ob_count: int) -> None:
-        """Queue the number of OBs that should secrete collagen this day."""
-        self._pending_secretion_ob_count = max(0, int(ob_count))
-
-    def _apply_collagen_secretion(self) -> None:
-        """Apply per-day collagen deposition from active osteoblasts."""
-        count = self._pending_secretion_ob_count
-        self._pending_secretion_ob_count = 0
-        if count <= 0 or self.BASE_COLLAGEN_RATE <= 0:
+        active_commit = np.asarray(self._ob_commit_hours, dtype=float)
+        valid = ob_mask & np.isfinite(active_commit)
+        if not valid.any():
             return
-        amount = count * self.BASE_COLLAGEN_RATE
-        if amount <= 0.0:
+
+        base_rate = max(
+            0.0,
+            self.ha_osteo_rate + self.ha_kappa_d * self.dex_conc + self.ha_kappa_k * self.mk4_conc,
+        )
+        if base_rate <= 0.0:
             return
-        if self._ob_mask is not None and self._ob_mask.any():
-            area = int(self._ob_mask.sum())
-            self.collagen[self._ob_mask] += amount / max(1, area)
-        else:
-            self.collagen += amount / (self.width * self.height)
-        self.total_collagen += amount
+
+        t_eff = np.maximum(0.0, float(hour) - active_commit)
+        teff_n = np.power(t_eff, self.ha_hill_n)
+        hill = np.zeros_like(t_eff, dtype=float)
+        denom = self._ha_tau_n + teff_n
+        np.divide(teff_n, denom, out=hill, where=denom > 0.0)
+        delta = dt * base_rate * hill
+        delta[~valid] = 0.0
+        added = float(delta.sum())
+        if added <= 0.0:
+            return
+        self.ha += delta
+        self.mineral_ob_total += added
 
     def add_alp(self, amount: float, ob_count: int = 0) -> None:
-        """Accumulate ALP; if OB mask known, distribute locally on RAW OB pixels."""
         amount = float(max(0.0, amount))
         if amount <= 0.0:
             return
@@ -118,7 +219,6 @@ class FieldManager:
         self.total_alp += amount
 
     def _apply_datafit(self, hour: int, preob_count: int, ob_count: int) -> None:
-        """Apply hourly increments from datafit.npz per site (preOB vs OB)."""
         if self.datafit_schedule is None:
             return
         inc = self.datafit_schedule.hourly_increments(hour)
@@ -186,7 +286,6 @@ class FieldManager:
                 self.alp_ob_total += alp_ob
 
     def set_ob_mask(self, ob_mask: np.ndarray | None) -> None:
-        """Provide a boolean mask of current osteoblast locations (HxW)."""
         if ob_mask is None:
             self._ob_mask = None
             return
@@ -197,8 +296,18 @@ class FieldManager:
             )
         self._ob_mask = m
 
+    def set_ob_commit_hours(self, ob_commit_hours: np.ndarray | None) -> None:
+        if ob_commit_hours is None:
+            self._ob_commit_hours = None
+            return
+        arr = np.asarray(ob_commit_hours, dtype=float)
+        if arr.shape != (self.height, self.width):
+            raise ValueError(
+                f"ob_commit_hours has shape {arr.shape}, expected {(self.height, self.width)}"
+            )
+        self._ob_commit_hours = arr
+
     def set_preob_mask(self, preob_mask: np.ndarray | None) -> None:
-        """Provide a boolean mask of current pre-osteoblast locations (HxW)."""
         if preob_mask is None:
             self._preob_mask = None
             return
@@ -210,22 +319,16 @@ class FieldManager:
         self._preob_mask = m
 
     def step_hour(self, hour: int, preob_count: int, ob_count: int) -> None:
-        """
-        Update fields for a single hour.
-        """
         if self.datafit_schedule is not None:
             self._apply_datafit(hour, preob_count, ob_count)
         else:
-            self._apply_collagen_secretion()
-        if self.ha_model == "minimal":
-            self._apply_minimal_ha(hour, ob_count)
+            self._apply_equation_dynamics(hour)
 
         self._hour += 1
         if self.media_interval_hours > 0:
             self.hours_since_media += 1
 
     def snapshot_scalars(self) -> dict:
-        """Return scalars used by the timeseries writer (back-compat keys kept)."""
         return {
             "collagen_total": float(self.total_collagen),
             "alp_total": float(self.total_alp),

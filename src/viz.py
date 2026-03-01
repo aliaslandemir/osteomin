@@ -12,8 +12,6 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 from matplotlib.colors import to_rgb, PowerNorm
-from matplotlib.cm import ScalarMappable
-from mpl_toolkits.axes_grid1 import make_axes_locatable
 from .agent import CellState
 
 __all__ = [
@@ -27,20 +25,25 @@ __all__ = [
 ]
 
 COLORS = {
-    "preob": "#0072B2",
-    "ob": "#D55E00",
-    "dead_preob": "#E69F00",
-    "dead_ob": "#CC79A7",
-    "text": "#111111",
+    "preob": "#2b6cb0",
+    "ob": "#c05621",
+    "dead_preob": "#d69e2e",
+    "dead_ob": "#b83280",
+    "text": "#111827",
     "bg": "#ffffff",
-    "grid": "#eaeaea",
+    "grid": "#d9dee7",
+    "muted": "#64748b",
+    "ink": "#1f2937",
 }
 PLOT_STYLE = {
     "title_size": 12,
     "label_size": 10,
     "tick_size": 9,
-    "line_width": 2.2,
-    "grid_alpha": 0.18,
+    "line_width": 2.0,
+    "grid_alpha": 0.12,
+    "spine_width": 0.9,
+    "major_tick_length": 4.5,
+    "major_tick_width": 0.85,
 }
 
 FIGURE_SIZE_SPATIAL = (8, 7)
@@ -54,6 +57,17 @@ plt.rcParams.update(
         "xtick.labelsize": PLOT_STYLE["tick_size"],
         "ytick.labelsize": PLOT_STYLE["tick_size"],
         "legend.fontsize": 9,
+        "axes.edgecolor": COLORS["ink"],
+        "axes.labelcolor": COLORS["text"],
+        "axes.linewidth": PLOT_STYLE["spine_width"],
+        "xtick.color": COLORS["text"],
+        "ytick.color": COLORS["text"],
+        "text.color": COLORS["text"],
+        "figure.facecolor": COLORS["bg"],
+        "savefig.facecolor": COLORS["bg"],
+        "savefig.edgecolor": COLORS["bg"],
+        "pdf.fonttype": 42,
+        "ps.fonttype": 42,
         "axes.spines.top": False,
         "axes.spines.right": False,
     }
@@ -63,10 +77,25 @@ plt.rcParams.update(
 def _set_white(ax):
     ax.set_facecolor(COLORS["bg"])
     for spine in ax.spines.values():
-        spine.set_color("#cccccc")
-        spine.set_linewidth(0.8)
-    ax.tick_params(direction="out", length=4, width=0.8, colors="#222222")
-    ax.grid(alpha=PLOT_STYLE["grid_alpha"], linestyle="--", linewidth=0.7)
+        spine.set_color(COLORS["ink"])
+        spine.set_linewidth(PLOT_STYLE["spine_width"])
+    ax.tick_params(
+        direction="out",
+        length=PLOT_STYLE["major_tick_length"],
+        width=PLOT_STYLE["major_tick_width"],
+        colors=COLORS["text"],
+        pad=3,
+    )
+    ax.grid(axis="y", alpha=PLOT_STYLE["grid_alpha"], linestyle="-", linewidth=0.8, color=COLORS["grid"])
+    ax.grid(axis="x", alpha=0.0)
+
+
+def _style_timecourse(ax: plt.Axes, days: np.ndarray, ylabel: str, title: str, *, legend_loc: str = "upper left") -> None:
+    ax.set_xlabel("Day")
+    ax.set_ylabel(ylabel)
+    ax.set_title(title, pad=10)
+    ax.legend(frameon=False, loc=legend_loc, handlelength=2.8, labelspacing=0.4)
+    _format_xlabel(ax, days)
 
 
 def _limit_days(df: pd.DataFrame, hours: int | None) -> pd.DataFrame:
@@ -104,7 +133,7 @@ def _save_figure(fig: plt.Figure, outdir: Path, basename: str) -> None:
     pdf_dir = outdir / "figures_pdf"
     pdf_dir.mkdir(parents=True, exist_ok=True)
     pdf_path = pdf_dir / f"{basename}.pdf"
-    fig.savefig(png_path, dpi=100, bbox_inches="tight")
+    fig.savefig(png_path, dpi=300, bbox_inches="tight")
     fig.savefig(pdf_path, dpi=300, bbox_inches="tight")
 
 
@@ -115,14 +144,6 @@ def detect_nodules(
     connectivity: str = "8n",
     boundary_mode: str = "clamp",
 ) -> tuple[list[tuple[float, float]], np.ndarray]:
-    """
-    Detect nodule-core candidates where center + required neighbors are all
-    osteoblast and mineralized (HA > 0), then return representative centers.
-    Large merged components are split into multiple peak-separated centers.
-    Returns:
-      - marker centers (x, y in pixel coords)
-      - a bool mask of candidate nodule-core cells
-    """
     conn = str(connectivity).lower().strip()
     bmode = str(boundary_mode).lower().strip()
     ob_ha = (state_grid == CellState.OSTEOBLAST) & (ha > 0.0)
@@ -384,16 +405,7 @@ def _plot_cumulative_components(
             ticks.append(last_day)
             ticks = sorted(ticks)
             ax.set_xticks(ticks)
-    ax.set_xlabel("Day")
-    ax.set_ylabel(ylabel)
-    ax.set_title(title, pad=10)
-    ax.legend(
-        frameon=False,
-        ncol=1,
-        loc="upper right",
-        bbox_to_anchor=(0.99, 0.99),
-    )
-    _format_xlabel(ax, days_plot)
+    _style_timecourse(ax, days_plot, ylabel, title, legend_loc="upper right")
     fig.tight_layout(pad=0.6)
     _save_figure(fig, outdir, Path(filename).stem)
     plt.close(fig)
@@ -403,6 +415,8 @@ def plot_summary(
     df: pd.DataFrame,
     outdir: str | Path,
     *,
+    field_cfg: object | None = None,
+    total_hours: int | None = None,
     alp_plot_hours: int | None = None,
     collagen_plot_hours: int | None = None,
     mineral_plot_hours: int | None = None,
@@ -432,15 +446,11 @@ def plot_summary(
         days,
         df["n_total"],
         label="Total",
-        color="#333",
-        lw=1.6,
+        color=COLORS["ink"],
+        lw=2.1,
         ls="--",
     )
-    ax.set_xlabel("Day")
-    ax.set_ylabel("Cells")
-    ax.set_title("Cell states over time", pad=10)
-    ax.legend(frameon=False, ncol=2, loc="upper right", bbox_to_anchor=(0.99, 0.99))
-    _format_xlabel(ax, days)
+    _style_timecourse(ax, days, "Cells", "Cell states over time", legend_loc="upper right")
     fig.tight_layout(pad=0.6)
     _save_figure(fig, outdir, "01_states_counts")
     plt.close(fig)
@@ -472,15 +482,11 @@ def plot_summary(
         days,
         tmp["dead_total_cum"],
         label="All deaths (cum)",
-        color="#444",
-        lw=1.6,
+        color=COLORS["ink"],
+        lw=2.1,
         ls="--",
     )
-    ax.set_xlabel("Day")
-    ax.set_ylabel("Cumulative count")
-    ax.set_title("Cumulative events", pad=10)
-    ax.legend(frameon=False, loc="upper right", bbox_to_anchor=(0.99, 0.99), ncol=1)
-    _format_xlabel(ax, days)
+    _style_timecourse(ax, days, "Cumulative count", "Cumulative events", legend_loc="upper right")
     fig.tight_layout(pad=0.6)
     _save_figure(fig, outdir, "02_events_cumulative")
     plt.close(fig)
@@ -516,11 +522,7 @@ def plot_summary(
         linewidth=0.5,
         alpha=0.9,
     )
-    ax.set_xlabel("Day")
-    ax.set_ylabel("Count")
-    ax.set_title("Daily events", pad=10)
-    ax.legend(frameon=False, ncol=1, loc="upper right", bbox_to_anchor=(0.99, 0.99))
-    _format_xlabel(ax, days)
+    _style_timecourse(ax, days, "Count", "Daily events", legend_loc="upper right")
     fig.tight_layout(pad=0.6)
     _save_figure(fig, outdir, "04_events_daily")
     plt.close(fig)
@@ -569,7 +571,7 @@ def plot_summary(
             total_col="ha_total",
             plot_hours=mineral_plot_hours,
             filename="05_minerals_cumulative.png",
-            title="Mineral accumulation (normalized cumulative)",
+            title="HAp accumulation (normalized cumulative)",
             ylabel="Fraction of total",
         )
 
@@ -601,13 +603,102 @@ def plot_summary(
                 lw=1.4,
                 ls="--",
             )
-        ax.set_xlabel("Day")
-        ax.set_ylabel("Count")
-        ax.set_title("Nodule count over time", pad=10)
-        ax.legend(frameon=False, loc="upper left")
-        _format_xlabel(ax, days)
+        _style_timecourse(ax, days, "Count", "Nodule count over time")
         fig.tight_layout(pad=0.6)
         _save_figure(fig, outdir, "08_nodule_count")
+        plt.close(fig)
+
+    if all(col in df.columns for col in ("msd_effective", "avg_move_count")):
+        fig, ax = plt.subplots(figsize=(6.4, 3.8))
+        _set_white(ax)
+        ax.plot(days, df["msd_effective"], label="Effective MSD", color="#0f766e", lw=2.0)
+        ax.plot(days, df["avg_move_count"], label="Average move count", color="#7c3aed", lw=2.0)
+        _style_timecourse(ax, days, "Value", "Cell motility summaries")
+        fig.tight_layout(pad=0.6)
+        _save_figure(fig, outdir, "03_cell_motility")
+        plt.close(fig)
+
+    if all(col in df.columns for col in ("alp_total", "collagen_total", "ha_total")):
+        fig, ax = plt.subplots(figsize=(6.4, 3.8))
+        _set_white(ax)
+        ax.plot(days, df["alp_total"], label="ALP total", color="#2563eb", lw=2.0)
+        ax.plot(days, df["collagen_total"], label="Collagen total", color="#059669", lw=2.0)
+        ax.plot(days, df["ha_total"], label="HAp total", color="#b45309", lw=2.0)
+        _style_timecourse(ax, days, "Cumulative total", "Field totals over time")
+        fig.tight_layout(pad=0.6)
+        _save_figure(fig, outdir, "09_field_totals_absolute")
+        plt.close(fig)
+
+    if all(col in df.columns for col in ("avg_division_interval", "avg_live_age_hours")):
+        fig, ax = plt.subplots(figsize=(6.4, 3.8))
+        _set_white(ax)
+        ax.plot(
+            days,
+            df["avg_division_interval"],
+            label="Average division interval",
+            color="#ea580c",
+            lw=2.0,
+        )
+        ax.plot(
+            days,
+            df["avg_live_age_hours"],
+            label="Average live-cell age",
+            color="#475569",
+            lw=2.0,
+        )
+        _style_timecourse(ax, days, "Hours", "Cell cycle summaries")
+        fig.tight_layout(pad=0.6)
+        _save_figure(fig, outdir, "12_cell_cycle_summary")
+        plt.close(fig)
+
+    if field_cfg is not None and total_hours is not None and int(total_hours) > 0:
+        hours = np.arange(int(total_hours) + 1, dtype=float)
+        days_hr = hours / 24.0
+        induction_h = max(0.0, float(getattr(field_cfg, "osteo_induction_hours", 0.0)))
+        media_interval = int(getattr(field_cfg, "media_interval", 0))
+        aa_initial = max(0.0, float(getattr(field_cfg, "aa_initial", 0.0)))
+        aa_half_life = max(1e-9, float(getattr(field_cfg, "aa_half_life_hours", 1.0)))
+        aa_km = max(1e-9, float(getattr(field_cfg, "collagen_aa_half_sat", 1.0)))
+
+        aa = np.zeros_like(hours, dtype=float)
+        if aa_initial > 0.0:
+            k = np.log(2.0) / aa_half_life
+            for i, hour in enumerate(hours):
+                if hour < induction_h:
+                    continue
+                if media_interval > 0:
+                    since = (hour - induction_h) % float(media_interval)
+                else:
+                    since = hour - induction_h
+                aa[i] = aa_initial * np.exp(-k * since)
+
+        aa_gate = np.zeros_like(aa, dtype=float)
+        valid = aa > 0.0
+        aa_gate[valid] = aa[valid] / (aa_km + aa[valid])
+
+        fig, ax = plt.subplots(figsize=(6.4, 3.8))
+        _set_white(ax)
+        ax.plot(days_hr, aa, color="#0f766e", lw=2.0, label="AA(t)")
+        ax.axvline(
+            induction_h / 24.0,
+            color="#64748b",
+            lw=1.2,
+            ls="--",
+            label="Osteogenic induction",
+        )
+        _style_timecourse(ax, days_hr, "AA concentration", "Ascorbate pulse-decay schedule", legend_loc="upper right")
+        fig.tight_layout(pad=0.6)
+        _save_figure(fig, outdir, "10_ascorbate_schedule")
+        plt.close(fig)
+
+        fig, ax = plt.subplots(figsize=(6.4, 3.8))
+        _set_white(ax)
+        ax.plot(days_hr, aa_gate, color="#16a34a", lw=2.0, label="A/(K_m + A)")
+        ax.plot(days_hr, aa, color="#94a3b8", lw=1.2, ls="--", label="AA(t)")
+        ax.axvline(induction_h / 24.0, color="#64748b", lw=1.2, ls=":")
+        _style_timecourse(ax, days_hr, "Collagen gate", "Ascorbate-gated collagen activation", legend_loc="upper right")
+        fig.tight_layout(pad=0.6)
+        _save_figure(fig, outdir, "11_ascorbate_collagen_gate")
         plt.close(fig)
 
 
@@ -619,7 +710,6 @@ def _render_spatial_image(
     deaths_ob_mask: np.ndarray,
     dead_total_cum: int,
 ) -> None:
-    """Shared renderer for spatial cell snapshots (daily or hourly)."""
     h, w = state_grid.shape
     canvas = np.zeros((h, w, 3), dtype=float) + 1.0
     preob_mask = state_grid == CellState.PRE_OB
@@ -708,7 +798,6 @@ def export_spatial_for_day(
 
 
 def _robust_norm(arr: np.ndarray, p: float = 99.0) -> np.ndarray:
-    """Normalize to [0,1] using a robust upper bound (percentile)."""
     if arr.size == 0:
         return arr
     vmax = np.percentile(arr[arr > 0], p) if (arr > 0).any() else 1.0
@@ -738,11 +827,11 @@ def _render_collagen_ha_overlay(
         ax = fig.add_axes([0.14, 0.12, 0.72, 0.74])
         _set_white(ax)
         ax.text(
-            0.5, 0.5, "No collagen or HA yet", ha="center", va="center", fontsize=14
+            0.5, 0.5, "No collagen or HAp yet", ha="center", va="center", fontsize=14
         )
         ax.set_xticks([])
         ax.set_yticks([])
-        ax.set_title(f"{title_label} — No collagen/HA", fontsize=12, pad=10)
+        ax.set_title(f"{title_label} — No collagen/HAp", fontsize=12, pad=10)
         fig.savefig(img_path, dpi=300, bbox_inches="tight")
         plt.close(fig)
         return
@@ -764,17 +853,35 @@ def _render_collagen_ha_overlay(
     col_scaled = col_norm(col)
     ha_scaled = ha_norm(ha)
 
-    bg = 0.96
-    mix = np.zeros((*col.shape, 3), dtype=float)
-    mix[..., 0] = bg - 0.78 * col_scaled + 0.76 * ha_scaled
-    mix[..., 1] = bg + 0.82 * col_scaled - 0.72 * ha_scaled
-    mix[..., 2] = bg - 0.76 * col_scaled + 0.78 * ha_scaled
-    mix = np.clip(mix, 0.0, 1.0)
-
     fig = plt.figure(figsize=FIGURE_SIZE_SPATIAL)
     ax = fig.add_axes([0.14, 0.12, 0.72, 0.74])
     _set_white(ax)
-    ax.imshow(mix, origin="lower", interpolation="nearest")
+    im_col = ax.imshow(
+        col,
+        origin="lower",
+        interpolation="nearest",
+        cmap="Greens",
+        norm=col_norm,
+    )
+    if np.any(ha > 0.0):
+        ys_h, xs_h = np.where(ha > 0.0)
+        hvals = ha_scaled[ys_h, xs_h]
+        sizes = 10.0 + 26.0 * np.power(hvals, 0.55)
+        rgba = np.zeros((len(xs_h), 4), dtype=float)
+        rgba[:, 0] = 0.69
+        rgba[:, 1] = 0.07
+        rgba[:, 2] = 0.45
+        rgba[:, 3] = 0.12 + 0.38 * np.power(hvals, 0.75)
+        ax.scatter(
+            xs_h,
+            ys_h,
+            s=sizes,
+            marker="s",
+            c=rgba,
+            edgecolors="#f472b6",
+            linewidths=0.15,
+            zorder=4,
+        )
     if nodule_centers:
         xs = [c[0] for c in nodule_centers]
         ys = [c[1] for c in nodule_centers]
@@ -800,11 +907,6 @@ def _render_collagen_ha_overlay(
         legend.get_frame().set_linewidth(0.6)
     ax.set_xticks([])
     ax.set_yticks([])
-    fig.suptitle(
-        f"{title_label} — Collagen (green), HA (magenta), overlap (bright), nodules (cyan)",
-        fontsize=12,
-        y=0.97,
-    )
 
     stats_bits: list[str] = []
     if n_preob is not None and n_ob is not None:
@@ -814,30 +916,32 @@ def _render_collagen_ha_overlay(
         stats_bits.append(f"Dead: {dead_today}")
     if nodule_count is not None:
         stats_bits.append(f"Nodules: {nodule_count}")
-    ax.text(
-        0.5,
-        1.05,
-        " | ".join(stats_bits),
-        transform=ax.transAxes,
-        ha="center",
-        va="bottom",
-        fontsize=10,
-        color=COLORS["text"],
+    fig.suptitle(
+        f"{title_label} — collagen map with HAp square markers",
+        fontsize=12,
+        y=0.97,
     )
+    if stats_bits:
+        ax.text(
+            0.5,
+            1.05,
+            " | ".join(stats_bits),
+            transform=ax.transAxes,
+            ha="center",
+            va="bottom",
+            fontsize=10,
+            color=COLORS["text"],
+        )
 
-    divider = make_axes_locatable(ax)
-    cax_left = divider.append_axes("left", size="2.5%", pad=0.02)
-    cax_right = divider.append_axes("right", size="2.5%", pad=0.02)
-    sm_col = ScalarMappable(norm=col_norm, cmap="YlGn")
-    sm_ha = ScalarMappable(norm=ha_norm, cmap="PuRd")
-    cbar_left = fig.colorbar(sm_col, cax=cax_left, orientation="vertical")
-    cbar_left.ax.yaxis.set_label_position("left")
-    cbar_left.ax.yaxis.set_ticks_position("left")
-    cbar_left.set_label("Collagen-I (a.u.)", fontsize=9)
-    cbar_left.ax.tick_params(labelsize=8, colors="black")
-    cbar_right = fig.colorbar(sm_ha, cax=cax_right, orientation="vertical")
-    cbar_right.set_label("Hydroxyapatite (a.u.)", fontsize=9)
-    cbar_right.ax.tick_params(labelsize=8, colors="black")
+    sm_col = plt.cm.ScalarMappable(norm=col_norm, cmap="Greens")
+    sm_ha = plt.cm.ScalarMappable(norm=ha_norm, cmap="PuRd")
+    cbar_col = fig.colorbar(im_col, ax=ax, fraction=0.032, pad=0.02, location="left")
+    cbar_col.set_label("Collagen-I (a.u.)", fontsize=9)
+    cbar_col.ax.tick_params(labelsize=8, colors="black")
+
+    cbar_ha = fig.colorbar(sm_ha, ax=ax, fraction=0.032, pad=0.02, location="right")
+    cbar_ha.set_label("Hydroxyapatite (a.u.)", fontsize=9)
+    cbar_ha.ax.tick_params(labelsize=8, colors="black")
 
     fig.savefig(img_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
@@ -922,11 +1026,6 @@ def export_overlay_collagen_ha_from_npy(
     global_vmax_col: float | None = None,
     global_vmax_ha: float | None = None,
 ) -> None:
-    """
-    Overlay using saved per-day arrays from /grids:
-      - collagen_day_XXX.npy
-      - ha_day_XXX.npy
-    """
     grids_dir = Path(grids_dir)
     outdir = Path(outdir)
     img_dir = outdir / "collagen_ha"

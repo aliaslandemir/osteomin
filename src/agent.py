@@ -8,8 +8,8 @@ __all__ = ["CellState", "Cell"]
 class CellState(IntEnum):
     EMPTY = 0
     PRE_OB = 1
-    APOPTOTIC = 2
-    OSTEOBLAST = 3
+    OSTEOBLAST = 2
+    APOPTOTIC = 3
 
 @dataclass(slots=True)
 class Cell:

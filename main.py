@@ -5,35 +5,45 @@
 Entry point for OsteoMin.
 
 
-python3 main.py \
+python main.py \
   --hours 672 \
   --cells 72 \
   --seed-mode random \
   --seed 12345 \
   --w 33 --h 33 \
-  --nodules 24n \
+  --nodules 40n \
+  --dex-conc 0 \
+  --mk4-conc 0 \
+  --alp-rb 0.001 \
+  --alp-ro 0.002 \
+  --collagen-rb 0.001 \
+  --collagen-ro 0.002 \
   --ha-model minimal \
+  --ha-ro 0.075 \
   --ha-tau 384 \
   --ha-hill-n 4 \
   --boundary-mode periodic \
   --media-interval 48 \
-  --random-move --move-prob 1.0 --max-moves 1 \
+  --random-move --move-prob 0.27 --max-moves 1 \
   --proliferation --ob-div-prob 0.0 \
   --apoptosis --apoptosis-prob 0.00042 \
   --osteogenic-commitment \
   --osteo-induction-day 3 \
   --commit-delay 48 \
   --commit-k 0.07 \
-  --commit-k-growth 0.0007 \
+  --commit-k-growth 0.0008 \
+  --aa0 1.0 \
+  --aa-half-life 6 \
+  --collagen-aa-km 1.0 \
   --min-div-hours 38 --max-div-hours 52 \
   --secretion \
   --spatial-every 1 --out main_out \
-  --datafit datafitting/endpointresults/fit_outputs/datafit_endpoint.npz \
   --alp-plot-hours 240 \
   --collagen-plot-hours 336 \
   --mineral-plot-hours 672 \
   --no-hourly-exports \
-  --datafit-condition C2
+  --runtime
+
 
 
 
@@ -118,23 +128,121 @@ def parse_args() -> argparse.Namespace:
         help="hours between media changes (legacy 2 days = 48 hours)",
     )
     p.add_argument(
+        "--dex-conc",
+        type=float,
+        default=0.0,
+        help="Dex concentration c_D used in linear osteogenic rate perturbations",
+    )
+    p.add_argument(
+        "--mk4-conc",
+        type=float,
+        default=0.0,
+        help="MK-4 concentration c_K used in linear osteogenic rate perturbations",
+    )
+    p.add_argument(
+        "--alp-rb",
+        type=float,
+        default=0.0,
+        help="basal ALP rate r_b^P per preOB site per hour",
+    )
+    p.add_argument(
+        "--alp-ro",
+        type=float,
+        default=0.0,
+        help="osteogenic ALP rate r_o^P per OB site per hour",
+    )
+    p.add_argument(
+        "--alp-kappa-d",
+        type=float,
+        default=0.0,
+        help="Dex perturbation coefficient kappa_D^P for ALP",
+    )
+    p.add_argument(
+        "--alp-kappa-k",
+        type=float,
+        default=0.0,
+        help="MK-4 perturbation coefficient kappa_K^P for ALP",
+    )
+    p.add_argument(
+        "--collagen-rb",
+        type=float,
+        default=0.0,
+        help="basal collagen rate r_b^C per preOB site per hour",
+    )
+    p.add_argument(
+        "--collagen-ro",
+        type=float,
+        default=0.0,
+        help="osteogenic collagen rate r_o^C per OB site per hour before AA gating",
+    )
+    p.add_argument(
+        "--collagen-kappa-d",
+        type=float,
+        default=0.0,
+        help="Dex perturbation coefficient kappa_D^C for collagen",
+    )
+    p.add_argument(
+        "--collagen-kappa-k",
+        type=float,
+        default=0.0,
+        help="MK-4 perturbation coefficient kappa_K^C for collagen",
+    )
+    p.add_argument(
+        "--aa0",
+        "--aa-initial",
+        type=float,
+        default=1.0,
+        help="AA concentration A0 immediately after medium refresh",
+    )
+    p.add_argument(
+        "--aa-half-life",
+        "--aa-half-life-hours",
+        type=float,
+        default=6.0,
+        help="AA half-life in hours for exponential decay between media refreshes",
+    )
+    p.add_argument(
+        "--collagen-aa-km",
+        type=float,
+        default=1.0,
+        help="half-saturation constant K_A^C for AA-gated collagen production",
+    )
+    p.add_argument(
         "--ha-model",
         type=str,
         choices=["minimal", "datafit"],
         default="minimal",
-        help="HA production model: minimal Hill-time rule or legacy datafit mineral increments",
+        help="HAp production model: minimal Hill-time rule or legacy datafit mineral increments",
+    )
+    p.add_argument(
+        "--ha-ro",
+        type=float,
+        default=0.0,
+        help="osteogenic HAp rate r_o^H per OB site per hour before Hill gating",
+    )
+    p.add_argument(
+        "--ha-kappa-d",
+        type=float,
+        default=0.0,
+        help="Dex perturbation coefficient kappa_D^H for HAp",
+    )
+    p.add_argument(
+        "--ha-kappa-k",
+        type=float,
+        default=0.0,
+        help="MK-4 perturbation coefficient kappa_K^H for HAp",
     )
     p.add_argument(
         "--ha-tau",
         type=float,
         default=384.0,
-        help="tau (hours) for minimal HA Hill activation",
+        help="tau (hours) for minimal HAp Hill activation",
     )
     p.add_argument(
         "--ha-hill-n",
         type=float,
         default=4.0,
-        help="Hill exponent n for minimal HA activation",
+        help="Hill exponent n for minimal HAp activation",
     )
     p.add_argument(
         "--seed", type=int, default=None, help="random seed for reproducibility"
@@ -168,7 +276,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--move-prob",
         type=float,
-        default=default_abm.move_prob,
+        default=0.27,
         help="probability a preOB cell attempts a move per hour",
     )
     p.add_argument(
@@ -382,10 +490,21 @@ def parse_args() -> argparse.Namespace:
     )
     p.set_defaults(hourly_exports=False)
     p.add_argument(
+        "--runtime",
+        action="store_true",
+        help="print low-overhead runtime progress during the simulation",
+    )
+    p.add_argument(
+        "--runtime-every",
+        type=int,
+        default=1,
+        help="print runtime progress every N simulated days",
+    )
+    p.add_argument(
         "--datafit",
         type=str,
-        default="datafitting/datafit.npz",
-        help="path to datafit.npz bundle with hourly basal/osteo ALP, collagen, and mineral values",
+        default=None,
+        help="optional legacy path to datafit.npz bundle with hourly basal/osteo ALP, collagen, and mineral values",
     )
     p.add_argument(
         "--datafit-condition",
@@ -414,7 +533,7 @@ def parse_args() -> argparse.Namespace:
         "--mineral-plot-hours",
         type=int,
         default=672,
-        help="limit mineral (ACP/HA) plot to this many hours (0 = no limit)",
+        help="limit mineral (ACP/HAp) plot to this many hours (0 = no limit)",
     )
 
     return p.parse_args()
@@ -463,7 +582,25 @@ def main() -> None:
         width=args.w,
         height=args.h,
         media_interval=args.media_interval,
+        enable_secretion=args.secretion,
+        osteo_induction_hours=induction_hours,
+        dex_conc=args.dex_conc,
+        mk4_conc=args.mk4_conc,
+        alp_basal_rate=args.alp_rb,
+        alp_osteo_rate=args.alp_ro,
+        alp_kappa_d=args.alp_kappa_d,
+        alp_kappa_k=args.alp_kappa_k,
+        collagen_basal_rate=args.collagen_rb,
+        collagen_osteo_rate=args.collagen_ro,
+        collagen_kappa_d=args.collagen_kappa_d,
+        collagen_kappa_k=args.collagen_kappa_k,
+        aa_initial=args.aa0,
+        aa_half_life_hours=args.aa_half_life,
+        collagen_aa_half_sat=args.collagen_aa_km,
         ha_model=args.ha_model,
+        ha_osteo_rate=args.ha_ro,
+        ha_kappa_d=args.ha_kappa_d,
+        ha_kappa_k=args.ha_kappa_k,
         ha_tau_hours=args.ha_tau,
         ha_hill_n=args.ha_hill_n,
         ha_t_commit_hours=induction_hours + args.commit_delay,
@@ -495,6 +632,8 @@ def main() -> None:
             snapshots_enabled=args.snapshots,
             unique_id_tracking=args.unique_id,
             hourly_exports=args.hourly_exports,
+            show_runtime=args.runtime,
+            runtime_every_days=args.runtime_every,
             datafit_path=datafit_path,
             datafit_condition=cond,
             nodule_connectivity=args.nodules,
@@ -529,6 +668,8 @@ def main() -> None:
         plot_summary(
             df,
             cond_outdir,
+            field_cfg=field_cfg,
+            total_hours=total_hours,
             alp_plot_hours=args.alp_plot_hours,
             collagen_plot_hours=args.collagen_plot_hours,
             mineral_plot_hours=args.mineral_plot_hours,
@@ -544,7 +685,7 @@ def main() -> None:
                 }
             )
         if not args.snapshots:
-            print("snapshots disabled; skipping collagen/HA overlays")
+            print("snapshots disabled; skipping collagen/HAp overlays")
         else:
             all_days = range(total_days)
             collagen_vmax = _global_field_max(model.grids_dir, "collagen", all_days)
@@ -564,9 +705,9 @@ def main() -> None:
                     n_preob = int(row["n_preob"])
                     n_ob = int(row["n_osteoblast"])
                     dead_today = int(row["dead_total_today"])
-                    if "nodule_count_ever" in row:
-                        nodule_count = int(row["nodule_count_ever"])
-                    else:
+                    if "nodule_count_current" in row:
+                        nodule_count = int(row["nodule_count_current"])
+                    elif "nodule_count" in row:
                         nodule_count = int(row["nodule_count"])
                 if day in model.nodule_centers_by_day:
                     nodule_centers = model.nodule_centers_by_day[day]

@@ -2,6 +2,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 import json
+import time
 import numpy as np
 import pandas as pd
 
@@ -41,6 +42,8 @@ class OsteoModel:
         snapshots_enabled: bool = False,
         unique_id_tracking: bool = False,
         hourly_exports: bool = False,
+        show_runtime: bool = False,
+        runtime_every_days: int = 1,
         datafit_path: Path | None = None,
         datafit_condition: str | int | None = None,
         nodule_connectivity: str = "8n",
@@ -77,9 +80,28 @@ class OsteoModel:
         self.field = FieldManager(
             width=field_cfg.width,
             height=field_cfg.height,
+            total_hours=self.total_hours,
             media_interval=field_cfg.media_interval,
+            enable_secretion=field_cfg.enable_secretion,
+            osteo_induction_hours=field_cfg.osteo_induction_hours,
+            dex_conc=field_cfg.dex_conc,
+            mk4_conc=field_cfg.mk4_conc,
+            alp_basal_rate=field_cfg.alp_basal_rate,
+            alp_osteo_rate=field_cfg.alp_osteo_rate,
+            alp_kappa_d=field_cfg.alp_kappa_d,
+            alp_kappa_k=field_cfg.alp_kappa_k,
+            collagen_basal_rate=field_cfg.collagen_basal_rate,
+            collagen_osteo_rate=field_cfg.collagen_osteo_rate,
+            collagen_kappa_d=field_cfg.collagen_kappa_d,
+            collagen_kappa_k=field_cfg.collagen_kappa_k,
+            aa_initial=field_cfg.aa_initial,
+            aa_half_life_hours=field_cfg.aa_half_life_hours,
+            collagen_aa_half_sat=field_cfg.collagen_aa_half_sat,
             datafit_schedule=datafit_schedule,
             ha_model=field_cfg.ha_model,
+            ha_osteo_rate=field_cfg.ha_osteo_rate,
+            ha_kappa_d=field_cfg.ha_kappa_d,
+            ha_kappa_k=field_cfg.ha_kappa_k,
             ha_tau_hours=field_cfg.ha_tau_hours,
             ha_hill_n=field_cfg.ha_hill_n,
             ha_t_commit_hours=field_cfg.ha_t_commit_hours,
@@ -95,6 +117,8 @@ class OsteoModel:
         self._daily_dead_preob_coords: List[Tuple[int, int]] = []
         self._daily_dead_ob_coords: List[Tuple[int, int]] = []
         self.hourly_exports = bool(hourly_exports)
+        self.show_runtime = bool(show_runtime)
+        self.runtime_every_days = max(1, int(runtime_every_days))
         self.nodule_connectivity = str(nodule_connectivity).lower()
         self.nodule_boundary_mode = str(abm_cfg.boundary_mode).lower()
         self.nodule_centers_by_day: Dict[int, List[Tuple[float, float]]] = {}
@@ -117,6 +141,8 @@ class OsteoModel:
             "spatial_every": self.spatial_every,
             "spatial_days": sorted(list(self.spatial_days)),
             "snapshots_enabled": self.snapshots_enabled,
+            "show_runtime": self.show_runtime,
+            "runtime_every_days": self.runtime_every_days,
             "datafit_path": str(datafit_path) if datafit_path is not None else None,
             "datafit_condition": datafit_condition,
             "nodule_connectivity": self.nodule_connectivity,
@@ -139,6 +165,7 @@ class OsteoModel:
         return False
 
     def run(self) -> pd.DataFrame:
+        t0 = time.perf_counter()
         deaths_mask = np.zeros((self.abm.height, self.abm.width), dtype=np.uint8)
         deaths_preob_mask = deaths_mask.copy()
         deaths_ob_mask = deaths_mask.copy()
@@ -291,6 +318,23 @@ class OsteoModel:
                     dead_total_cum=dead_total_cum,
                 )
 
+            if self.show_runtime and (
+                day_index == self.days - 1 or day_index % self.runtime_every_days == 0
+            ):
+                elapsed = time.perf_counter() - t0
+                frac = hour / max(1, self.total_hours)
+                remain = (elapsed / frac - elapsed) if frac > 0.0 else 0.0
+                print(
+                    f"[runtime] day {day_index}/{self.days - 1} "
+                    f"hour {hour}/{self.total_hours} "
+                    f"elapsed {elapsed:.2f}s "
+                    f"eta {max(0.0, remain):.2f}s"
+                )
+
+        if self.show_runtime:
+            elapsed = time.perf_counter() - t0
+            print(f"[runtime] finished in {elapsed:.2f}s")
+
         return pd.DataFrame(self._rows)
     
 
@@ -346,6 +390,10 @@ class OsteoModel:
         n_ob = sum(1 for c in self.abm.cells if c.state == CellState.OSTEOBLAST)
         if state_grid is None:
             _, state_grid = cell_grids(self.abm.height, self.abm.width, self.abm.cells)
+        msd_effective = self._effective_msd_live_cells()
+        avg_division_interval = self._average_division_interval_live_cells()
+        avg_move_count = self._average_move_count_live_cells()
+        avg_live_age_hours = self._average_live_age_hours(day)
         nodule_centers, _ = detect_nodules(
             state_grid,
             self.field.ha,
@@ -376,6 +424,10 @@ class OsteoModel:
                 "alp_ob_total": float(self.field.alp_ob_total),
                 "mineral_preob_total": float(self.field.mineral_preob_total),
                 "mineral_ob_total": float(self.field.mineral_ob_total),
+                "msd_effective": float(msd_effective),
+                "avg_division_interval": float(avg_division_interval),
+                "avg_move_count": float(avg_move_count),
+                "avg_live_age_hours": float(avg_live_age_hours),
                 "nodule_count_current": nodule_count_current,
                 "nodule_count_ever": nodule_count_ever,
                 "nodule_count": nodule_count_ever,
@@ -401,11 +453,51 @@ class OsteoModel:
             "alp_ob_total": float(scalars.get("alp_ob_total", 0.0)),
             "mineral_preob_total": float(scalars.get("mineral_preob_total", 0.0)),
             "mineral_ob_total": float(scalars.get("mineral_ob_total", 0.0)),
+            "msd_effective": float(msd_effective),
+            "avg_division_interval": float(avg_division_interval),
+            "avg_move_count": float(avg_move_count),
+            "avg_live_age_hours": float(avg_live_age_hours),
             "nodule_count_current": nodule_count_current,
             "nodule_count_ever": nodule_count_ever,
             "nodule_count": nodule_count_ever,
         }
         self._rows.append(row)
+
+    def _effective_msd_live_cells(self) -> float:
+        if not self.abm.cells:
+            return 0.0
+        vals: list[float] = []
+        width = float(self.abm.width)
+        height = float(self.abm.height)
+        periodic = self.nodule_boundary_mode == "periodic"
+        for c in self.abm.cells:
+            x0, y0 = c.trajectory[0]
+            dx = float(c.x - x0)
+            dy = float(c.y - y0)
+            if periodic:
+                adx = abs(dx)
+                ady = abs(dy)
+                dx = min(adx, width - adx)
+                dy = min(ady, height - ady)
+            vals.append(dx * dx + dy * dy)
+        return float(np.mean(vals)) if vals else 0.0
+
+    def _average_division_interval_live_cells(self) -> float:
+        if not self.abm.cells:
+            return 0.0
+        return float(np.mean([float(c.division_interval) for c in self.abm.cells]))
+
+    def _average_move_count_live_cells(self) -> float:
+        if not self.abm.cells:
+            return 0.0
+        return float(np.mean([float(c.move_count) for c in self.abm.cells]))
+
+    def _average_live_age_hours(self, day: int) -> float:
+        if not self.abm.cells:
+            return 0.0
+        hour = int(day) * HOURS_PER_DAY
+        ages = [max(0.0, float(hour - c.birth_day)) for c in self.abm.cells]
+        return float(np.mean(ages)) if ages else 0.0
 
     def _update_persistent_nodules(
         self, centers_now: List[Tuple[float, float]]

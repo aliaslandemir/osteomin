@@ -133,21 +133,23 @@ class ABMManager:
         if self.cfg.enable_apoptosis:
             self._apoptosis_step(hour)
 
-        if self.cfg.enable_secretion:
-            self._secretion_step()
-
         if self.field is not None:
             n_preob = sum(1 for c in self.cells if c.state == CellState.PRE_OB)
             n_ob = sum(1 for c in self.cells if c.state == CellState.OSTEOBLAST)
             ob_mask = np.zeros((self.height, self.width), dtype=bool)
             preob_mask = np.zeros((self.height, self.width), dtype=bool)
+            ob_commit_hours = np.full((self.height, self.width), np.nan, dtype=float)
             for c in self.cells:
                 if c.state == CellState.OSTEOBLAST:
                     ob_mask[c.y, c.x] = True
+                    if c.day_committed is not None:
+                        ob_commit_hours[c.y, c.x] = float(c.day_committed)
                 elif c.state == CellState.PRE_OB:
                     preob_mask[c.y, c.x] = True
             if hasattr(self.field, "set_ob_mask"):
                 self.field.set_ob_mask(ob_mask)
+            if hasattr(self.field, "set_ob_commit_hours"):
+                self.field.set_ob_commit_hours(ob_commit_hours)
             if hasattr(self.field, "set_preob_mask"):
                 self.field.set_preob_mask(preob_mask)
             self.field.step_hour(hour, n_preob, n_ob)
@@ -332,14 +334,3 @@ class ABMManager:
         rows = self._death_rows
         self._death_rows = []
         return rows
-
-    def _secretion_step(self) -> None:
-        if self.field is None:
-            return
-        if getattr(self.field, "datafit_schedule", None) is not None:
-            return
-        n_ob = sum(1 for c in self.cells if c.state == CellState.OSTEOBLAST)
-        self.field.request_collagen_secretion(n_ob)
-        if n_ob <= 0:
-            return
-        self.field.add_alp(n_ob * self.cfg.alp_per_ob, ob_count=n_ob)
