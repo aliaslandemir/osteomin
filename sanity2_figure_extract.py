@@ -1,0 +1,945 @@
+#!/usr/bin/env python3
+
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+
+import matplotlib
+import numpy as np
+import pandas as pd
+from matplotlib import gridspec
+from matplotlib.colors import LinearSegmentedColormap, Normalize
+from matplotlib.cm import ScalarMappable
+from scipy import stats
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+
+COLORS = {
+    "ink": "#0f172a",
+    "muted": "#64748b",
+    "grid": "#d8dee9",
+    "control": "#1d4ed8",
+    "collagen": "#059669",
+    "ha": "#b45309",
+    "alp": "#c2410c",
+    "neutral": "#94a3b8",
+    "bg": "#f8fafc",
+}
+
+PRIMARY_METRICS = [
+    "assay_alp",
+    "assay_collagen",
+    "assay_ha",
+    "final_live",
+    "final_preob",
+    "final_ob",
+]
+
+plt.rcParams.update(
+    {
+        "font.family": "DejaVu Serif",
+        "axes.edgecolor": COLORS["ink"],
+        "axes.labelcolor": COLORS["ink"],
+        "axes.linewidth": 0.9,
+        "axes.spines.top": False,
+        "axes.spines.right": False,
+        "axes.titleweight": "semibold",
+        "axes.titlesize": 12,
+        "axes.labelsize": 10,
+        "xtick.labelsize": 9,
+        "ytick.labelsize": 9,
+        "xtick.color": COLORS["ink"],
+        "ytick.color": COLORS["ink"],
+        "figure.facecolor": "white",
+        "savefig.facecolor": "white",
+        "savefig.edgecolor": "white",
+        "pdf.fonttype": 42,
+        "ps.fonttype": 42,
+    }
+)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Publication-ready omics-style figure extraction for sanity_check2 outputs.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "--input",
+        type=Path,
+        default=Path("out") / "sanity_check2",
+        help="sanity_check2 output folder containing replicate_summary.csv",
+    )
+    parser.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="output folder for extracted figures; defaults to <input>/figure_extract_2",
+    )
+    parser.add_argument("--alp-hours", type=int, default=None, help="hour used for ALP comparison")
+    parser.add_argument("--collagen-hours", type=int, default=None, help="hour used for collagen comparison")
+    parser.add_argument("--hap-hours", type=int, default=None, help="hour used for HAp comparison")
+    return parser.parse_args()
+
+
+def load_inputs(input_dir: Path) -> tuple[pd.DataFrame, dict]:
+    replicate_path = input_dir / "replicate_summary.csv"
+    if not replicate_path.exists():
+        raise SystemExit(f"replicate_summary.csv not found under {input_dir}")
+    replicate_df = pd.read_csv(replicate_path)
+    manifest_path = input_dir / "manifest.json"
+    manifest = {}
+    if manifest_path.exists():
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    return replicate_df, manifest
+
+
+def save_figure(fig: plt.Figure, out_dir: Path, stem: str) -> None:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_dir / f"{stem}.png", dpi=320, bbox_inches="tight", pad_inches=0.08)
+    fig.savefig(out_dir / f"{stem}.pdf", dpi=320, bbox_inches="tight", pad_inches=0.08)
+    plt.close(fig)
+
+
+def style_axes(ax: plt.Axes, grid_axis: str | None = "y") -> None:
+    ax.set_facecolor("white")
+    ax.tick_params(direction="out", length=4.0, width=0.8)
+    if grid_axis:
+        ax.grid(axis=grid_axis, color=COLORS["grid"], linewidth=0.8, alpha=0.6)
+
+
+def add_panel_label(ax: plt.Axes, label: str) -> None:
+    ax.text(-0.08, 1.02, label, transform=ax.transAxes, fontsize=14, fontweight="bold", va="bottom", ha="left")
+
+
+def response_cmap() -> LinearSegmentedColormap:
+    return LinearSegmentedColormap.from_list("plos_cb_div", ["#2b6c8f", "#f7f4ee", "#b44d2a"])
+
+
+def hap_field_cmap() -> LinearSegmentedColormap:
+    return LinearSegmentedColormap.from_list(
+        "hap_field",
+        ["#120c2c", "#4c1d6f", "#9c2963", "#e16462", "#f6c667", "#fff3bf"],
+    )
+
+
+def assay_hours_from_args(args: argparse.Namespace, manifest: dict) -> dict[str, int]:
+    return {
+        "alp": int(args.alp_hours if args.alp_hours is not None else manifest.get("alp_hours", 240)),
+        "collagen": int(args.collagen_hours if args.collagen_hours is not None else manifest.get("collagen_hours", 336)),
+        "ha": int(args.hap_hours if args.hap_hours is not None else manifest.get("mineral_hours", 672)),
+    }
+
+
+def assay_label(name: str, hours: int) -> str:
+    pretty = {"alp": "ALP", "collagen": "Collagen", "ha": "HAp"}[name]
+    return f"{pretty} at {int(hours)} h"
+
+
+def row_at_hours(df: pd.DataFrame, hours: int) -> pd.Series:
+    target_day = float(hours) / 24.0
+    idx = int((df["day"] - target_day).abs().idxmin())
+    return df.loc[idx]
+
+
+def enrich_replicate_summary(replicate_summary: pd.DataFrame, assay_hours: dict[str, int]) -> pd.DataFrame:
+    df = replicate_summary.copy()
+    assay_values = {"assay_alp": [], "assay_collagen": [], "assay_ha": []}
+    for _, row in df.iterrows():
+        out_dir = Path(str(row["out_dir"]))
+        ts_path = out_dir / "timeseries.csv"
+        if not ts_path.exists():
+            raise SystemExit(f"timeseries.csv not found for replicate output: {ts_path}")
+        ts = pd.read_csv(ts_path)
+        assay_values["assay_alp"].append(float(row_at_hours(ts, assay_hours["alp"])["alp_total"]))
+        assay_values["assay_collagen"].append(float(row_at_hours(ts, assay_hours["collagen"])["collagen_total"]))
+        assay_values["assay_ha"].append(float(row_at_hours(ts, assay_hours["ha"])["ha_total"]))
+    for key, values in assay_values.items():
+        df[key] = values
+    return df
+
+
+def _fmt(value: float) -> str:
+    if pd.isna(value):
+        return "NA"
+    if abs(value) >= 100:
+        return f"{value:.1f}"
+    if abs(value) >= 10:
+        return f"{value:.2f}"
+    return f"{value:.3f}"
+
+
+def _fmt_p(value: float) -> str:
+    if pd.isna(value):
+        return "NA"
+    return f"{float(value):.3g}"
+
+
+def significance_symbol(p_adj: float) -> str:
+    if pd.isna(p_adj):
+        return ""
+    if p_adj < 0.001:
+        return "***"
+    if p_adj < 0.01:
+        return "**"
+    if p_adj < 0.05:
+        return "*"
+    return ""
+
+
+def build_condition_summary(replicate_summary: pd.DataFrame) -> pd.DataFrame:
+    group_cols = ["condition_index", "slug", "title", "description"]
+    numeric_cols = [
+        "seed_centroid_x",
+        "seed_centroid_y",
+        "seed_std_x",
+        "seed_std_y",
+        "seed_mean_radius",
+        "seed_edge_fraction",
+        "seed_center_fraction",
+        "seed_left_fraction",
+        "seed_top_fraction",
+        "seed_mean_nearest_neighbor",
+        "assay_alp",
+        "assay_collagen",
+        "assay_ha",
+        "final_alp",
+        "final_collagen",
+        "final_ha",
+        "final_preob",
+        "final_ob",
+        "final_live",
+        "final_nodule_count",
+        "final_msd",
+    ]
+    grouped = replicate_summary.groupby(group_cols, sort=True)
+    mean_df = grouped[numeric_cols].mean().reset_index()
+    std_df = grouped[numeric_cols].std(ddof=1).reset_index().fillna(0.0)
+    n_df = grouped.size().reset_index(name="n_replicates")
+    first_out = grouped["out_dir"].first().reset_index(name="representative_out_dir")
+    summary = mean_df.merge(std_df, on=group_cols, suffixes=("_mean", "_sd"))
+    summary = summary.merge(n_df, on=group_cols)
+    summary = summary.merge(first_out, on=group_cols)
+    return summary.sort_values("condition_index").reset_index(drop=True)
+
+
+def holm_adjust(p_values: list[float]) -> list[float]:
+    m = len(p_values)
+    order = np.argsort(p_values)
+    adjusted = [0.0] * m
+    running = 0.0
+    for rank, idx in enumerate(order):
+        candidate = (m - rank) * float(p_values[idx])
+        running = max(running, candidate)
+        adjusted[idx] = min(1.0, running)
+    return adjusted
+
+
+def metric_label(metric: str, assay_hours: dict[str, int]) -> str:
+    labels = {
+        "assay_alp": assay_label("alp", assay_hours["alp"]),
+        "assay_collagen": assay_label("collagen", assay_hours["collagen"]),
+        "assay_ha": assay_label("ha", assay_hours["ha"]),
+        "final_live": "Final live cells",
+        "final_preob": "Final preOB",
+        "final_ob": "Final OB",
+    }
+    return labels.get(metric, metric)
+
+
+def compute_statistics(replicate_summary: pd.DataFrame, assay_hours: dict[str, int]) -> pd.DataFrame:
+    rows: list[dict[str, float | int | str]] = []
+    control_idx = int(replicate_summary["condition_index"].min())
+    for metric in PRIMARY_METRICS:
+        groups = [
+            grp[metric].astype(float).to_numpy()
+            for _, grp in replicate_summary.groupby("condition_index", sort=True)
+        ]
+        if len(groups) >= 2:
+            try:
+                h_stat, p_global = stats.kruskal(*groups)
+            except ValueError:
+                h_stat, p_global = 0.0, 1.0
+        else:
+            h_stat, p_global = np.nan, np.nan
+
+        pairwise_rows = []
+        control_vals = replicate_summary.loc[replicate_summary["condition_index"] == control_idx, metric].astype(float).to_numpy()
+        for condition_index, grp in replicate_summary.groupby("condition_index", sort=True):
+            vals = grp[metric].astype(float).to_numpy()
+            mean_val = float(np.mean(vals))
+            sd_val = float(np.std(vals, ddof=1)) if len(vals) > 1 else 0.0
+            if int(condition_index) == control_idx:
+                pairwise_rows.append(
+                    {
+                        "metric": metric,
+                        "metric_label": metric_label(metric, assay_hours),
+                        "condition_index": int(condition_index),
+                        "slug": str(grp["slug"].iloc[0]),
+                        "title": str(grp["title"].iloc[0]),
+                        "n": int(len(vals)),
+                        "mean": mean_val,
+                        "sd": sd_val,
+                        "delta_vs_control": 0.0,
+                        "pct_vs_control": 0.0,
+                        "u_stat": np.nan,
+                        "p_value": np.nan,
+                        "p_adj": np.nan,
+                        "significant_vs_control": False,
+                        "global_h": float(h_stat) if not pd.isna(h_stat) else np.nan,
+                        "global_p": float(p_global) if not pd.isna(p_global) else np.nan,
+                    }
+                )
+                continue
+            try:
+                u_stat, p_value = stats.mannwhitneyu(vals, control_vals, alternative="two-sided")
+            except ValueError:
+                u_stat, p_value = np.nan, 1.0
+            pairwise_rows.append(
+                {
+                    "metric": metric,
+                    "metric_label": metric_label(metric, assay_hours),
+                    "condition_index": int(condition_index),
+                    "slug": str(grp["slug"].iloc[0]),
+                    "title": str(grp["title"].iloc[0]),
+                    "n": int(len(vals)),
+                    "mean": mean_val,
+                    "sd": sd_val,
+                    "delta_vs_control": mean_val - float(np.mean(control_vals)),
+                    "pct_vs_control": 100.0 * (mean_val - float(np.mean(control_vals))) / max(float(np.mean(control_vals)), 1e-12),
+                    "u_stat": float(u_stat) if not pd.isna(u_stat) else np.nan,
+                    "p_value": float(p_value),
+                    "p_adj": np.nan,
+                    "significant_vs_control": False,
+                    "global_h": float(h_stat) if not pd.isna(h_stat) else np.nan,
+                    "global_p": float(p_global) if not pd.isna(p_global) else np.nan,
+                }
+            )
+        pvals = [float(row["p_value"]) for row in pairwise_rows if not pd.isna(row["p_value"])]
+        adj = holm_adjust(pvals) if pvals else []
+        adj_iter = iter(adj)
+        for row in pairwise_rows:
+            if pd.isna(row["p_value"]):
+                row["p_adj"] = np.nan
+            else:
+                row["p_adj"] = float(next(adj_iter))
+                row["significant_vs_control"] = bool(row["p_adj"] < 0.05)
+        rows.extend(pairwise_rows)
+    return pd.DataFrame(rows).sort_values(["metric", "condition_index"]).reset_index(drop=True)
+
+
+def prep_summary(summary: pd.DataFrame) -> pd.DataFrame:
+    df = summary.copy().sort_values("condition_index").reset_index(drop=True)
+    base = df.iloc[0]
+    for src, dest in [
+        ("assay_collagen_mean", "assay_collagen_pct"),
+        ("final_collagen_mean", "final_collagen_pct"),
+        ("assay_ha_mean", "assay_ha_pct"),
+        ("final_ha_mean", "final_ha_pct"),
+        ("assay_alp_mean", "assay_alp_pct"),
+        ("final_live_mean", "final_live_pct"),
+    ]:
+        df[dest] = 100.0 * (df[src] - float(base[src])) / max(float(base[src]), 1e-12)
+    df["condition_label"] = [f"C{int(i):02d}" for i in df["condition_index"]]
+    df["row_label"] = df["condition_label"] + "  " + df["slug"]
+    return df
+
+
+def write_statistics_tables(stats_df: pd.DataFrame, out_dir: Path) -> None:
+    stats_df.to_csv(out_dir / "statistics.csv", index=False)
+    lines = [
+        "# Sanity Check 2 Statistics",
+        "",
+        "| Metric | Condition | Mean | SD | Delta vs control | Percent vs control | U | p | p_adj | Significant |",
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+    ]
+    for _, row in stats_df.iterrows():
+        u_text = _fmt(float(row["u_stat"])) if not pd.isna(row["u_stat"]) else "NA"
+        p_text = _fmt_p(float(row["p_value"])) if not pd.isna(row["p_value"]) else "NA"
+        p_adj_text = _fmt_p(float(row["p_adj"])) if not pd.isna(row["p_adj"]) else "NA"
+        lines.append(
+            f"| {row['metric_label']} | C{int(row['condition_index']):02d} `{row['slug']}` | {_fmt(float(row['mean']))} | {_fmt(float(row['sd']))} | {_fmt(float(row['delta_vs_control']))} | {float(row['pct_vs_control']):+.1f}% | {u_text} | {p_text} | {p_adj_text} | {'yes' if bool(row['significant_vs_control']) else 'no'} |"
+        )
+    (out_dir / "statistics.md").write_text("\n".join(lines), encoding="utf-8")
+
+
+def write_report(
+    condition_summary: pd.DataFrame,
+    replicate_summary: pd.DataFrame,
+    stats_df: pd.DataFrame,
+    out_dir: Path,
+    assay_hours: dict[str, int],
+) -> None:
+    base = condition_summary.iloc[0]
+    lines = [
+        "# Sanity Check 2 Report",
+        "",
+        f"This extraction stage evaluates {len(condition_summary)} initialization modes with {int(replicate_summary['replicate_index'].max())} replicates each.",
+        "",
+        "## Endpoint table",
+        "",
+        f"| Condition | {assay_label('alp', assay_hours['alp'])} | {assay_label('collagen', assay_hours['collagen'])} | {assay_label('ha', assay_hours['ha'])} | Final live |",
+        "| --- | ---: | ---: | ---: | ---: |",
+    ]
+    for _, row in condition_summary.iterrows():
+        lines.append(
+            f"| C{int(row['condition_index']):02d} `{row['slug']}` | {_fmt(row['assay_alp_mean'])} +/- {_fmt(row['assay_alp_sd'])} | {_fmt(row['assay_collagen_mean'])} +/- {_fmt(row['assay_collagen_sd'])} | {_fmt(row['assay_ha_mean'])} +/- {_fmt(row['assay_ha_sd'])} | {_fmt(row['final_live_mean'])} +/- {_fmt(row['final_live_sd'])} |"
+        )
+    lines.extend(["", "## Statistical summary", "", "| Metric | Omnibus p | Significant vs control after Holm |", "| --- | ---: | --- |"])
+    for metric in PRIMARY_METRICS:
+        subset = stats_df[stats_df["metric"] == metric]
+        global_p = subset["global_p"].dropna()
+        global_p_text = _fmt_p(float(global_p.iloc[0])) if not global_p.empty else "NA"
+        sig_conditions = [f"C{int(idx):02d}" for idx in subset.loc[subset["significant_vs_control"], "condition_index"].tolist()]
+        lines.append(f"| {metric_label(metric, assay_hours)} | {global_p_text} | {', '.join(sig_conditions) if sig_conditions else 'none'} |")
+    (out_dir / "report.md").write_text("\n".join(lines), encoding="utf-8")
+
+
+def reorder_rows(df: pd.DataFrame, sort_col: str, ascending: bool = False) -> pd.DataFrame:
+    return df.sort_values([sort_col, "condition_index"], ascending=[ascending, True]).reset_index(drop=True)
+
+
+def export_assay_triptych(
+    df: pd.DataFrame,
+    stats_df: pd.DataFrame,
+    out_dir: Path,
+    assay_hours: dict[str, int],
+) -> None:
+    score = 0.45 * df["assay_ha_pct"] + 0.35 * df["assay_collagen_pct"] + 0.20 * df["assay_alp_pct"]
+    ordered = df.assign(_score=score).sort_values(["_score", "condition_index"], ascending=[False, True]).reset_index(drop=True)
+    assay_cols = ["assay_alp_pct", "assay_collagen_pct", "assay_ha_pct"]
+    assay_titles = [
+        f"A  ALP {assay_hours['alp']} h",
+        f"B  Collagen {assay_hours['collagen']} h",
+        f"C  HAp {assay_hours['ha']} h",
+    ]
+    xticklabels = ["ALP", "Collagen", "HAp"]
+    values = ordered[assay_cols].to_numpy(dtype=float)
+    vmax = max(3.0, float(np.max(np.abs(values))))
+    cmap = response_cmap()
+
+    fig = plt.figure(figsize=(11.2, 9.6))
+    gs = gridspec.GridSpec(1, 4, width_ratios=[1.2, 1.2, 1.2, 0.08], wspace=0.12)
+    axes = [fig.add_subplot(gs[0, i]) for i in range(3)]
+    cax = fig.add_subplot(gs[0, 3])
+    metric_names = ["assay_alp", "assay_collagen", "assay_ha"]
+
+    for idx, (ax, col, title, xtick, metric_name) in enumerate(
+        zip(axes, assay_cols, assay_titles, xticklabels, metric_names)
+    ):
+        mat = ordered[[col]].to_numpy(dtype=float)
+        im = ax.imshow(mat, aspect="auto", cmap=cmap, vmin=-vmax, vmax=vmax)
+        ax.set_xticks([0], [xtick])
+        ax.set_yticks(np.arange(len(ordered)))
+        if idx == 0:
+            ax.set_yticklabels(ordered["row_label"])
+        else:
+            ax.set_yticklabels([])
+        ax.tick_params(axis="y", length=0)
+        for spine in ax.spines.values():
+            spine.set_visible(False)
+        ax.set_title(title, loc="left", pad=10, fontsize=12.0)
+        metric_stats = stats_df[stats_df["metric"] == metric_name].set_index("condition_index")
+        for i in range(mat.shape[0]):
+            condition_index = int(ordered.iloc[i]["condition_index"])
+            p_adj = float(metric_stats.loc[condition_index, "p_adj"]) if condition_index in metric_stats.index and not pd.isna(metric_stats.loc[condition_index, "p_adj"]) else np.nan
+            star = significance_symbol(p_adj)
+            stat_text = star if star else ("ns" if condition_index != 1 else "ctrl")
+            ax.text(0, i - 0.12, f"{mat[i, 0]:+.1f}", ha="center", va="center", fontsize=8.4, color=COLORS["ink"])
+            ax.text(0, i + 0.18, stat_text, ha="center", va="center", fontsize=6.7, color=COLORS["muted"])
+        control_row = int(np.where(ordered["condition_index"].to_numpy() == 1)[0][0])
+        ax.axhline(control_row - 0.5, color=COLORS["control"], lw=1.1)
+        ax.axhline(control_row + 0.5, color=COLORS["control"], lw=1.1)
+
+    cbar = fig.colorbar(im, cax=cax)
+    cbar.set_label("% difference vs C01", rotation=90)
+    fig.suptitle("Figure 1. Assay endpoint heatmaps across initialization modes", fontsize=16, fontweight="semibold", y=0.955)
+    fig.text(
+        0.125,
+        0.925,
+        f"Simple 2D comparison of ALP ({assay_hours['alp']} h), collagen ({assay_hours['collagen']} h), and HAp ({assay_hours['ha']} h). Cell text shows percent change and Holm-adjusted significance (`*, **, ***`; `ns` = not significant).",
+        fontsize=9.3,
+        color=COLORS["muted"],
+        ha="left",
+    )
+    fig.subplots_adjust(top=0.86)
+    save_figure(fig, out_dir, "figure_1_assay_triptych")
+
+
+def export_simple_heatmap(
+    df: pd.DataFrame,
+    value_cols: list[str],
+    value_labels: list[str],
+    title: str,
+    subtitle: str,
+    stem: str,
+    out_dir: Path,
+    *,
+    cmap_colors: tuple[str, str, str],
+    sort_col: str,
+) -> None:
+    ordered = reorder_rows(df, sort_col)
+    values = ordered[value_cols].to_numpy(dtype=float)
+    vmax = max(2.0, float(np.max(np.abs(values))))
+    cmap = LinearSegmentedColormap.from_list(stem, list(cmap_colors))
+
+    fig, ax = plt.subplots(figsize=(7.4, 9.4), constrained_layout=True)
+    im = ax.imshow(values, aspect="auto", cmap=cmap, vmin=-vmax, vmax=vmax)
+    ax.set_xticks(np.arange(len(value_labels)), value_labels, rotation=25, ha="right")
+    ax.set_yticks(np.arange(len(ordered)), ordered["row_label"])
+    ax.tick_params(axis="y", length=0)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+
+    for i in range(values.shape[0]):
+        for j in range(values.shape[1]):
+            ax.text(j, i, f"{values[i, j]:+.1f}", ha="center", va="center", fontsize=8.1, color=COLORS["ink"])
+
+    control_row = int(np.where(ordered["condition_index"].to_numpy() == 1)[0][0])
+    ax.axhline(control_row - 0.5, color=COLORS["control"], lw=1.2)
+    ax.axhline(control_row + 0.5, color=COLORS["control"], lw=1.2)
+    ax.set_title(title, pad=12)
+    fig.text(0.12, 0.955, subtitle, fontsize=9.2, color=COLORS["muted"], ha="left")
+    cbar = fig.colorbar(im, ax=ax, fraction=0.03, pad=0.03)
+    cbar.set_label("% difference vs C01")
+    save_figure(fig, out_dir, stem)
+
+
+def export_ecm_overview_heatmap(df: pd.DataFrame, out_dir: Path, assay_hours: dict[str, int]) -> None:
+    ordered = reorder_rows(df, "final_ha_pct")
+    value_cols = [
+        "assay_alp_pct",
+        "assay_collagen_pct",
+        "assay_ha_pct",
+        "final_ha_pct",
+        "final_collagen_pct",
+        "final_live_pct",
+    ]
+    value_labels = [
+        f"ALP {assay_hours['alp']} h",
+        f"Collagen {assay_hours['collagen']} h",
+        f"HAp {assay_hours['ha']} h",
+    ]
+    values = ordered[value_cols[:3]].to_numpy(dtype=float)
+    vmax = max(2.0, float(np.max(np.abs(values))))
+    cmap = response_cmap()
+
+    fig = plt.figure(figsize=(9.8, 9.4))
+    gs = gridspec.GridSpec(1, 2, width_ratios=[3.0, 1.45], wspace=0.18)
+    ax_main = fig.add_subplot(gs[0, 0])
+    ax_geo = fig.add_subplot(gs[0, 1], sharey=ax_main)
+
+    im = ax_main.imshow(values, aspect="auto", cmap=cmap, vmin=-vmax, vmax=vmax)
+    ax_main.set_xticks(np.arange(len(value_labels)), value_labels, rotation=28, ha="right")
+    ax_main.set_yticks(np.arange(len(ordered)), ordered["row_label"])
+    ax_main.tick_params(axis="y", length=0)
+    for spine in ax_main.spines.values():
+        spine.set_visible(False)
+    for i in range(values.shape[0]):
+        for j in range(values.shape[1]):
+            ax_main.text(j, i, f"{values[i, j]:+.1f}", ha="center", va="center", fontsize=7.1, color=COLORS["ink"])
+
+    control_row = int(np.where(ordered["condition_index"].to_numpy() == 1)[0][0])
+    ax_main.axhline(control_row - 0.5, color=COLORS["control"], lw=1.2)
+    ax_main.axhline(control_row + 0.5, color=COLORS["control"], lw=1.2)
+
+    geo_cols = ["seed_mean_radius_mean", "seed_edge_fraction_mean", "seed_mean_nearest_neighbor_mean"]
+    geo_labels = ["Radius", "Edge", "NN"]
+    geo = ordered[geo_cols].to_numpy(dtype=float)
+    geo_scaled = np.zeros_like(geo)
+    for i in range(geo.shape[1]):
+        col = geo[:, i]
+        denom = max(float(np.max(col) - np.min(col)), 1e-12)
+        geo_scaled[:, i] = (col - np.min(col)) / denom
+    geo_im = ax_geo.imshow(geo_scaled, aspect="auto", cmap=LinearSegmentedColormap.from_list("geo_grey", ["#f8fafc", "#4b5563"]), vmin=0.0, vmax=1.0)
+    ax_geo.set_xticks(np.arange(len(geo_labels)), geo_labels, rotation=25, ha="right")
+    ax_geo.tick_params(axis="y", labelleft=False, length=0)
+    for spine in ax_geo.spines.values():
+        spine.set_visible(False)
+    for i in range(geo.shape[0]):
+        for j in range(geo.shape[1]):
+            ax_geo.text(j, i, f"{geo[i, j]:.2f}", ha="center", va="center", fontsize=7.0, color=COLORS["ink"])
+
+    fig.suptitle("Figure 3. ECM response overview heatmap", fontsize=15, fontweight="semibold", y=0.955)
+    fig.text(
+        0.125,
+        0.925,
+        "A compact comparison of selected assay endpoints with initialization geometry context.",
+        fontsize=9.2,
+        color=COLORS["muted"],
+        ha="left",
+    )
+    cbar = fig.colorbar(im, ax=ax_main, fraction=0.025, pad=0.015)
+    cbar.set_label("% difference vs C01")
+    geo_cbar = fig.colorbar(
+        ScalarMappable(
+            norm=Normalize(vmin=0.0, vmax=1.0),
+            cmap=LinearSegmentedColormap.from_list("geo_grey", ["#f8fafc", "#4b5563"]),
+        ),
+        ax=ax_geo,
+        fraction=0.06,
+        pad=0.035,
+    )
+    geo_cbar.set_label("Scaled geometry")
+    fig.subplots_adjust(top=0.88, right=0.95)
+    save_figure(fig, out_dir, "figure_3_ecm_overview_heatmap")
+
+
+def export_ecm_fingerprint(df: pd.DataFrame, replicate_df: pd.DataFrame | None, out_dir: Path, assay_hours: dict[str, int]) -> None:
+    order = (
+        df.sort_values(["final_ha_pct", "final_collagen_pct"], ascending=[False, False])
+        .reset_index(drop=True)
+    )
+    labels = order["condition_label"].tolist()
+    y = np.arange(len(order))
+
+    fig = plt.figure(figsize=(13.6, 9.2))
+    gs = gridspec.GridSpec(1, 3, width_ratios=[1.55, 1.55, 1.05], wspace=0.18)
+    ax_ha = fig.add_subplot(gs[0, 0])
+    ax_col = fig.add_subplot(gs[0, 1], sharey=ax_ha)
+    ax_side = fig.add_subplot(gs[0, 2], sharey=ax_ha)
+
+    ha_vals = order["final_ha_pct"].to_numpy(dtype=float)
+    col_vals = order["final_collagen_pct"].to_numpy(dtype=float)
+    ha_672 = order["assay_ha_pct"].to_numpy(dtype=float)
+    col_336 = order["assay_collagen_pct"].to_numpy(dtype=float)
+
+    ax_ha.axvline(0.0, color=COLORS["neutral"], lw=0.9)
+    ax_ha.hlines(y, 0.0, ha_vals, color=COLORS["ha"], lw=2.1, alpha=0.85)
+    ax_ha.scatter(ha_vals, y, s=56, color=COLORS["ha"], edgecolors="white", linewidths=0.55, zorder=3)
+    ax_ha.scatter(ha_672, y, s=24, color="#d97706", edgecolors="white", linewidths=0.45, zorder=3)
+    style_axes(ax_ha, "x")
+    ax_ha.set_title("HAp response")
+    ax_ha.set_xlabel("% difference vs C01")
+    ax_ha.set_yticks(y, labels)
+    ax_ha.invert_yaxis()
+
+    ax_col.axvline(0.0, color=COLORS["neutral"], lw=0.9)
+    ax_col.hlines(y, 0.0, col_vals, color=COLORS["collagen"], lw=2.1, alpha=0.85)
+    ax_col.scatter(col_vals, y, s=56, color=COLORS["collagen"], edgecolors="white", linewidths=0.55, zorder=3)
+    ax_col.scatter(col_336, y, s=24, color="#0f9f6e", edgecolors="white", linewidths=0.45, zorder=3)
+    style_axes(ax_col, "x")
+    ax_col.set_title("Collagen response")
+    ax_col.set_xlabel("% difference vs C01")
+    ax_col.tick_params(axis="y", labelleft=False)
+
+    side_cols = ["seed_mean_radius_mean", "seed_edge_fraction_mean", "seed_mean_nearest_neighbor_mean"]
+    side_labels = ["Radius", "Edge", "NN"]
+    side = order[side_cols].to_numpy(dtype=float)
+    side_scaled = np.zeros_like(side)
+    for i in range(side.shape[1]):
+        col = side[:, i]
+        denom = max(float(np.max(col) - np.min(col)), 1e-12)
+        side_scaled[:, i] = (col - np.min(col)) / denom
+    side_im = ax_side.imshow(side_scaled, aspect="auto", cmap=LinearSegmentedColormap.from_list("geo_grey", ["#f8fafc", "#4b5563"]), vmin=0.0, vmax=1.0)
+    ax_side.set_xticks(np.arange(len(side_labels)), side_labels, rotation=35, ha="right")
+    ax_side.tick_params(axis="y", labelleft=False, length=0)
+    ax_side.set_title("Initialization geometry")
+    for i in range(side_scaled.shape[0]):
+        for j in range(side_scaled.shape[1]):
+            ax_side.text(j, i, f"{side[i,j]:.2f}", ha="center", va="center", fontsize=7.0, color=COLORS["ink"])
+    for s in ax_side.spines.values():
+        s.set_visible(False)
+
+    norm = Normalize(vmin=0.0, vmax=1.0)
+    cbar = fig.colorbar(ScalarMappable(norm=norm, cmap=LinearSegmentedColormap.from_list("geo_grey", ["#f8fafc", "#4b5563"])), ax=ax_side, fraction=0.05, pad=0.04)
+    cbar.set_label("Scaled geometry descriptor")
+
+    add_panel_label(ax_ha, "D")
+    fig.suptitle(
+        "Figure 4. ECM fingerprint ranking across initialization modes",
+        fontsize=15,
+        fontweight="semibold",
+        y=0.98,
+    )
+    fig.text(
+        0.125,
+        0.945,
+        f"Large markers: final endpoint deviations. Small markers: selected assay endpoints (collagen {assay_hours['collagen']} h, HAp {assay_hours['ha']} h).",
+        fontsize=9.2,
+        color=COLORS["muted"],
+        ha="left",
+    )
+    save_figure(fig, out_dir, "figure_4_ecm_fingerprint")
+
+
+def export_hap_collagen_map(df: pd.DataFrame, out_dir: Path, assay_hours: dict[str, int]) -> None:
+    order = df.sort_values(["final_ha_pct", "final_collagen_pct"], ascending=[False, False]).reset_index(drop=True)
+    x = order["final_collagen_pct"].to_numpy(dtype=float)
+    y = order["final_ha_pct"].to_numpy(dtype=float)
+    alp = order["assay_alp_pct"].to_numpy(dtype=float)
+    edge = order["seed_edge_fraction_mean"].to_numpy(dtype=float)
+    size = 70.0 + 170.0 * (
+        (edge - float(np.min(edge))) / max(float(np.max(edge) - np.min(edge)), 1e-12)
+    )
+    cmap = response_cmap()
+    vmax = max(3.0, float(np.max(np.abs(alp))))
+
+    fig = plt.figure(figsize=(11.6, 7.8))
+    gs = gridspec.GridSpec(1, 3, width_ratios=[5.2, 0.18, 1.25], wspace=0.24)
+    ax = fig.add_subplot(gs[0, 0])
+    cax = fig.add_subplot(gs[0, 1])
+    lax = fig.add_subplot(gs[0, 2])
+
+    xmin = min(float(np.min(x)), -1.0) - 0.5
+    xmax = max(float(np.max(x)), 1.0) + 0.5
+    ymin = min(float(np.min(y)), -1.0) - 0.7
+    ymax = max(float(np.max(y)), 1.0) + 0.7
+
+    ax.axvspan(xmin, 0.0, ymin=0.5, ymax=1.0, color="#e7effa", alpha=0.7, zorder=0)
+    ax.axvspan(0.0, xmax, ymin=0.5, ymax=1.0, color="#fff1e6", alpha=0.7, zorder=0)
+    ax.axvspan(xmin, 0.0, ymin=0.0, ymax=0.5, color="#f1f5f9", alpha=0.9, zorder=0)
+    ax.axvspan(0.0, xmax, ymin=0.0, ymax=0.5, color="#edf7f2", alpha=0.75, zorder=0)
+    ax.axvline(0.0, color="#64748b", lw=1.0, zorder=1)
+    ax.axhline(0.0, color="#64748b", lw=1.0, zorder=1)
+
+    sc = ax.scatter(
+        x,
+        y,
+        c=alp,
+        s=size,
+        cmap=cmap,
+        vmin=-vmax,
+        vmax=vmax,
+        edgecolors="white",
+        linewidths=0.8,
+        alpha=0.97,
+        zorder=3,
+    )
+
+    label_offsets = {
+        "C01": (0.12, -0.10),
+        "C03": (0.10, 0.18),
+        "C13": (0.10, 0.30),
+        "C14": (0.10, 0.08),
+        "C09": (0.10, 0.06),
+        "C08": (0.10, 0.16),
+    }
+    for idx, row in order.iterrows():
+        dx = 0.11 if float(row["final_collagen_pct"]) <= 0 else 0.08
+        dy = 0.11 if idx % 2 == 0 else -0.14
+        if row["condition_label"] in label_offsets:
+            dx, dy = label_offsets[row["condition_label"]]
+        ax.text(
+            float(row["final_collagen_pct"]) + dx,
+            float(row["final_ha_pct"]) + dy,
+            row["condition_label"],
+            fontsize=7.9,
+            color=COLORS["ink"],
+            zorder=4,
+            bbox={"boxstyle": "round,pad=0.14", "fc": (1, 1, 1, 0.72), "ec": "none"},
+        )
+
+    ctrl = order.loc[order["condition_index"] == 1].iloc[0]
+    ax.scatter(
+        [float(ctrl["final_collagen_pct"])],
+        [float(ctrl["final_ha_pct"])],
+        s=260,
+        facecolors="none",
+        edgecolors=COLORS["control"],
+        linewidths=1.4,
+        zorder=5,
+    )
+
+    style_axes(ax, "both")
+    ax.set_xlim(xmin, xmax)
+    ax.set_ylim(ymin, ymax)
+    ax.set_xlabel("Final collagen difference vs C01 (%)")
+    ax.set_ylabel("Final HAp difference vs C01 (%)")
+    ax.set_title(f"Figure 2. ECM response map with ALP encoding ({assay_hours['alp']} h)", pad=18)
+    fig.text(
+        0.125,
+        0.935,
+        "Point color encodes the selected ALP assay response. Point size encodes initial edge fraction.",
+        fontsize=9.1,
+        color=COLORS["muted"],
+        ha="left",
+    )
+    ax.text(
+        0.01,
+        0.98,
+        "Control circled in blue",
+        transform=ax.transAxes,
+        fontsize=8.6,
+        color=COLORS["muted"],
+        ha="left",
+        va="top",
+    )
+
+    cbar = fig.colorbar(sc, cax=cax)
+    cbar.set_label("Selected ALP difference vs C01 (%)")
+    cbar.ax.yaxis.set_label_position("right")
+    cbar.ax.yaxis.tick_right()
+
+    lax.set_xlim(0.0, 1.0)
+    lax.set_ylim(0.0, 1.0)
+    lax.axis("off")
+    lax.text(0.0, 0.98, "Interpretation", fontsize=11.0, fontweight="semibold", ha="left", va="top")
+    lax.text(0.0, 0.84, "Upper-right", fontsize=8.9, fontweight="semibold", ha="left")
+    lax.text(0.0, 0.79, "Higher collagen and higher HAp than control.", fontsize=8.3, color=COLORS["muted"], ha="left", wrap=True)
+    lax.text(0.0, 0.66, "Lower-left", fontsize=8.9, fontweight="semibold", ha="left")
+    lax.text(0.0, 0.61, "Coordinated ECM suppression relative to control.", fontsize=8.3, color=COLORS["muted"], ha="left", wrap=True)
+    lax.text(0.0, 0.46, "Size legend", fontsize=8.9, fontweight="semibold", ha="left")
+    for ypos, frac in zip([0.33, 0.24, 0.15], [0.0, 0.4, 0.8]):
+        ssize = 70.0 + 170.0 * frac
+        lax.scatter([0.10], [ypos], s=ssize, color="#94a3b8", edgecolors="white", linewidths=0.8)
+        lax.text(0.22, ypos, f"Edge fraction {frac:.1f}", fontsize=8.4, va="center", ha="left", color=COLORS["ink"])
+
+    fig.subplots_adjust(top=0.86, right=0.96)
+    save_figure(fig, out_dir, "figure_2_ecm_response_map")
+
+
+def export_geometry_heatmap(df: pd.DataFrame, out_dir: Path) -> None:
+    ordered = reorder_rows(df, "seed_mean_radius_mean")
+    geo_cols = ["seed_mean_radius_mean", "seed_edge_fraction_mean", "seed_mean_nearest_neighbor_mean"]
+    geo_labels = ["Mean radius", "Edge fraction", "NN distance"]
+    geo = ordered[geo_cols].to_numpy(dtype=float)
+    scaled = np.zeros_like(geo)
+    for i in range(geo.shape[1]):
+        col = geo[:, i]
+        denom = max(float(np.max(col) - np.min(col)), 1e-12)
+        scaled[:, i] = (col - np.min(col)) / denom
+    fig, ax = plt.subplots(figsize=(7.8, 9.0), constrained_layout=True)
+    im = ax.imshow(scaled, aspect="auto", cmap=LinearSegmentedColormap.from_list("geo_grey", ["#f8fafc", "#4b5563"]), vmin=0.0, vmax=1.0)
+    ax.set_xticks(np.arange(len(geo_labels)), geo_labels, rotation=25, ha="right")
+    ax.set_yticks(np.arange(len(ordered)), ordered["row_label"])
+    ax.tick_params(axis="y", length=0)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    for i in range(geo.shape[0]):
+        for j in range(geo.shape[1]):
+            ax.text(j, i, f"{geo[i, j]:.2f}", ha="center", va="center", fontsize=8.0, color=COLORS["ink"])
+    ax.set_title("Figure 5. Initialization geometry reference", pad=14)
+    fig.text(0.125, 0.955, "Geometry descriptors for interpreting the response figures.", fontsize=9.1, color=COLORS["muted"], ha="left")
+    cbar = fig.colorbar(im, ax=ax, fraction=0.03, pad=0.03)
+    cbar.set_label("Scaled descriptor value")
+    save_figure(fig, out_dir, "figure_5_geometry_reference")
+
+
+def _find_grid(rep_dir: Path, prefix: str, preferred_day: int) -> Path:
+    preferred = rep_dir / "grids" / f"{prefix}_day_{preferred_day:03d}.npy"
+    if preferred.exists():
+        return preferred
+    candidates = sorted((rep_dir / "grids").glob(f"{prefix}_day_*.npy"))
+    if not candidates:
+        raise SystemExit(f"No {prefix} grids found in {rep_dir / 'grids'}")
+    return candidates[-1]
+
+
+def _spatial_signature(ha: np.ndarray, state: np.ndarray) -> np.ndarray:
+    state_mask = (state > 0).astype(float)
+    ob_mask = (state == 2).astype(float)
+    ha_scaled = ha.astype(float)
+    if float(np.max(ha_scaled)) > 1e-12:
+        ha_scaled = ha_scaled / float(np.max(ha_scaled))
+    signature = np.concatenate(
+        [
+            ha_scaled.ravel(),
+            0.35 * state_mask.ravel(),
+            0.20 * ob_mask.ravel(),
+        ]
+    )
+    signature = signature - float(np.mean(signature))
+    norm = float(np.linalg.norm(signature))
+    if norm > 1e-12:
+        signature = signature / norm
+    return signature
+
+
+def _render_state_thumb(ax: plt.Axes, ha: np.ndarray, state: np.ndarray, vmax: float, title: str | None = None) -> None:
+    yy_pre, xx_pre = np.where(state == 1)
+    yy_ob, xx_ob = np.where(state == 2)
+    ax.imshow(ha, origin="upper", cmap=hap_field_cmap(), vmin=0.0, vmax=vmax)
+    if xx_pre.size:
+        ax.scatter(xx_pre, yy_pre, s=5.5, c="#8be9fd", edgecolors="none", alpha=0.95)
+    if xx_ob.size:
+        ax.scatter(xx_ob, yy_ob, s=6.5, c="#fff1a8", edgecolors="none", alpha=0.98)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_aspect("equal")
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    if title:
+        ax.set_title(title, loc="left", fontsize=8.2, pad=2.5)
+
+
+def export_hap_pairwise_heatmap(df: pd.DataFrame, out_dir: Path, assay_hours: dict[str, int]) -> None:
+    ordered = df.sort_values(["assay_ha_pct", "condition_index"], ascending=[False, True]).reset_index(drop=True)
+    labels = ordered["condition_label"].tolist()
+    target_day = max(0, int(round(float(assay_hours["ha"]) / 24.0)))
+    states: list[np.ndarray] = []
+    has: list[np.ndarray] = []
+    for _, row in ordered.iterrows():
+        rep_dir = Path(str(row["representative_out_dir"]))
+        ha_path = _find_grid(rep_dir, "ha", target_day)
+        state_path = _find_grid(rep_dir, "state", target_day)
+        ha = np.load(ha_path).astype(float)
+        state = np.load(state_path).astype(float)
+        has.append(ha)
+        states.append(state)
+    vmax_ha = max(max(float(np.max(ha)) for ha in has), 1e-9)
+
+    n_conditions = len(labels)
+    ncols = 5
+    nrows = int(np.ceil(n_conditions / ncols))
+    fig = plt.figure(figsize=(16.6, 8.8))
+    gallery_gs = gridspec.GridSpec(nrows, ncols, figure=fig, wspace=0.03, hspace=0.12)
+
+    for idx, (ha, state, label) in enumerate(zip(has, states, labels)):
+        r = idx // ncols
+        c = idx % ncols
+        gax = fig.add_subplot(gallery_gs[r, c])
+        _render_state_thumb(gax, ha, state, vmax_ha, title=label)
+        if int(ordered.iloc[idx]["condition_index"]) == 1:
+            for spine in gax.spines.values():
+                spine.set_visible(True)
+                spine.set_linewidth(1.4)
+                spine.set_edgecolor(COLORS["control"])
+    for idx in range(n_conditions, nrows * ncols):
+        r = idx // ncols
+        c = idx % ncols
+        gax = fig.add_subplot(gallery_gs[r, c])
+        gax.axis("off")
+
+    fig.suptitle(f"Figure 6. Final spatial-state gallery at HAp {assay_hours['ha']} h", fontsize=17, fontweight="semibold", y=0.985)
+    fig.text(
+        0.06,
+        0.95,
+        "Representative end-state maps for every initialization mode. Background color encodes HAp accumulation; cyan points show preOB cells and pale-yellow points show OB cells.",
+        fontsize=9.4,
+        color=COLORS["muted"],
+        ha="left",
+    )
+    fig.text(0.06, 0.928, "Blue border marks the control condition (C01).", fontsize=8.7, color=COLORS["muted"], ha="left")
+    fig.subplots_adjust(top=0.92, right=0.985, left=0.03, bottom=0.035)
+    save_figure(fig, out_dir, "figure_6_hap_pairwise_heatmap")
+
+
+def main() -> None:
+    args = parse_args()
+    out_dir = args.out if args.out is not None else (args.input / "figure_extract_2")
+    replicate_df, manifest = load_inputs(args.input)
+    assay_hours = assay_hours_from_args(args, manifest)
+    replicate_df = enrich_replicate_summary(replicate_df, assay_hours)
+    condition_summary = build_condition_summary(replicate_df)
+    stats_df = compute_statistics(replicate_df, assay_hours)
+    condition_summary.to_csv(args.input / "summary.csv", index=False)
+    write_statistics_tables(stats_df, args.input)
+    write_report(condition_summary, replicate_df, stats_df, args.input, assay_hours)
+
+    summary = prep_summary(condition_summary)
+    export_assay_triptych(summary, stats_df, out_dir, assay_hours)
+    export_hap_collagen_map(summary, out_dir, assay_hours)
+    export_ecm_overview_heatmap(summary, out_dir, assay_hours)
+    export_ecm_fingerprint(summary, replicate_df, out_dir, assay_hours)
+    export_geometry_heatmap(summary, out_dir)
+    export_hap_pairwise_heatmap(summary, out_dir, assay_hours)
+    print(f"Wrote figures to {out_dir}")
+
+
+if __name__ == "__main__":
+    main()
