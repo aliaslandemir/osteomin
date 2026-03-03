@@ -9,8 +9,8 @@ import pandas as pd
 from .abm_manager import ABMManager
 from .config import ABMConfig, FieldConfig
 from .field_manager import FieldManager
+from .modulatoreff import drug_response_summary
 from .agent import CellState
-from .datafit import DatafitSchedule
 from .io_utils import (
     cell_grids,
     coords_to_mask,
@@ -44,8 +44,6 @@ class OsteoModel:
         hourly_exports: bool = False,
         show_runtime: bool = False,
         runtime_every_days: int = 1,
-        datafit_path: Path | None = None,
-        datafit_condition: str | int | None = None,
         nodule_connectivity: str = "8n",
     ):
         self.outdir = Path(outdir)
@@ -67,16 +65,6 @@ class OsteoModel:
         self.rng = np.random.default_rng(seed)
         self.abm = ABMManager(abm_cfg, self.rng, track_cells=self.enable_unique_ids)
 
-        datafit_schedule: DatafitSchedule | None = None
-        if datafit_path is not None:
-            resolved = Path(datafit_path)
-            if not resolved.exists():
-                raise SystemExit(f"--datafit file not found: {resolved}")
-            datafit_schedule = DatafitSchedule.from_path(
-                resolved, self.total_hours, condition=datafit_condition
-            )
-        self.datafit_schedule = datafit_schedule
-
         self.field = FieldManager(
             width=field_cfg.width,
             height=field_cfg.height,
@@ -86,6 +74,8 @@ class OsteoModel:
             osteo_induction_hours=field_cfg.osteo_induction_hours,
             dex_conc=field_cfg.dex_conc,
             mk4_conc=field_cfg.mk4_conc,
+            dex_ref_conc=field_cfg.dex_ref_conc,
+            mk4_ref_conc=field_cfg.mk4_ref_conc,
             alp_basal_rate=field_cfg.alp_basal_rate,
             alp_osteo_rate=field_cfg.alp_osteo_rate,
             alp_kappa_d=field_cfg.alp_kappa_d,
@@ -97,7 +87,6 @@ class OsteoModel:
             aa_initial=field_cfg.aa_initial,
             aa_half_life_hours=field_cfg.aa_half_life_hours,
             collagen_aa_half_sat=field_cfg.collagen_aa_half_sat,
-            datafit_schedule=datafit_schedule,
             ha_model=field_cfg.ha_model,
             ha_osteo_rate=field_cfg.ha_osteo_rate,
             ha_kappa_d=field_cfg.ha_kappa_d,
@@ -140,13 +129,12 @@ class OsteoModel:
             "seed": seed,
             "abm_cfg": __import__("dataclasses").asdict(abm_cfg),
             "field_cfg": __import__("dataclasses").asdict(field_cfg),
+            "drug_response": drug_response_summary(field_cfg),
             "spatial_every": self.spatial_every,
             "spatial_days": sorted(list(self.spatial_days)),
             "snapshots_enabled": self.snapshots_enabled,
             "show_runtime": self.show_runtime,
             "runtime_every_days": self.runtime_every_days,
-            "datafit_path": str(datafit_path) if datafit_path is not None else None,
-            "datafit_condition": datafit_condition,
             "nodule_connectivity": self.nodule_connectivity,
             "nodule_boundary_mode": self.nodule_boundary_mode,
         }

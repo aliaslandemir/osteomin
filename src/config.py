@@ -41,6 +41,8 @@ class FieldConfig:
     osteo_induction_hours: int = 72
     dex_conc: float = 0.0
     mk4_conc: float = 0.0
+    dex_ref_conc: float = 31.622776601683793
+    mk4_ref_conc: float = 1.0
     alp_basal_rate: float = 0.0
     alp_osteo_rate: float = 0.0
     alp_kappa_d: float = 0.0

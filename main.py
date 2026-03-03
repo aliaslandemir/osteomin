@@ -11,14 +11,20 @@ python3 main.py \
   --seed 12345 \
   --w 33 --h 33 \
   --nodules 40n \
-  --dex-conc 0 \
-  --mk4-conc 0 \
+  --dex-conc 100 \
+  --mk4-conc 10 \
   --alp-rb 0.001 \
   --alp-ro 0.002 \
+  --alp-kappa-d 0.0010 \
+  --alp-kappa-k 0.0005 \
   --collagen-rb 0.001 \
   --collagen-ro 0.002 \
+  --collagen-kappa-d 0.0008 \
+  --collagen-kappa-k 0.0006 \
   --ha-model minimal \
   --ha-ro 0.075 \
+  --ha-kappa-d 0.015 \
+  --ha-kappa-k 0.010 \
   --ha-tau 384 \
   --ha-hill-n 4 \
   --boundary-mode periodic \
@@ -51,11 +57,11 @@ python3 main.py \
 
 
 
+
 """
 
 from __future__ import annotations
 import argparse
-from dataclasses import replace
 from pathlib import Path
 from typing import Iterable
 
@@ -63,6 +69,7 @@ import numpy as np
 
 from src.model import OsteoModel
 from src.config import FieldConfig, ABMConfig
+from src.modulatoreff import print_drug_response_summary
 from src.time_utils import HOURS_PER_DAY
 from src.viz import plot_summary, export_overlay_collagen_ha
 
@@ -133,15 +140,17 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--dex-conc",
+        "--dex",
         type=float,
         default=0.0,
-        help="Dex concentration c_D used in linear osteogenic rate perturbations",
+        help="Dex concentration c_D used to compute log10(c_D/c_D0) with c_D0 fixed to 31.6 nM",
     )
     p.add_argument(
         "--mk4-conc",
+        "--mk4",
         type=float,
         default=0.0,
-        help="MK-4 concentration c_K used in linear osteogenic rate perturbations",
+        help="MK-4 concentration c_K used to compute log10(c_K/c_K0) with c_K0 fixed to 1.0 uM",
     )
     p.add_argument(
         "--alp-rb",
@@ -214,9 +223,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--ha-model",
         type=str,
-        choices=["minimal", "datafit"],
+        choices=["minimal"],
         default="minimal",
-        help="HAp production model: minimal Hill-time rule or legacy datafit mineral increments",
+        help="HAp production model for OsteoMin field dynamics",
     )
     p.add_argument(
         "--ha-ro",
@@ -520,18 +529,18 @@ def parse_args() -> argparse.Namespace:
         "--datafit",
         type=str,
         default=None,
-        help="optional legacy path to datafit.npz bundle with hourly basal/osteo ALP, collagen, and mineral values",
+        help="deprecated legacy option; datafit-driven dynamics are disabled",
     )
     p.add_argument(
         "--datafit-condition",
         type=str,
         default="C2",
-        help="condition to use from datafit_endpoint.npz (C1..C8). Default C2.",
+        help="deprecated legacy option; ignored unless --datafit is supplied",
     )
     p.add_argument(
         "--datafit-all",
         action="store_true",
-        help="run all conditions present in datafit_endpoint.npz (C1..C8) and write subfolders",
+        help="deprecated legacy option; ignored unless --datafit is supplied",
     )
     p.add_argument(
         "--alp-plot-hours",
@@ -569,6 +578,10 @@ def main() -> None:
     args.osteo_induction_day = max(0.0, float(args.osteo_induction_day))
     args.commit_k = max(0.0, float(args.commit_k))
     args.commit_k_growth = max(0.0, float(args.commit_k_growth))
+    if args.datafit:
+        raise SystemExit(
+            "legacy --datafit execution is disabled; OsteoMin now uses equation-based dynamics only"
+        )
     induction_hours = int(round(args.osteo_induction_day * HOURS_PER_DAY))
     abm_cfg = ABMConfig(
         width=args.w,
@@ -602,6 +615,8 @@ def main() -> None:
         osteo_induction_hours=induction_hours,
         dex_conc=args.dex_conc,
         mk4_conc=args.mk4_conc,
+        dex_ref_conc=31.622776601683793,
+        mk4_ref_conc=1.0,
         alp_basal_rate=args.alp_rb,
         alp_osteo_rate=args.alp_ro,
         alp_kappa_d=args.alp_kappa_d,
@@ -623,6 +638,7 @@ def main() -> None:
         ha_collagen_maturation_tau_hours=args.ha_collagen_maturation_tau,
         ha_collagen_half_sat=args.ha_collagen_km,
     )
+    print_drug_response_summary(field_cfg)
     spatial_days = [int(x) for x in args.spatial_days.split(",") if x.strip()]
 
     if args.hours is not None:
@@ -632,17 +648,11 @@ def main() -> None:
     if total_hours <= 0:
         raise SystemExit("specify a positive --hours or --days value")
 
-    datafit_path = Path(args.datafit) if args.datafit else None
-
-    def _run_condition(cond: str, cond_outdir: Path) -> None:
-        cond_label = str(cond).strip().upper()
-        cond_abm_cfg = (
-            replace(abm_cfg, enable_commitment=False) if cond_label == "C1" else abm_cfg
-        )
+    def _run_condition(cond_outdir: Path) -> None:
         model = OsteoModel(
             outdir=cond_outdir,
             total_hours=total_hours,
-            abm_cfg=cond_abm_cfg,
+            abm_cfg=abm_cfg,
             field_cfg=field_cfg,
             seed=args.seed,
             spatial_every=args.spatial_every,
@@ -652,8 +662,6 @@ def main() -> None:
             hourly_exports=args.hourly_exports,
             show_runtime=args.runtime,
             runtime_every_days=args.runtime_every,
-            datafit_path=datafit_path,
-            datafit_condition=cond,
             nodule_connectivity=args.nodules,
         )
 
@@ -687,6 +695,7 @@ def main() -> None:
             df,
             cond_outdir,
             field_cfg=field_cfg,
+            modulator_df=model.field.modulator_frame(),
             total_hours=total_hours,
             alp_plot_hours=args.alp_plot_hours,
             collagen_plot_hours=args.collagen_plot_hours,
@@ -763,22 +772,10 @@ def main() -> None:
                     global_vmax_ha=ha_vmax,
                 )
 
-        print(f"[{cond}]")
+        print("[OsteoMin]")
         print(df.tail(5))
 
-    if args.datafit_all and datafit_path and Path(datafit_path).exists():
-        data = np.load(datafit_path)
-        conds = (
-            data["conditions"].tolist()
-            if "conditions" in data.files
-            else ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8"]
-        )
-        for cond in conds:
-            cond_out = outdir / str(cond)
-            cond_out.mkdir(parents=True, exist_ok=True)
-            _run_condition(str(cond), cond_out)
-    else:
-        _run_condition(args.datafit_condition, outdir)
+    _run_condition(outdir)
 
 
 if __name__ == "__main__":

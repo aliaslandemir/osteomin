@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 from matplotlib.colors import to_rgb, PowerNorm
 from .agent import CellState
+from .modulatoreff import plot_drug_modulation_summary
 
 __all__ = [
     "plot_summary",
@@ -416,6 +417,7 @@ def plot_summary(
     outdir: str | Path,
     *,
     field_cfg: object | None = None,
+    modulator_df: pd.DataFrame | None = None,
     total_hours: int | None = None,
     alp_plot_hours: int | None = None,
     collagen_plot_hours: int | None = None,
@@ -700,6 +702,18 @@ def plot_summary(
         fig.tight_layout(pad=0.6)
         _save_figure(fig, outdir, "11_ascorbate_collagen_gate")
         plt.close(fig)
+
+        plot_drug_modulation_summary(
+            outdir,
+            field_cfg,
+            modulator_df=modulator_df,
+            alp_plot_hours=alp_plot_hours,
+            collagen_plot_hours=collagen_plot_hours,
+            mineral_plot_hours=mineral_plot_hours,
+            save_figure=_save_figure,
+            set_white=_set_white,
+            colors=COLORS,
+        )
 
 
 def _render_spatial_image(
