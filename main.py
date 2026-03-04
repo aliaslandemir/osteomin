@@ -17,14 +17,17 @@ python3 main.py \
   --alp-ro 0.002 \
   --alp-kappa-d 0.0010 \
   --alp-kappa-k 0.0005 \
+  --alp-kappa-k2 -0.0002 \
   --collagen-rb 0.001 \
   --collagen-ro 0.002 \
   --collagen-kappa-d 0.0008 \
   --collagen-kappa-k 0.0006 \
+  --collagen-kappa-k2 -0.00025 \
   --ha-model minimal \
   --ha-ro 0.075 \
   --ha-kappa-d 0.015 \
   --ha-kappa-k 0.010 \
+  --ha-kappa-k2 -0.004 \
   --ha-tau 384 \
   --ha-hill-n 4 \
   --boundary-mode periodic \
@@ -49,6 +52,7 @@ python3 main.py \
   --mineral-plot-hours 672 \
   --no-hourly-exports \
   --runtime
+
 
 
 
@@ -143,7 +147,7 @@ def parse_args() -> argparse.Namespace:
         "--dex",
         type=float,
         default=0.0,
-        help="Dex concentration c_D used to compute log10(c_D/c_D0) with c_D0 fixed to 31.6 nM",
+        help="Dex concentration c_D used to compute log10(c_D/c_D0) with c_D0 fixed to 10 nM",
     )
     p.add_argument(
         "--mk4-conc",
@@ -168,13 +172,25 @@ def parse_args() -> argparse.Namespace:
         "--alp-kappa-d",
         type=float,
         default=0.0,
-        help="Dex perturbation coefficient kappa_D^P for ALP",
+        help="linear Dex perturbation coefficient kappa_D,1^P for ALP",
+    )
+    p.add_argument(
+        "--alp-kappa-d2",
+        type=float,
+        default=0.0,
+        help="quadratic Dex perturbation coefficient kappa_D,2^P for ALP",
     )
     p.add_argument(
         "--alp-kappa-k",
         type=float,
         default=0.0,
-        help="MK-4 perturbation coefficient kappa_K^P for ALP",
+        help="linear MK-4 perturbation coefficient kappa_K,1^P for ALP",
+    )
+    p.add_argument(
+        "--alp-kappa-k2",
+        type=float,
+        default=0.0,
+        help="quadratic MK-4 perturbation coefficient kappa_K,2^P for ALP",
     )
     p.add_argument(
         "--collagen-rb",
@@ -192,13 +208,25 @@ def parse_args() -> argparse.Namespace:
         "--collagen-kappa-d",
         type=float,
         default=0.0,
-        help="Dex perturbation coefficient kappa_D^C for collagen",
+        help="linear Dex perturbation coefficient kappa_D,1^C for collagen",
+    )
+    p.add_argument(
+        "--collagen-kappa-d2",
+        type=float,
+        default=0.0,
+        help="quadratic Dex perturbation coefficient kappa_D,2^C for collagen",
     )
     p.add_argument(
         "--collagen-kappa-k",
         type=float,
         default=0.0,
-        help="MK-4 perturbation coefficient kappa_K^C for collagen",
+        help="linear MK-4 perturbation coefficient kappa_K,1^C for collagen",
+    )
+    p.add_argument(
+        "--collagen-kappa-k2",
+        type=float,
+        default=0.0,
+        help="quadratic MK-4 perturbation coefficient kappa_K,2^C for collagen",
     )
     p.add_argument(
         "--aa0",
@@ -237,13 +265,25 @@ def parse_args() -> argparse.Namespace:
         "--ha-kappa-d",
         type=float,
         default=0.0,
-        help="Dex perturbation coefficient kappa_D^H for HAp",
+        help="linear Dex perturbation coefficient kappa_D,1^H for HAp",
+    )
+    p.add_argument(
+        "--ha-kappa-d2",
+        type=float,
+        default=0.0,
+        help="quadratic Dex perturbation coefficient kappa_D,2^H for HAp",
     )
     p.add_argument(
         "--ha-kappa-k",
         type=float,
         default=0.0,
-        help="MK-4 perturbation coefficient kappa_K^H for HAp",
+        help="linear MK-4 perturbation coefficient kappa_K,1^H for HAp",
+    )
+    p.add_argument(
+        "--ha-kappa-k2",
+        type=float,
+        default=0.0,
+        help="quadratic MK-4 perturbation coefficient kappa_K,2^H for HAp",
     )
     p.add_argument(
         "--ha-tau",
@@ -578,6 +618,14 @@ def main() -> None:
     args.osteo_induction_day = max(0.0, float(args.osteo_induction_day))
     args.commit_k = max(0.0, float(args.commit_k))
     args.commit_k_growth = max(0.0, float(args.commit_k_growth))
+    if args.dex_conc != 0.0 and not (1.0 <= float(args.dex_conc) <= 100.0):
+        raise SystemExit(
+            f"Dex concentration {args.dex_conc:g} nM is outside the supported non-toxic range of 1 to 100 nM"
+        )
+    if args.mk4_conc != 0.0 and not (0.1 <= float(args.mk4_conc) <= 10.0):
+        raise SystemExit(
+            f"MK-4 concentration {args.mk4_conc:g} uM is outside the supported non-toxic range of 0.1 to 10 uM"
+        )
     if args.datafit:
         raise SystemExit(
             "legacy --datafit execution is disabled; OsteoMin now uses equation-based dynamics only"
@@ -615,23 +663,29 @@ def main() -> None:
         osteo_induction_hours=induction_hours,
         dex_conc=args.dex_conc,
         mk4_conc=args.mk4_conc,
-        dex_ref_conc=31.622776601683793,
+        dex_ref_conc=10.0,
         mk4_ref_conc=1.0,
         alp_basal_rate=args.alp_rb,
         alp_osteo_rate=args.alp_ro,
         alp_kappa_d=args.alp_kappa_d,
+        alp_kappa_d2=args.alp_kappa_d2,
         alp_kappa_k=args.alp_kappa_k,
+        alp_kappa_k2=args.alp_kappa_k2,
         collagen_basal_rate=args.collagen_rb,
         collagen_osteo_rate=args.collagen_ro,
         collagen_kappa_d=args.collagen_kappa_d,
+        collagen_kappa_d2=args.collagen_kappa_d2,
         collagen_kappa_k=args.collagen_kappa_k,
+        collagen_kappa_k2=args.collagen_kappa_k2,
         aa_initial=args.aa0,
         aa_half_life_hours=args.aa_half_life,
         collagen_aa_half_sat=args.collagen_aa_km,
         ha_model=args.ha_model,
         ha_osteo_rate=args.ha_ro,
         ha_kappa_d=args.ha_kappa_d,
+        ha_kappa_d2=args.ha_kappa_d2,
         ha_kappa_k=args.ha_kappa_k,
+        ha_kappa_k2=args.ha_kappa_k2,
         ha_tau_hours=args.ha_tau,
         ha_hill_n=args.ha_hill_n,
         ha_t_commit_hours=induction_hours + args.commit_delay,

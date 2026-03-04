@@ -22,7 +22,7 @@ def log_concentration_offset(conc: float, ref_conc: float) -> float:
 def drug_response_summary(field_cfg: object) -> dict[str, float | str]:
     x_d = log_concentration_offset(
         float(getattr(field_cfg, "dex_conc", 0.0)),
-        max(1e-12, float(getattr(field_cfg, "dex_ref_conc", 31.622776601683793))),
+        max(1e-12, float(getattr(field_cfg, "dex_ref_conc", 10.0))),
     )
     x_k = log_concentration_offset(
         float(getattr(field_cfg, "mk4_conc", 0.0)),
@@ -32,38 +32,86 @@ def drug_response_summary(field_cfg: object) -> dict[str, float | str]:
     alp_base = float(getattr(field_cfg, "alp_osteo_rate", 0.0))
     collagen_base = float(getattr(field_cfg, "collagen_osteo_rate", 0.0))
     ha_base = float(getattr(field_cfg, "ha_osteo_rate", 0.0))
+    x_d_sq = x_d * x_d
+    x_k_sq = x_k * x_k
 
-    alp_delta_d = float(getattr(field_cfg, "alp_kappa_d", 0.0)) * x_d
-    alp_delta_k = float(getattr(field_cfg, "alp_kappa_k", 0.0)) * x_k
-    collagen_delta_d = float(getattr(field_cfg, "collagen_kappa_d", 0.0)) * x_d
-    collagen_delta_k = float(getattr(field_cfg, "collagen_kappa_k", 0.0)) * x_k
-    ha_delta_d = float(getattr(field_cfg, "ha_kappa_d", 0.0)) * x_d
-    ha_delta_k = float(getattr(field_cfg, "ha_kappa_k", 0.0)) * x_k
+    alp_phi_d_lin = float(getattr(field_cfg, "alp_kappa_d", 0.0)) * x_d
+    alp_phi_d_quad = float(getattr(field_cfg, "alp_kappa_d2", 0.0)) * x_d_sq
+    alp_phi_d = alp_phi_d_lin + alp_phi_d_quad
+    alp_phi_k_lin = float(getattr(field_cfg, "alp_kappa_k", 0.0)) * x_k
+    alp_phi_k_quad = float(getattr(field_cfg, "alp_kappa_k2", 0.0)) * x_k_sq
+    collagen_phi_d_lin = float(getattr(field_cfg, "collagen_kappa_d", 0.0)) * x_d
+    collagen_phi_d_quad = float(getattr(field_cfg, "collagen_kappa_d2", 0.0)) * x_d_sq
+    collagen_phi_d = collagen_phi_d_lin + collagen_phi_d_quad
+    collagen_phi_k_lin = float(getattr(field_cfg, "collagen_kappa_k", 0.0)) * x_k
+    collagen_phi_k_quad = float(getattr(field_cfg, "collagen_kappa_k2", 0.0)) * x_k_sq
+    ha_phi_d_lin = float(getattr(field_cfg, "ha_kappa_d", 0.0)) * x_d
+    ha_phi_d_quad = float(getattr(field_cfg, "ha_kappa_d2", 0.0)) * x_d_sq
+    ha_phi_d = ha_phi_d_lin + ha_phi_d_quad
+    ha_phi_k_lin = float(getattr(field_cfg, "ha_kappa_k", 0.0)) * x_k
+    ha_phi_k_quad = float(getattr(field_cfg, "ha_kappa_k2", 0.0)) * x_k_sq
+    alp_phi_k = alp_phi_k_lin + alp_phi_k_quad
+    collagen_phi_k = collagen_phi_k_lin + collagen_phi_k_quad
+    ha_phi_k = ha_phi_k_lin + ha_phi_k_quad
+    alp_delta_d = alp_base * alp_phi_d
+    alp_delta_k = alp_base * alp_phi_k
+    collagen_delta_d = collagen_base * collagen_phi_d
+    collagen_delta_k = collagen_base * collagen_phi_k
+    ha_delta_d = ha_base * ha_phi_d
+    ha_delta_k = ha_base * ha_phi_k
 
     return {
         "dex_conc_nM": float(getattr(field_cfg, "dex_conc", 0.0)),
         "mk4_conc_uM": float(getattr(field_cfg, "mk4_conc", 0.0)),
-        "dex_ref_nM": float(getattr(field_cfg, "dex_ref_conc", 31.622776601683793)),
+        "dex_ref_nM": float(getattr(field_cfg, "dex_ref_conc", 10.0)),
         "mk4_ref_uM": float(getattr(field_cfg, "mk4_ref_conc", 1.0)),
         "x_D": float(x_d),
+        "x_D_sq": float(x_d_sq),
         "x_K": float(x_k),
+        "x_K_sq": float(x_k_sq),
         "alp_base": alp_base,
+        "alp_phi_dex_linear": alp_phi_d_lin,
+        "alp_phi_dex_quadratic": alp_phi_d_quad,
+        "alp_phi_dex": alp_phi_d,
         "alp_delta_dex": alp_delta_d,
+        "alp_phi_mk4_linear": alp_phi_k_lin,
+        "alp_phi_mk4_quadratic": alp_phi_k_quad,
+        "alp_phi_mk4": alp_phi_k,
+        "alp_delta_mk4_linear": alp_base * alp_phi_k_lin,
+        "alp_delta_mk4_quadratic": alp_base * alp_phi_k_quad,
         "alp_delta_mk4": alp_delta_k,
-        "alp_effective": float(max(0.0, alp_base + alp_delta_d + alp_delta_k)),
+        "alp_effective": float(max(0.0, alp_base * (1.0 + alp_phi_d + alp_phi_k))),
         "collagen_base": collagen_base,
+        "collagen_phi_dex_linear": collagen_phi_d_lin,
+        "collagen_phi_dex_quadratic": collagen_phi_d_quad,
+        "collagen_phi_dex": collagen_phi_d,
         "collagen_delta_dex": collagen_delta_d,
+        "collagen_phi_mk4_linear": collagen_phi_k_lin,
+        "collagen_phi_mk4_quadratic": collagen_phi_k_quad,
+        "collagen_phi_mk4": collagen_phi_k,
+        "collagen_delta_mk4_linear": collagen_base * collagen_phi_k_lin,
+        "collagen_delta_mk4_quadratic": collagen_base * collagen_phi_k_quad,
         "collagen_delta_mk4": collagen_delta_k,
         "collagen_effective_pre_aa": float(
-            max(0.0, collagen_base + collagen_delta_d + collagen_delta_k)
+            max(0.0, collagen_base * (1.0 + collagen_phi_d + collagen_phi_k))
         ),
         "ha_base": ha_base,
+        "ha_phi_dex_linear": ha_phi_d_lin,
+        "ha_phi_dex_quadratic": ha_phi_d_quad,
+        "ha_phi_dex": ha_phi_d,
         "ha_delta_dex": ha_delta_d,
+        "ha_phi_mk4_linear": ha_phi_k_lin,
+        "ha_phi_mk4_quadratic": ha_phi_k_quad,
+        "ha_phi_mk4": ha_phi_k,
+        "ha_delta_mk4_linear": ha_base * ha_phi_k_lin,
+        "ha_delta_mk4_quadratic": ha_base * ha_phi_k_quad,
         "ha_delta_mk4": ha_delta_k,
-        "ha_effective_pre_gates": float(max(0.0, ha_base + ha_delta_d + ha_delta_k)),
+        "ha_effective_pre_gates": float(max(0.0, ha_base * (1.0 + ha_phi_d + ha_phi_k))),
         "notes": (
             "Collagen effective rate is shown before AA gating; HAp effective rate is shown "
-            "before Hill-time and matured-collagen gates."
+            "before Hill-time and matured-collagen gates. Drug effects scale the osteogenic "
+            "rate multiplicatively as r_o * (1 + phi_D + phi_K), with quadratic log-dose "
+            "terms for both Dex and MK-4."
         ),
     }
 
@@ -73,25 +121,28 @@ def print_drug_response_summary(field_cfg: object) -> None:
     print("[drug-response]")
     print(
         f"Dex: c_D={summary['dex_conc_nM']:.6g} nM, c_D0={summary['dex_ref_nM']:.6g} nM, "
-        f"x_D=log10(c_D/c_D0)={summary['x_D']:.6g}"
+        f"x_D=log10(c_D/c_D0)={summary['x_D']:.6g}, x_D^2={summary['x_D_sq']:.6g}"
     )
     print(
         f"MK-4: c_K={summary['mk4_conc_uM']:.6g} uM, c_K0={summary['mk4_ref_uM']:.6g} uM, "
-        f"x_K=log10(c_K/c_K0)={summary['x_K']:.6g}"
+        f"x_K=log10(c_K/c_K0)={summary['x_K']:.6g}, x_K^2={summary['x_K_sq']:.6g}"
     )
     print(
         f"ALP osteogenic term: {summary['alp_base']:.6g} + "
-        f"({summary['alp_delta_dex']:.6g}) + ({summary['alp_delta_mk4']:.6g}) = "
+        f"({summary['alp_base']:.6g} * ({summary['alp_phi_dex_linear']:.6g} + {summary['alp_phi_dex_quadratic']:.6g})) + "
+        f"({summary['alp_delta_mk4_linear']:.6g} + {summary['alp_delta_mk4_quadratic']:.6g}) = "
         f"{summary['alp_effective']:.6g}"
     )
     print(
         f"Collagen osteogenic term pre-AA: {summary['collagen_base']:.6g} + "
-        f"({summary['collagen_delta_dex']:.6g}) + ({summary['collagen_delta_mk4']:.6g}) = "
+        f"({summary['collagen_base']:.6g} * ({summary['collagen_phi_dex_linear']:.6g} + {summary['collagen_phi_dex_quadratic']:.6g})) + "
+        f"({summary['collagen_delta_mk4_linear']:.6g} + {summary['collagen_delta_mk4_quadratic']:.6g}) = "
         f"{summary['collagen_effective_pre_aa']:.6g}"
     )
     print(
         f"HAp osteogenic term pre-gates: {summary['ha_base']:.6g} + "
-        f"({summary['ha_delta_dex']:.6g}) + ({summary['ha_delta_mk4']:.6g}) = "
+        f"({summary['ha_base']:.6g} * ({summary['ha_phi_dex_linear']:.6g} + {summary['ha_phi_dex_quadratic']:.6g})) + "
+        f"({summary['ha_delta_mk4_linear']:.6g} + {summary['ha_delta_mk4_quadratic']:.6g}) = "
         f"{summary['ha_effective_pre_gates']:.6g}"
     )
     print(summary["notes"])
