@@ -110,9 +110,10 @@ def plot_drug_modulation_summary(
     colors,
 ) -> None:
     outdir = Path(outdir)
-    summary = drug_response_summary(field_cfg)
     if modulator_df is None or len(modulator_df) == 0:
         return
+    dex_conc = float(getattr(field_cfg, "dex_conc", 0.0))
+    mk4_conc = float(getattr(field_cfg, "mk4_conc", 0.0))
 
     def _window_value(prefix: str, component: str, hour_limit: int) -> float:
         target = int(max(0, min(hour_limit, int(modulator_df["hour"].max()))))
@@ -140,6 +141,7 @@ def plot_drug_modulation_summary(
         records.append(
             {
                 "label": label,
+                "prefix": prefix,
                 "hour_limit": int(hour_limit),
                 "base": float(base),
                 "dex": float(dex),
@@ -152,94 +154,144 @@ def plot_drug_modulation_summary(
             }
         )
 
-    fig, axes = plt.subplots(1, 3, figsize=(12.4, 4.8), sharey=True)
+    def _fmt_signed(value: float) -> str:
+        return f"{value:+.2f}".rstrip("0").rstrip(".")
+
+    def _fmt_value(value: float) -> str:
+        if abs(value) >= 100:
+            return f"{value:.0f}"
+        if abs(value) >= 10:
+            return f"{value:.1f}".rstrip("0").rstrip(".")
+        return f"{value:.2f}".rstrip("0").rstrip(".")
+
+    fig, axes = plt.subplots(1, 3, figsize=(13.4, 5.6), sharey=False)
     if not isinstance(axes, np.ndarray):
         axes = np.array([axes])
 
-    base_color = "#cbd5e1"
-    dex_color = "#d97706"
-    mk4_color = "#0f766e"
-    total_color = colors["ink"]
+    base_color = "#cfd6de"
+    dex_color = "#d55e00"
+    mk4_color = "#009e73"
+    total_color = "#1f3b5c"
+    baseline_color = "#94a3b8"
+    grid_color = "#e2e8f0"
     for ax, rec in zip(axes, records):
         set_white(ax)
-        ax.axhline(1.0, color="#64748b", lw=1.1, ls="--", alpha=0.9)
-        ax.bar([0], [1.0], width=0.54, color=base_color, edgecolor="#475569", linewidth=1.0)
-        ax.bar([1], [rec["fold"]], width=0.54, color="#dbeafe", edgecolor="#1d4ed8", linewidth=1.0)
-        ax.scatter([1], [rec["fold"]], s=84, color=total_color, edgecolor="#ffffff", linewidth=1.2, zorder=3)
-
-        ax.annotate(
-            "",
-            xy=(1, rec["fold"]),
-            xytext=(0, 1.0),
-            arrowprops=dict(arrowstyle="-|>", lw=2.0, color=total_color, shrinkA=8, shrinkB=8),
+        base = float(rec["base"])
+        dex = float(rec["dex"])
+        mk4 = float(rec["mk4"])
+        total = float(rec["total"])
+        panel_ymax = max(0.25, max(base, base + dex, total) * 1.24)
+        panel_ymin = min(
+            0.0, min(0.0, base, base + dex, base + dex + mk4, total) * 1.15
         )
 
-        ax.text(
-            0,
-            1.0,
-            "1.00x\nbase",
-            ha="center",
-            va="bottom",
-            fontsize=9,
-            color="#0f172a",
+        starts = [0.0, base, base + dex, 0.0]
+        heights = [base, dex, mk4, total]
+        colors_local = [base_color, dex_color, mk4_color, total_color]
+        labels = ["Base", "Dex", "MK-4", "Total"]
+        xpos = np.arange(4)
+
+        ax.bar(
+            xpos,
+            heights,
+            bottom=starts,
+            width=0.62,
+            color=colors_local,
+            edgecolor="#334155",
+            linewidth=0.9,
+            zorder=3,
         )
+        ax.plot(
+            [0, 1, 2, 3],
+            [base, base, base + dex, total],
+            color=baseline_color,
+            lw=1.2,
+            zorder=2,
+        )
+        ax.axhline(0.0, color="#475569", lw=0.9, zorder=1)
+        ax.grid(axis="y", color=grid_color, lw=0.8, zorder=0)
+
+        bar_centers = [
+            base / 2.0,
+            base + dex / 2.0,
+            base + dex + mk4 / 2.0,
+            total / 2.0,
+        ]
+        value_labels = [
+            _fmt_value(base),
+            _fmt_signed(dex),
+            _fmt_signed(mk4),
+            _fmt_value(total),
+        ]
+        for x, y, text in zip(xpos, bar_centers, value_labels):
+            ax.text(
+                x,
+                y,
+                text,
+                ha="center",
+                va="center",
+                fontsize=9,
+                color="#0f172a",
+                zorder=4,
+            )
+
+        top_anchor = max(base, base + dex, total)
         ax.text(
-            1,
-            rec["fold"],
-            f"{rec['fold']:.2f}x\n{rec['pct_total']:+.1f}%",
+            1.5,
+            top_anchor,
+            f"{rec['fold']:.2f}x",
             ha="center",
             va="bottom",
             fontsize=10,
             color="#0f172a",
+            zorder=5,
         )
-        ax.text(
-            0.5,
-            max(0.15, 0.5 * (1.0 + rec["fold"])),
-            f"Dex {rec['pct_dex']:+.1f}%\nMK-4 {rec['pct_mk4']:+.1f}%",
-            ha="center",
-            va="center",
-            fontsize=9,
-            color="#0f172a",
-            bbox=dict(boxstyle="round,pad=0.28", facecolor="#ffffff", edgecolor="#cbd5e1", alpha=0.9),
-        )
-        ax.text(
-            0.5,
-            0.05,
-            f"window: 0-{rec['hour_limit']} h\ncum base={rec['base']:.4g}\ncum total={rec['total']:.4g}",
-            ha="center",
-            va="bottom",
-            fontsize=8,
-            color="#334155",
-        )
-        ax.set_xticks([0, 1])
-        ax.set_xticklabels(["Base", "With Dex+MK-4"])
-        ax.set_title(str(rec["label"]), pad=10)
-        ax.grid(axis="x", alpha=0.0)
-        ax.set_xlim(-0.45, 1.45)
+        total_change = dex + mk4
+        if abs(total_change) > 1e-12:
+            dex_share = 100.0 * dex / total_change
+            mk4_share = 100.0 * mk4 / total_change
+            ax.text(
+                1.5,
+                panel_ymin + 0.06 * (panel_ymax - panel_ymin),
+                f"Dex {dex_share:.0f}%   MK-4 {mk4_share:.0f}%",
+                ha="center",
+                va="bottom",
+                fontsize=8.5,
+                color="#334155",
+            )
 
-    ymax = max(1.08, max(float(rec["fold"]) for rec in records) * 1.18)
-    for ax in axes:
-        ax.set_ylim(0.0, ymax)
-    axes[0].set_ylabel("Cumulative osteogenic drive fold vs base")
+        ax.set_xticks(xpos)
+        ax.set_xticklabels(labels)
+        ax.set_title(str(rec["label"]), pad=10)
+        if str(rec["prefix"]) == "alp":
+            ax.set_ylabel("Cumulative biomarker drive (a.u.)")
+        ax.grid(axis="x", alpha=0.0)
+        ax.set_xlim(-0.55, 3.55)
+        ax.set_ylim(panel_ymin, panel_ymax)
     fig.suptitle(
-        (
-            f"Dex/MK-4 shaping of cumulative osteogenic drive | "
-            f"c_D={summary['dex_conc_nM']:.4g} nM, c_K={summary['mk4_conc_uM']:.4g} uM | "
-            f"x_D={summary['x_D']:.3g}, x_K={summary['x_K']:.3g}"
-        ),
-        y=0.98,
-        fontsize=14,
+        "Dex and MK-4 contributions to cumulative osteogenic drive",
+        y=0.985,
+        fontsize=13,
         fontweight="semibold",
     )
     fig.text(
         0.5,
+        0.925,
+        f"Dex concentration: {dex_conc:.4g} nM   |   MK-4 concentration: {mk4_conc:.4g} uM",
+        ha="center",
+        va="center",
+        fontsize=9,
+        color="#475569",
+    )
+    fig.text(
+        0.5,
         0.01,
-        "Each panel uses the actual simulated hourly gates over its assay window; annotations show Dex and MK-4 contributions relative to the osteogenic base drive.",
+        "Independent y-scales because biomarkers accumulate on different magnitudes.",
         ha="center",
         va="bottom",
         fontsize=9,
         color="#475569",
     )
-    fig.tight_layout(rect=(0.02, 0.05, 0.98, 0.92), pad=0.9)
+    fig.tight_layout(rect=(0.02, 0.05, 0.98, 0.9), pad=0.9)
     save_figure(fig, outdir, "13_drug_modulation_summary")
     plt.close(fig)
