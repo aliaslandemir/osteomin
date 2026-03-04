@@ -21,25 +21,25 @@ class FieldManager:
         mk4_ref_conc: float = 1.0,
         alp_basal_rate: float = 0.0,
         alp_osteo_rate: float = 0.0,
-        alp_kappa_d: float = 0.0,
-        alp_kappa_d2: float = 0.0,
-        alp_kappa_k: float = 0.0,
-        alp_kappa_k2: float = 0.0,
+        alp_a_d: float = 0.0,
+        alp_b_d: float = 0.0,
+        alp_a_k: float = 0.0,
+        alp_b_k: float = 0.0,
         collagen_basal_rate: float = 0.0,
         collagen_osteo_rate: float = 0.0,
-        collagen_kappa_d: float = 0.0,
-        collagen_kappa_d2: float = 0.0,
-        collagen_kappa_k: float = 0.0,
-        collagen_kappa_k2: float = 0.0,
+        collagen_a_d: float = 0.0,
+        collagen_b_d: float = 0.0,
+        collagen_a_k: float = 0.0,
+        collagen_b_k: float = 0.0,
         aa_initial: float = 1.0,
         aa_half_life_hours: float = 6.0,
         collagen_aa_half_sat: float = 1.0,
         ha_model: str = "minimal",
         ha_osteo_rate: float = 0.0,
-        ha_kappa_d: float = 0.0,
-        ha_kappa_d2: float = 0.0,
-        ha_kappa_k: float = 0.0,
-        ha_kappa_k2: float = 0.0,
+        ha_a_d: float = 0.0,
+        ha_b_d: float = 0.0,
+        ha_a_k: float = 0.0,
+        ha_b_k: float = 0.0,
         ha_tau_hours: float = 384.0,
         ha_hill_n: float = 4.0,
         ha_t_commit_hours: float = 72.0,
@@ -61,25 +61,25 @@ class FieldManager:
         self.mk4_ref_conc = max(1e-12, float(mk4_ref_conc))
         self.alp_basal_rate = float(alp_basal_rate)
         self.alp_osteo_rate = float(alp_osteo_rate)
-        self.alp_kappa_d = float(alp_kappa_d)
-        self.alp_kappa_d2 = float(alp_kappa_d2)
-        self.alp_kappa_k = float(alp_kappa_k)
-        self.alp_kappa_k2 = float(alp_kappa_k2)
+        self.alp_a_d = float(alp_a_d)
+        self.alp_b_d = float(alp_b_d)
+        self.alp_a_k = float(alp_a_k)
+        self.alp_b_k = float(alp_b_k)
         self.collagen_basal_rate = float(collagen_basal_rate)
         self.collagen_osteo_rate = float(collagen_osteo_rate)
-        self.collagen_kappa_d = float(collagen_kappa_d)
-        self.collagen_kappa_d2 = float(collagen_kappa_d2)
-        self.collagen_kappa_k = float(collagen_kappa_k)
-        self.collagen_kappa_k2 = float(collagen_kappa_k2)
+        self.collagen_a_d = float(collagen_a_d)
+        self.collagen_b_d = float(collagen_b_d)
+        self.collagen_a_k = float(collagen_a_k)
+        self.collagen_b_k = float(collagen_b_k)
         self.aa_initial = max(0.0, float(aa_initial))
         self.aa_half_life_hours = max(1e-9, float(aa_half_life_hours))
         self.collagen_aa_half_sat = max(1e-9, float(collagen_aa_half_sat))
         self.ha_model = str(ha_model).lower().strip()
         self.ha_osteo_rate = float(ha_osteo_rate)
-        self.ha_kappa_d = float(ha_kappa_d)
-        self.ha_kappa_d2 = float(ha_kappa_d2)
-        self.ha_kappa_k = float(ha_kappa_k)
-        self.ha_kappa_k2 = float(ha_kappa_k2)
+        self.ha_a_d = float(ha_a_d)
+        self.ha_b_d = float(ha_b_d)
+        self.ha_a_k = float(ha_a_k)
+        self.ha_b_k = float(ha_b_k)
         self.ha_tau_hours = max(1e-9, float(ha_tau_hours))
         self.ha_hill_n = max(1.0, float(ha_hill_n))
         self.ha_t_commit_hours = max(0.0, float(ha_t_commit_hours))
@@ -110,12 +110,15 @@ class FieldManager:
             "alp_base": np.zeros(self.total_hours + 1, dtype=float),
             "alp_dex": np.zeros(self.total_hours + 1, dtype=float),
             "alp_mk4": np.zeros(self.total_hours + 1, dtype=float),
+            "alp_interaction": np.zeros(self.total_hours + 1, dtype=float),
             "collagen_base": np.zeros(self.total_hours + 1, dtype=float),
             "collagen_dex": np.zeros(self.total_hours + 1, dtype=float),
             "collagen_mk4": np.zeros(self.total_hours + 1, dtype=float),
+            "collagen_interaction": np.zeros(self.total_hours + 1, dtype=float),
             "ha_base": np.zeros(self.total_hours + 1, dtype=float),
             "ha_dex": np.zeros(self.total_hours + 1, dtype=float),
             "ha_mk4": np.zeros(self.total_hours + 1, dtype=float),
+            "ha_interaction": np.zeros(self.total_hours + 1, dtype=float),
         }
 
     def _osteo_active(self, hour: int) -> float:
@@ -141,6 +144,7 @@ class FieldManager:
         return float(self._aa_hourly[idx])
 
     def _log_concentration_offset(self, conc: float, ref_conc: float) -> float:
+        # Baseline/no-drug runs can use conc <= 0; treat those as neutral offset.
         if conc <= 0.0:
             return 0.0
         return float(np.log10(conc / ref_conc))
@@ -164,11 +168,13 @@ class FieldManager:
         base: float = 0.0,
         dex: float = 0.0,
         mk4: float = 0.0,
+        interaction: float = 0.0,
     ) -> None:
         idx = min(max(0, int(hour)), self.total_hours)
         self._modulator_hourly[f"{prefix}_base"][idx] += float(base)
         self._modulator_hourly[f"{prefix}_dex"][idx] += float(dex)
         self._modulator_hourly[f"{prefix}_mk4"][idx] += float(mk4)
+        self._modulator_hourly[f"{prefix}_interaction"][idx] += float(interaction)
 
     def _update_collagen_maturation(self, dt: float) -> None:
         lag = self.collagen - self.collagen_mature
@@ -189,18 +195,18 @@ class FieldManager:
         dex_offset_sq = dex_offset * dex_offset
         mk4_offset = self._log_concentration_offset(self.mk4_conc, self.mk4_ref_conc)
         mk4_offset_sq = mk4_offset * mk4_offset
-        phi_d_alp = self.alp_kappa_d * dex_offset + self.alp_kappa_d2 * dex_offset_sq
-        phi_k_alp = self.alp_kappa_k * mk4_offset + self.alp_kappa_k2 * mk4_offset_sq
-        phi_d_col = (
-            self.collagen_kappa_d * dex_offset
-            + self.collagen_kappa_d2 * dex_offset_sq
-        )
-        phi_k_col = (
-            self.collagen_kappa_k * mk4_offset
-            + self.collagen_kappa_k2 * mk4_offset_sq
-        )
-        phi_d_ha = self.ha_kappa_d * dex_offset + self.ha_kappa_d2 * dex_offset_sq
-        phi_k_ha = self.ha_kappa_k * mk4_offset + self.ha_kappa_k2 * mk4_offset_sq
+        i_d = 1.0 if self.dex_conc > 0.0 else 0.0
+        i_k = 1.0 if self.mk4_conc > 0.0 else 0.0
+
+        m_d_alp = 1.0 + i_d * (self.alp_a_d - self.alp_b_d * dex_offset_sq)
+        m_k_alp = 1.0 + i_k * (self.alp_a_k - self.alp_b_k * mk4_offset_sq)
+        m_alp = m_d_alp * m_k_alp
+        m_d_col = 1.0 + i_d * (self.collagen_a_d - self.collagen_b_d * dex_offset_sq)
+        m_k_col = 1.0 + i_k * (self.collagen_a_k - self.collagen_b_k * mk4_offset_sq)
+        m_col = m_d_col * m_k_col
+        m_d_ha = 1.0 + i_d * (self.ha_a_d - self.ha_b_d * dex_offset_sq)
+        m_k_ha = 1.0 + i_k * (self.ha_a_k - self.ha_b_k * mk4_offset_sq)
+        m_ha = m_d_ha * m_k_ha
 
         if pre_mask is not None and pre_mask.any():
             alp_added = self._deposit_uniform_to_mask(
@@ -227,18 +233,26 @@ class FieldManager:
 
         n_ob_sites = int(ob_mask.sum())
         alp_base_amount = dt * self.alp_osteo_rate * n_ob_sites
-        alp_dex_amount = dt * self.alp_osteo_rate * phi_d_alp * n_ob_sites
-        alp_mk4_amount = dt * self.alp_osteo_rate * phi_k_alp * n_ob_sites
+        alp_dex_amount = dt * self.alp_osteo_rate * (m_d_alp - 1.0) * n_ob_sites
+        alp_mk4_amount = dt * self.alp_osteo_rate * (m_k_alp - 1.0) * n_ob_sites
+        alp_interaction_amount = (
+            dt
+            * self.alp_osteo_rate
+            * (m_d_alp - 1.0)
+            * (m_k_alp - 1.0)
+            * n_ob_sites
+        )
         self._record_modulator_hour(
             hour,
             "alp",
             base=alp_base_amount,
             dex=alp_dex_amount,
             mk4=alp_mk4_amount,
+            interaction=alp_interaction_amount,
         )
         alp_rate_ob = max(
             0.0,
-            self.alp_osteo_rate * (1.0 + phi_d_alp + phi_k_alp),
+            self.alp_osteo_rate * m_alp,
         )
         alp_added = self._deposit_uniform_to_mask(self.alp, ob_mask, dt * alp_rate_ob)
         if alp_added > 0.0:
@@ -249,10 +263,18 @@ class FieldManager:
         aa_gate = aa_t / (self.collagen_aa_half_sat + aa_t) if aa_t > 0.0 else 0.0
         collagen_base_amount = dt * self.collagen_osteo_rate * aa_gate * n_ob_sites
         collagen_dex_amount = (
-            dt * self.collagen_osteo_rate * phi_d_col * aa_gate * n_ob_sites
+            dt * self.collagen_osteo_rate * (m_d_col - 1.0) * aa_gate * n_ob_sites
         )
         collagen_mk4_amount = (
-            dt * self.collagen_osteo_rate * phi_k_col * aa_gate * n_ob_sites
+            dt * self.collagen_osteo_rate * (m_k_col - 1.0) * aa_gate * n_ob_sites
+        )
+        collagen_interaction_amount = (
+            dt
+            * self.collagen_osteo_rate
+            * (m_d_col - 1.0)
+            * (m_k_col - 1.0)
+            * aa_gate
+            * n_ob_sites
         )
         self._record_modulator_hour(
             hour,
@@ -260,10 +282,11 @@ class FieldManager:
             base=collagen_base_amount,
             dex=collagen_dex_amount,
             mk4=collagen_mk4_amount,
+            interaction=collagen_interaction_amount,
         )
         collagen_rate_ob = max(
             0.0,
-            self.collagen_osteo_rate * (1.0 + phi_d_col + phi_k_col) * aa_gate,
+            self.collagen_osteo_rate * m_col * aa_gate,
         )
         collagen_added = self._deposit_uniform_to_mask(
             self.collagen, ob_mask, dt * collagen_rate_ob
@@ -286,7 +309,7 @@ class FieldManager:
 
         base_rate = max(
             0.0,
-            self.ha_osteo_rate * (1.0 + phi_d_ha + phi_k_ha),
+            self.ha_osteo_rate * m_ha,
         )
         if base_rate <= 0.0:
             return
@@ -306,14 +329,22 @@ class FieldManager:
         )
         gate_sum = float((hill * collagen_gate * valid).sum())
         ha_base_amount = dt * self.ha_osteo_rate * gate_sum
-        ha_dex_amount = dt * self.ha_osteo_rate * phi_d_ha * gate_sum
-        ha_mk4_amount = dt * self.ha_osteo_rate * phi_k_ha * gate_sum
+        ha_dex_amount = dt * self.ha_osteo_rate * (m_d_ha - 1.0) * gate_sum
+        ha_mk4_amount = dt * self.ha_osteo_rate * (m_k_ha - 1.0) * gate_sum
+        ha_interaction_amount = (
+            dt
+            * self.ha_osteo_rate
+            * (m_d_ha - 1.0)
+            * (m_k_ha - 1.0)
+            * gate_sum
+        )
         self._record_modulator_hour(
             hour,
             "ha",
             base=ha_base_amount,
             dex=ha_dex_amount,
             mk4=ha_mk4_amount,
+            interaction=ha_interaction_amount,
         )
         delta = dt * base_rate * hill * collagen_gate
         delta[~valid] = 0.0

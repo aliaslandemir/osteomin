@@ -12,27 +12,28 @@ from pathlib import Path
 
 
 BASE_OUT = Path("out") / "sanity_check4"
-TOTAL_CONDITIONS = 20
+TOTAL_CONDITIONS = 21
 DOSE_MATRIX = [
+    (0.0, 0.0),
     (0.1, 0.0),
-    (1.2, 0.0),
-    (2.3, 0.0),
-    (3.4, 0.0),
-    (4.5, 0.0),
-    (5.6, 0.0),
-    (6.7, 0.0),
-    (7.8, 0.0),
-    (8.9, 0.0),
+    (0.3, 0.0),
+    (0.6, 0.0),
+    (1.0, 0.0),
+    (1.5, 0.0),
+    (2.5, 0.0),
+    (4.0, 0.0),
+    (6.0, 0.0),
+    (8.0, 0.0),
     (10.0, 0.0),
+    (0.0, 1.0),
+    (0.0, 3.0),
+    (0.0, 6.0),
     (0.0, 10.0),
-    (0.0, 20.0),
-    (0.0, 30.0),
+    (0.0, 15.0),
+    (0.0, 25.0),
     (0.0, 40.0),
-    (0.0, 50.0),
     (0.0, 60.0),
-    (0.0, 70.0),
     (0.0, 80.0),
-    (0.0, 90.0),
     (0.0, 100.0),
 ]
 
@@ -56,38 +57,38 @@ BASE_ARGS = [
     "0.001",
     "--alp-ro",
     "0.002",
-    "--alp-kappa-d",
-    "0.0010",
-    "--alp-kappa-d2",
-    "-0.0004",
-    "--alp-kappa-k",
-    "0.0005",
-    "--alp-kappa-k2",
-    "-0.0002",
+    "--alp-a-d",
+    "0.03",
+    "--alp-b-d",
+    "0.03",
+    "--alp-a-k",
+    "0.025",
+    "--alp-b-k",
+    "0.025",
     "--collagen-rb",
     "0.001",
     "--collagen-ro",
     "0.002",
-    "--collagen-kappa-d",
-    "0.0008",
-    "--collagen-kappa-d2",
-    "-0.0003",
-    "--collagen-kappa-k",
-    "0.0006",
-    "--collagen-kappa-k2",
-    "-0.00025",
+    "--collagen-a-d",
+    "0.03",
+    "--collagen-b-d",
+    "0.03",
+    "--collagen-a-k",
+    "0.025",
+    "--collagen-b-k",
+    "0.025",
     "--ha-model",
     "minimal",
     "--ha-ro",
     "0.075",
-    "--ha-kappa-d",
-    "0.015",
-    "--ha-kappa-d2",
-    "-0.006",
-    "--ha-kappa-k",
-    "0.010",
-    "--ha-kappa-k2",
-    "-0.004",
+    "--ha-a-d",
+    "0.03",
+    "--ha-b-d",
+    "0.03",
+    "--ha-a-k",
+    "0.025",
+    "--ha-b-k",
+    "0.025",
     "--ha-tau",
     "384",
     "--ha-hill-n",
@@ -343,10 +344,11 @@ def main() -> None:
     write_manifest(args.out, specs)
 
     print(
-        f"[sanity_check4] prepared {len(specs)} single-drug conditions from the explicit Dex/MK-4 matrix"
+        f"[sanity_check4] prepared {len(specs)} single-drug conditions from the explicit Dex/MK-4 matrix plus no-drug baseline"
     )
-    print("[sanity_check4] MK-4-only branch: 0.1 to 10 uM at Dex = 0")
-    print("[sanity_check4] Dex-only branch: 10 to 100 nM at MK-4 = 0")
+    print("[sanity_check4] MK-4-only branch: 0.1 to 10 uM at Dex = 0 (dense sampling below 1 uM)")
+    print("[sanity_check4] Dex-only branch: 1 to 100 nM at MK-4 = 0 (dense sampling below 10 nM)")
+    print("[sanity_check4] Baseline branch: 0 nM Dex and 0 uM MK-4")
 
     results: list[RunResult] = []
     for spec in specs:

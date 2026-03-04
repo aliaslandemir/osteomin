@@ -14,6 +14,7 @@ __all__ = [
 
 
 def log_concentration_offset(conc: float, ref_conc: float) -> float:
+    # Keep reporting consistent with simulation logic for no-drug baselines.
     if conc <= 0.0:
         return 0.0
     return float(np.log10(conc / ref_conc))
@@ -29,36 +30,26 @@ def drug_response_summary(field_cfg: object) -> dict[str, float | str]:
         max(1e-12, float(getattr(field_cfg, "mk4_ref_conc", 1.0))),
     )
 
-    alp_base = float(getattr(field_cfg, "alp_osteo_rate", 0.0))
-    collagen_base = float(getattr(field_cfg, "collagen_osteo_rate", 0.0))
-    ha_base = float(getattr(field_cfg, "ha_osteo_rate", 0.0))
+    i_d = 1.0 if float(getattr(field_cfg, "dex_conc", 0.0)) > 0.0 else 0.0
+    i_k = 1.0 if float(getattr(field_cfg, "mk4_conc", 0.0)) > 0.0 else 0.0
     x_d_sq = x_d * x_d
     x_k_sq = x_k * x_k
 
-    alp_phi_d_lin = float(getattr(field_cfg, "alp_kappa_d", 0.0)) * x_d
-    alp_phi_d_quad = float(getattr(field_cfg, "alp_kappa_d2", 0.0)) * x_d_sq
-    alp_phi_d = alp_phi_d_lin + alp_phi_d_quad
-    alp_phi_k_lin = float(getattr(field_cfg, "alp_kappa_k", 0.0)) * x_k
-    alp_phi_k_quad = float(getattr(field_cfg, "alp_kappa_k2", 0.0)) * x_k_sq
-    collagen_phi_d_lin = float(getattr(field_cfg, "collagen_kappa_d", 0.0)) * x_d
-    collagen_phi_d_quad = float(getattr(field_cfg, "collagen_kappa_d2", 0.0)) * x_d_sq
-    collagen_phi_d = collagen_phi_d_lin + collagen_phi_d_quad
-    collagen_phi_k_lin = float(getattr(field_cfg, "collagen_kappa_k", 0.0)) * x_k
-    collagen_phi_k_quad = float(getattr(field_cfg, "collagen_kappa_k2", 0.0)) * x_k_sq
-    ha_phi_d_lin = float(getattr(field_cfg, "ha_kappa_d", 0.0)) * x_d
-    ha_phi_d_quad = float(getattr(field_cfg, "ha_kappa_d2", 0.0)) * x_d_sq
-    ha_phi_d = ha_phi_d_lin + ha_phi_d_quad
-    ha_phi_k_lin = float(getattr(field_cfg, "ha_kappa_k", 0.0)) * x_k
-    ha_phi_k_quad = float(getattr(field_cfg, "ha_kappa_k2", 0.0)) * x_k_sq
-    alp_phi_k = alp_phi_k_lin + alp_phi_k_quad
-    collagen_phi_k = collagen_phi_k_lin + collagen_phi_k_quad
-    ha_phi_k = ha_phi_k_lin + ha_phi_k_quad
-    alp_delta_d = alp_base * alp_phi_d
-    alp_delta_k = alp_base * alp_phi_k
-    collagen_delta_d = collagen_base * collagen_phi_d
-    collagen_delta_k = collagen_base * collagen_phi_k
-    ha_delta_d = ha_base * ha_phi_d
-    ha_delta_k = ha_base * ha_phi_k
+    def _factors(prefix: str) -> tuple[float, float, float]:
+        a_d = float(getattr(field_cfg, f"{prefix}_a_d", 0.0))
+        b_d = float(getattr(field_cfg, f"{prefix}_b_d", 0.0))
+        a_k = float(getattr(field_cfg, f"{prefix}_a_k", 0.0))
+        b_k = float(getattr(field_cfg, f"{prefix}_b_k", 0.0))
+        m_d = 1.0 + i_d * (a_d - b_d * x_d_sq)
+        m_k = 1.0 + i_k * (a_k - b_k * x_k_sq)
+        return m_d, m_k, m_d * m_k
+
+    alp_base = float(getattr(field_cfg, "alp_osteo_rate", 0.0))
+    collagen_base = float(getattr(field_cfg, "collagen_osteo_rate", 0.0))
+    ha_base = float(getattr(field_cfg, "ha_osteo_rate", 0.0))
+    alp_m_d, alp_m_k, alp_m = _factors("alp")
+    collagen_m_d, collagen_m_k, collagen_m = _factors("collagen")
+    ha_m_d, ha_m_k, ha_m = _factors("ha")
 
     return {
         "dex_conc_nM": float(getattr(field_cfg, "dex_conc", 0.0)),
@@ -69,49 +60,40 @@ def drug_response_summary(field_cfg: object) -> dict[str, float | str]:
         "x_D_sq": float(x_d_sq),
         "x_K": float(x_k),
         "x_K_sq": float(x_k_sq),
+        "I_D": float(i_d),
+        "I_K": float(i_k),
         "alp_base": alp_base,
-        "alp_phi_dex_linear": alp_phi_d_lin,
-        "alp_phi_dex_quadratic": alp_phi_d_quad,
-        "alp_phi_dex": alp_phi_d,
-        "alp_delta_dex": alp_delta_d,
-        "alp_phi_mk4_linear": alp_phi_k_lin,
-        "alp_phi_mk4_quadratic": alp_phi_k_quad,
-        "alp_phi_mk4": alp_phi_k,
-        "alp_delta_mk4_linear": alp_base * alp_phi_k_lin,
-        "alp_delta_mk4_quadratic": alp_base * alp_phi_k_quad,
-        "alp_delta_mk4": alp_delta_k,
-        "alp_effective": float(max(0.0, alp_base * (1.0 + alp_phi_d + alp_phi_k))),
+        "alp_a_d": float(getattr(field_cfg, "alp_a_d", 0.0)),
+        "alp_b_d": float(getattr(field_cfg, "alp_b_d", 0.0)),
+        "alp_a_k": float(getattr(field_cfg, "alp_a_k", 0.0)),
+        "alp_b_k": float(getattr(field_cfg, "alp_b_k", 0.0)),
+        "alp_m_dex": float(alp_m_d),
+        "alp_m_mk4": float(alp_m_k),
+        "alp_m_total": float(alp_m),
+        "alp_effective": float(max(0.0, alp_base * alp_m)),
         "collagen_base": collagen_base,
-        "collagen_phi_dex_linear": collagen_phi_d_lin,
-        "collagen_phi_dex_quadratic": collagen_phi_d_quad,
-        "collagen_phi_dex": collagen_phi_d,
-        "collagen_delta_dex": collagen_delta_d,
-        "collagen_phi_mk4_linear": collagen_phi_k_lin,
-        "collagen_phi_mk4_quadratic": collagen_phi_k_quad,
-        "collagen_phi_mk4": collagen_phi_k,
-        "collagen_delta_mk4_linear": collagen_base * collagen_phi_k_lin,
-        "collagen_delta_mk4_quadratic": collagen_base * collagen_phi_k_quad,
-        "collagen_delta_mk4": collagen_delta_k,
-        "collagen_effective_pre_aa": float(
-            max(0.0, collagen_base * (1.0 + collagen_phi_d + collagen_phi_k))
-        ),
+        "collagen_a_d": float(getattr(field_cfg, "collagen_a_d", 0.0)),
+        "collagen_b_d": float(getattr(field_cfg, "collagen_b_d", 0.0)),
+        "collagen_a_k": float(getattr(field_cfg, "collagen_a_k", 0.0)),
+        "collagen_b_k": float(getattr(field_cfg, "collagen_b_k", 0.0)),
+        "collagen_m_dex": float(collagen_m_d),
+        "collagen_m_mk4": float(collagen_m_k),
+        "collagen_m_total": float(collagen_m),
+        "collagen_effective_pre_aa": float(max(0.0, collagen_base * collagen_m)),
         "ha_base": ha_base,
-        "ha_phi_dex_linear": ha_phi_d_lin,
-        "ha_phi_dex_quadratic": ha_phi_d_quad,
-        "ha_phi_dex": ha_phi_d,
-        "ha_delta_dex": ha_delta_d,
-        "ha_phi_mk4_linear": ha_phi_k_lin,
-        "ha_phi_mk4_quadratic": ha_phi_k_quad,
-        "ha_phi_mk4": ha_phi_k,
-        "ha_delta_mk4_linear": ha_base * ha_phi_k_lin,
-        "ha_delta_mk4_quadratic": ha_base * ha_phi_k_quad,
-        "ha_delta_mk4": ha_delta_k,
-        "ha_effective_pre_gates": float(max(0.0, ha_base * (1.0 + ha_phi_d + ha_phi_k))),
+        "ha_a_d": float(getattr(field_cfg, "ha_a_d", 0.0)),
+        "ha_b_d": float(getattr(field_cfg, "ha_b_d", 0.0)),
+        "ha_a_k": float(getattr(field_cfg, "ha_a_k", 0.0)),
+        "ha_b_k": float(getattr(field_cfg, "ha_b_k", 0.0)),
+        "ha_m_dex": float(ha_m_d),
+        "ha_m_mk4": float(ha_m_k),
+        "ha_m_total": float(ha_m),
+        "ha_effective_pre_gates": float(max(0.0, ha_base * ha_m)),
         "notes": (
             "Collagen effective rate is shown before AA gating; HAp effective rate is shown "
             "before Hill-time and matured-collagen gates. Drug effects scale the osteogenic "
-            "rate multiplicatively as r_o * (1 + phi_D + phi_K), with quadratic log-dose "
-            "terms for both Dex and MK-4."
+            "rate multiplicatively as r_o * m_D(c_D) * m_K(c_K), where each m term is "
+            "a peaked quadratic response in log-dose."
         ),
     }
 
@@ -128,21 +110,21 @@ def print_drug_response_summary(field_cfg: object) -> None:
         f"x_K=log10(c_K/c_K0)={summary['x_K']:.6g}, x_K^2={summary['x_K_sq']:.6g}"
     )
     print(
-        f"ALP osteogenic term: {summary['alp_base']:.6g} + "
-        f"({summary['alp_base']:.6g} * ({summary['alp_phi_dex_linear']:.6g} + {summary['alp_phi_dex_quadratic']:.6g})) + "
-        f"({summary['alp_delta_mk4_linear']:.6g} + {summary['alp_delta_mk4_quadratic']:.6g}) = "
+        f"ALP osteogenic term: {summary['alp_base']:.6g} * "
+        f"m_D={summary['alp_m_dex']:.6g} * m_K={summary['alp_m_mk4']:.6g} "
+        f"(m={summary['alp_m_total']:.6g}) = "
         f"{summary['alp_effective']:.6g}"
     )
     print(
-        f"Collagen osteogenic term pre-AA: {summary['collagen_base']:.6g} + "
-        f"({summary['collagen_base']:.6g} * ({summary['collagen_phi_dex_linear']:.6g} + {summary['collagen_phi_dex_quadratic']:.6g})) + "
-        f"({summary['collagen_delta_mk4_linear']:.6g} + {summary['collagen_delta_mk4_quadratic']:.6g}) = "
+        f"Collagen osteogenic term pre-AA: {summary['collagen_base']:.6g} * "
+        f"m_D={summary['collagen_m_dex']:.6g} * m_K={summary['collagen_m_mk4']:.6g} "
+        f"(m={summary['collagen_m_total']:.6g}) = "
         f"{summary['collagen_effective_pre_aa']:.6g}"
     )
     print(
-        f"HAp osteogenic term pre-gates: {summary['ha_base']:.6g} + "
-        f"({summary['ha_base']:.6g} * ({summary['ha_phi_dex_linear']:.6g} + {summary['ha_phi_dex_quadratic']:.6g})) + "
-        f"({summary['ha_delta_mk4_linear']:.6g} + {summary['ha_delta_mk4_quadratic']:.6g}) = "
+        f"HAp osteogenic term pre-gates: {summary['ha_base']:.6g} * "
+        f"m_D={summary['ha_m_dex']:.6g} * m_K={summary['ha_m_mk4']:.6g} "
+        f"(m={summary['ha_m_total']:.6g}) = "
         f"{summary['ha_effective_pre_gates']:.6g}"
     )
     print(summary["notes"])
@@ -184,11 +166,17 @@ def plot_drug_modulation_summary(
         base = _window_value(prefix, "base", hour_limit)
         dex = _window_value(prefix, "dex", hour_limit)
         mk4 = _window_value(prefix, "mk4", hour_limit)
-        total = base + dex + mk4
+        interaction = (
+            _window_value(prefix, "interaction", hour_limit)
+            if f"{prefix}_interaction_cum" in modulator_df.columns
+            else 0.0
+        )
+        total = base + dex + mk4 + interaction
         fold = total / base if abs(base) > 1e-12 else 1.0
         pct = 100.0 * (total - base) / base if abs(base) > 1e-12 else 0.0
         dex_pct = 100.0 * dex / base if abs(base) > 1e-12 else 0.0
         mk4_pct = 100.0 * mk4 / base if abs(base) > 1e-12 else 0.0
+        interaction_pct = 100.0 * interaction / base if abs(base) > 1e-12 else 0.0
         records.append(
             {
                 "label": label,
@@ -197,11 +185,13 @@ def plot_drug_modulation_summary(
                 "base": float(base),
                 "dex": float(dex),
                 "mk4": float(mk4),
+                "interaction": float(interaction),
                 "total": float(total),
                 "fold": float(fold),
                 "pct_total": float(pct),
                 "pct_dex": float(dex_pct),
                 "pct_mk4": float(mk4_pct),
+                "pct_interaction": float(interaction_pct),
             }
         )
 
@@ -222,6 +212,7 @@ def plot_drug_modulation_summary(
     base_color = "#cfd6de"
     dex_color = "#d55e00"
     mk4_color = "#009e73"
+    interaction_color = "#7c3aed"
     total_color = "#1f3b5c"
     baseline_color = "#94a3b8"
     grid_color = "#e2e8f0"
@@ -230,17 +221,27 @@ def plot_drug_modulation_summary(
         base = float(rec["base"])
         dex = float(rec["dex"])
         mk4 = float(rec["mk4"])
+        interaction = float(rec["interaction"])
         total = float(rec["total"])
-        panel_ymax = max(0.25, max(base, base + dex, total) * 1.24)
+        panel_ymax = max(0.25, max(base, base + dex + mk4 + interaction, total) * 1.24)
         panel_ymin = min(
-            0.0, min(0.0, base, base + dex, base + dex + mk4, total) * 1.15
+            0.0,
+            min(
+                0.0,
+                base,
+                base + dex,
+                base + dex + mk4,
+                base + dex + mk4 + interaction,
+                total,
+            )
+            * 1.15,
         )
 
-        starts = [0.0, base, base + dex, 0.0]
-        heights = [base, dex, mk4, total]
-        colors_local = [base_color, dex_color, mk4_color, total_color]
-        labels = ["Base", "Dex", "MK-4", "Total"]
-        xpos = np.arange(4)
+        starts = [0.0, base, base + dex, base + dex + mk4, 0.0]
+        heights = [base, dex, mk4, interaction, total]
+        colors_local = [base_color, dex_color, mk4_color, interaction_color, total_color]
+        labels = ["Base", "Dex", "MK-4", "Interaction", "Total"]
+        xpos = np.arange(5)
 
         ax.bar(
             xpos,
@@ -253,8 +254,8 @@ def plot_drug_modulation_summary(
             zorder=3,
         )
         ax.plot(
-            [0, 1, 2, 3],
-            [base, base, base + dex, total],
+            [0, 1, 2, 3, 4],
+            [base, base, base + dex, base + dex + mk4, total],
             color=baseline_color,
             lw=1.2,
             zorder=2,
@@ -266,12 +267,14 @@ def plot_drug_modulation_summary(
             base / 2.0,
             base + dex / 2.0,
             base + dex + mk4 / 2.0,
+            base + dex + mk4 + interaction / 2.0,
             total / 2.0,
         ]
         value_labels = [
             _fmt_value(base),
             _fmt_signed(dex),
             _fmt_signed(mk4),
+            _fmt_signed(interaction),
             _fmt_value(total),
         ]
         for x, y, text in zip(xpos, bar_centers, value_labels):
@@ -286,9 +289,9 @@ def plot_drug_modulation_summary(
                 zorder=4,
             )
 
-        top_anchor = max(base, base + dex, total)
+        top_anchor = max(base, base + dex + mk4 + interaction, total)
         ax.text(
-            1.5,
+            2.0,
             top_anchor,
             f"{rec['fold']:.2f}x",
             ha="center",
@@ -297,14 +300,15 @@ def plot_drug_modulation_summary(
             color="#0f172a",
             zorder=5,
         )
-        total_change = dex + mk4
+        total_change = dex + mk4 + interaction
         if abs(total_change) > 1e-12:
             dex_share = 100.0 * dex / total_change
             mk4_share = 100.0 * mk4 / total_change
+            interaction_share = 100.0 * interaction / total_change
             ax.text(
-                1.5,
+                2.0,
                 panel_ymin + 0.06 * (panel_ymax - panel_ymin),
-                f"Dex {dex_share:.0f}%   MK-4 {mk4_share:.0f}%",
+                f"Dex {dex_share:.0f}%   MK-4 {mk4_share:.0f}%   Int {interaction_share:.0f}%",
                 ha="center",
                 va="bottom",
                 fontsize=8.5,
@@ -317,7 +321,7 @@ def plot_drug_modulation_summary(
         if str(rec["prefix"]) == "alp":
             ax.set_ylabel("Cumulative biomarker drive (a.u.)")
         ax.grid(axis="x", alpha=0.0)
-        ax.set_xlim(-0.55, 3.55)
+        ax.set_xlim(-0.55, 4.55)
         ax.set_ylim(panel_ymin, panel_ymax)
     fig.suptitle(
         "Dex and MK-4 contributions to cumulative osteogenic drive",

@@ -125,6 +125,10 @@ def load_manifest(input_dir: Path) -> pd.DataFrame:
 def build_summary(input_dir: Path, assay_hours: dict[str, int]) -> pd.DataFrame:
     manifest = load_manifest(input_dir).copy()
     rows: list[dict[str, float | int | str]] = []
+    def _safe_log10(value: float) -> float:
+        v = float(value)
+        return float(np.log10(v)) if v > 0.0 else float("nan")
+
     for _, row in manifest.iterrows():
         out_dir = Path(str(row["out_dir"]))
         ts_path = out_dir / "timeseries.csv"
@@ -142,8 +146,8 @@ def build_summary(input_dir: Path, assay_hours: dict[str, int]) -> pd.DataFrame:
                 "out_dir": str(out_dir),
                 "dex_conc_nM": float(row["dex_conc_nM"]),
                 "mk4_conc_uM": float(row["mk4_conc_uM"]),
-                "log10_dex_nM": float(np.log10(float(row["dex_conc_nM"]))),
-                "log10_mk4_uM": float(np.log10(float(row["mk4_conc_uM"]))),
+                "log10_dex_nM": _safe_log10(float(row["dex_conc_nM"])),
+                "log10_mk4_uM": _safe_log10(float(row["mk4_conc_uM"])),
                 "assay_alp": float(alp_row["alp_total"]),
                 "assay_collagen": float(col_row["collagen_total"]),
                 "assay_ha": float(ha_row["ha_total"]),
@@ -404,13 +408,19 @@ def export_fingerprint(df: pd.DataFrame, out_dir: Path, assay_hours: dict[str, i
 
 
 def export_geometry_reference(df: pd.DataFrame, out_dir: Path) -> None:
-    dex_vals = np.sort(df["dex_conc_nM"].unique())
-    mk4_vals = np.sort(df["mk4_conc_uM"].unique())
+    dex_vals = np.sort(df.loc[df["dex_conc_nM"] > 0.0, "dex_conc_nM"].unique())
+    mk4_vals = np.sort(df.loc[df["mk4_conc_uM"] > 0.0, "mk4_conc_uM"].unique())
     fig, ax = plt.subplots(figsize=(6.8, 5.2))
     for _, row in df.iterrows():
+        dex = float(row["dex_conc_nM"])
+        mk4 = float(row["mk4_conc_uM"])
+        if dex <= 0.0 or mk4 <= 0.0:
+            continue
+        dex_log = np.log10(dex)
+        mk4_log = np.log10(mk4)
         ax.scatter(
-            np.log10(float(row["dex_conc_nM"])),
-            np.log10(float(row["mk4_conc_uM"])),
+            dex_log,
+            mk4_log,
             s=95,
             color=COLORS["neutral"],
             edgecolors="white",
@@ -418,22 +428,24 @@ def export_geometry_reference(df: pd.DataFrame, out_dir: Path) -> None:
             zorder=3,
         )
         ax.text(
-            np.log10(float(row["dex_conc_nM"])) + 0.015,
-            np.log10(float(row["mk4_conc_uM"])) + 0.015,
+            dex_log + 0.015,
+            mk4_log + 0.015,
             f"C{int(row['condition_index']):02d}",
             fontsize=8.2,
             color=COLORS["ink"],
         )
     style_axes(ax, "both")
-    ax.set_xticks(np.log10(dex_vals), [f"{v:.4g}" for v in dex_vals])
-    ax.set_yticks(np.log10(mk4_vals), [f"{v:.4g}" for v in mk4_vals])
+    if dex_vals.size > 0:
+        ax.set_xticks(np.log10(dex_vals), [f"{v:.4g}" for v in dex_vals])
+    if mk4_vals.size > 0:
+        ax.set_yticks(np.log10(mk4_vals), [f"{v:.4g}" for v in mk4_vals])
     ax.set_xlabel("Dex concentration (nM, log10-spaced)")
     ax.set_ylabel("MK-4 concentration (uM, log10-spaced)")
     ax.set_title("Figure 5. Dose grid reference", pad=12)
     fig.text(
         0.125,
         0.94,
-        "Reference layout of the 20 combinatory conditions used in sanity_check3.",
+        "Reference layout of the 21 combinatory conditions used in sanity_check3 (the no-drug baseline is omitted on log axes).",
         fontsize=9.1,
         color=COLORS["muted"],
         ha="left",
