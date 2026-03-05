@@ -1,296 +1,320 @@
 #!/usr/bin/env python3
-"""
-
-
-Fit ALP control/osteogenic data and report hourly basal and osteogenic rates.
-
-
-@article{Hong2010pro_alp,
-  author    = {Hong, Dun and Chen, Hai-Xiao and Yu, Hai-Qiang and Liang, Yong and Wang, Carrie and Lian, Qing-Quan and Deng, Hai-Teng and Ge, Ren-Shan},
-  title     = {Morphological and proteomic analysis of early stage of osteoblast differentiation in osteoblastic progenitor cells},
-  journal   = {Experimental Cell Research},
-  year      = {2010},
-  volume    = {316},
-  number    = {14},
-  pages     = {2291--2300},
-  doi       = {10.1016/j.yexcr.2010.05.011},
-  pmid      = {20483354},
-  pmcid     = {PMC4580249},
-  publisher = {Elsevier}
-}
-
-
-"""
+"""ALP rate fit."""
 
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
+from typing import Dict, Tuple
 
 import numpy as np
 
 
 T_DAYS = np.array([3, 7, 14, 21], dtype=float)
 
+ALP_CON = np.array([60.0, 80.0, 95.0, 100.0], dtype=float)
+ALP_OS  = np.array([85.0, 260.0, 350.0, 510.0], dtype=float)
 
 
-ALP_CON = np.array(
-    [
-        60.0,   # day 3
-        80.0,   # day 7
-        95.0,   # day 14
-        100.0,  # day 21
-    ],
-    dtype=float,
-)
-
-ALP_OS = np.array(
-    [
-        85.0,   # day 3
-        260.0,  # day 7
-        350.0,  # day 14
-        510.0,  # day 21
-    ],
-    dtype=float,
-)
-
-
-def model(
-    t_h: np.ndarray, p0: float, r_b: float, r_o: float
-) -> tuple[np.ndarray, np.ndarray]:
-    con = p0 + r_b * t_h
-    os_ = p0 + (r_b + r_o) * t_h
+def model(t_days: np.ndarray, p0: float, r_b_h: float, r_o_h: float, *, t0_day: float) -> Tuple[np.ndarray, np.ndarray]:
+    """Return predicted (control, osteogenic) ALP at given days."""
+    tau_h = 24.0 * (np.asarray(t_days, dtype=float) - float(t0_day))
+    tau_h = np.maximum(tau_h, 0.0)
+    con = p0 + r_b_h * tau_h
+    os_ = p0 + (r_b_h + r_o_h) * tau_h
     return con, os_
 
 
-def _stacked_model(t_h_stacked: np.ndarray, p0: float, r_b: float, r_o: float) -> np.ndarray:
-    n = t_h_stacked.size // 2
-    t_h = t_h_stacked[:n]
-    con_hat, os_hat = model(t_h, p0, r_b, r_o)
-    return np.concatenate([con_hat, os_hat])
+def _metrics(y: np.ndarray, yhat: np.ndarray) -> Dict[str, float]:
+    """Compute common regression metrics."""
+    y = np.asarray(y, dtype=float)
+    yhat = np.asarray(yhat, dtype=float)
+    resid = y - yhat
+    sse = float(np.sum(resid**2))
+    mae = float(np.mean(np.abs(resid)))
+    rmse = float(np.sqrt(np.mean(resid**2)))
+    sst = float(np.sum((y - np.mean(y))**2))
+    r2 = float(1.0 - sse / sst) if sst > 0 else float("nan")
+    return {"SSE": sse, "MAE": mae, "RMSE": rmse, "R2": r2}
 
 
-def confidence_halfwidth(
-    t_h: np.ndarray, pcov: np.ndarray, n_obs: int, alpha: float = 0.05
-) -> tuple[np.ndarray, np.ndarray]:
-    """95% confidence half-width for fitted mean curves via parameter covariance."""
-    p = 3
-    dof = max(1, n_obs - p)
-    try:
-        from scipy.stats import t as student_t
+def fit_day3_single_baseline(
+    t_days: np.ndarray,
+    con: np.ndarray,
+    os_: np.ndarray,
+    *,
+    t0_day: float = 3.0,
+    nonneg: bool = True,
+) -> Dict:
+    """
+    Closed-form least squares fit for r_b and r_o with a single shared baseline p0 = con(t0).
+    Uses only points with tau>0 for slope fitting.
+    """
+    t_days = np.asarray(t_days, dtype=float)
+    con = np.asarray(con, dtype=float)
+    os_ = np.asarray(os_, dtype=float)
 
-        crit = float(student_t.ppf(1.0 - alpha / 2.0, dof))
-    except Exception:
-        crit = 1.96
+    i0 = int(np.argmin(np.abs(t_days - t0_day)))
+    p0 = float(con[i0])
 
-    grad_con = np.column_stack(
-        [np.ones_like(t_h, dtype=float), t_h, np.zeros_like(t_h, dtype=float)]
-    )
-    grad_os = np.column_stack([np.ones_like(t_h, dtype=float), t_h, t_h])
-    var_con = np.einsum("ij,jk,ik->i", grad_con, pcov, grad_con)
-    var_os = np.einsum("ij,jk,ik->i", grad_os, pcov, grad_os)
-    hw_con = crit * np.sqrt(np.maximum(var_con, 0.0))
-    hw_os = crit * np.sqrt(np.maximum(var_os, 0.0))
-    return hw_con, hw_os
+    tau_h = 24.0 * (t_days - float(t0_day))
+    mask = tau_h > 0
+    tau = tau_h[mask]
+    if tau.size < 1:
+        raise ValueError("Need at least one timepoint after day 3 to fit slopes.")
 
+    y_con = con[mask] - p0
+    y_os  = os_[mask] - p0
 
-def fit_rates(t_days: np.ndarray, con: np.ndarray, os_: np.ndarray) -> dict:
-    t_h = 24.0 * np.asarray(t_days, dtype=float)
+    denom = float(np.dot(tau, tau))
+    r_b = float(np.dot(tau, y_con) / denom) if denom > 0 else 0.0
+    r_tot = float(np.dot(tau, y_os) / denom) if denom > 0 else 0.0
+    r_o = r_tot - r_b
 
-    try:
-        from scipy.optimize import curve_fit
-
-        n = len(t_h)
-        t_stacked = np.concatenate([t_h, t_h])
-        y_stacked = np.concatenate([con, os_])
-        x0 = np.array([max(0.0, min(con.min(), os_.min())), 0.1, 0.1], dtype=float)
-        lb = np.array([0.0, 0.0, 0.0], dtype=float)
-        ub = np.array([np.inf, np.inf, np.inf], dtype=float)
-        popt, pcov = curve_fit(
-            _stacked_model,
-            t_stacked,
-            y_stacked,
-            p0=x0,
-            bounds=(lb, ub),
-            maxfev=10000,
-        )
-        p0, r_b, r_o = map(float, popt)
-        y_hat = _stacked_model(t_stacked, p0, r_b, r_o)
-        sse = float(np.sum((y_hat - y_stacked) ** 2))
-        method = "scipy.curve_fit"
-        ci_con_obs, ci_os_obs = confidence_halfwidth(t_h, pcov, n_obs=2 * n, alpha=0.05)
-    except Exception:
-        n = len(t_h)
-        a = np.zeros((2 * n, 3), dtype=float)
-        y = np.zeros((2 * n,), dtype=float)
-        a[:n, 0] = 1.0
-        a[:n, 1] = t_h
-        y[:n] = con
-        a[n:, 0] = 1.0
-        a[n:, 1] = t_h
-        a[n:, 2] = t_h
-        y[n:] = os_
-        x, *_ = np.linalg.lstsq(a, y, rcond=None)
-        p0, r_b, r_o = map(float, x)
-        p0 = max(0.0, p0)
+    if nonneg:
         r_b = max(0.0, r_b)
         r_o = max(0.0, r_o)
-        con_hat, os_hat = model(t_h, p0, r_b, r_o)
-        sse = float(np.sum((con_hat - con) ** 2) + np.sum((os_hat - os_) ** 2))
-        method = "numpy.linalg.lstsq"
-        pcov = np.zeros((3, 3), dtype=float)
-        ci_con_obs = np.zeros_like(t_h)
-        ci_os_obs = np.zeros_like(t_h)
 
-    con_hat, os_hat = model(t_h, p0, r_b, r_o)
+    con_hat, os_hat = model(t_days, p0, r_b, r_o, t0_day=t0_day)
+
+    y_all = np.concatenate([con, os_])
+    yhat_all = np.concatenate([con_hat, os_hat])
+    met_all = _metrics(y_all, yhat_all)
+    met_con = _metrics(con, con_hat)
+    met_os  = _metrics(os_, os_hat)
+
     return {
-        "p0": p0,
-        "r_b_h": r_b,
-        "r_o_h": r_o,
-        "sse": sse,
-        "method": method,
-        "t_h": t_h,
+        "t0_day": float(t0_day),
+        "p0": float(p0),
+        "r_b_h": float(r_b),
+        "r_o_h": float(r_o),
+        "tau_h": tau_h,
         "con_hat": con_hat,
         "os_hat": os_hat,
-        "pcov": pcov,
-        "ci_con_obs": ci_con_obs,
-        "ci_os_obs": ci_os_obs,
+        "metrics_overall": met_all,
+        "metrics_con": met_con,
+        "metrics_os": met_os,
     }
 
 
-def save_outputs(
-    out_dir: Path, fit: dict, t_max_day: float, dt_day: float
-) -> tuple[Path, Path]:
+def save_predictions_csv(out_dir: Path, fit: Dict, *, t_max_day: float, dt_day: float) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    t_day_dense = np.arange(0.0, t_max_day + 1e-12, dt_day)
-    t_h_dense = 24.0 * t_day_dense
-    con_dense, os_dense = model(t_h_dense, fit["p0"], fit["r_b_h"], fit["r_o_h"])
-    ci_con_dense, ci_os_dense = confidence_halfwidth(
-        t_h_dense, fit["pcov"], n_obs=2 * len(fit["t_h"]), alpha=0.05
-    )
+    t_day = np.arange(0.0, float(t_max_day) + 1e-12, float(dt_day))
+    tau_h = 24.0 * (t_day - fit["t0_day"])
+    tau_h = np.maximum(tau_h, 0.0)
+    con, os_ = model(t_day, fit["p0"], fit["r_b_h"], fit["r_o_h"], t0_day=fit["t0_day"])
 
-    csv_path = out_dir / "alp_hourly_fit.csv"
+    csv_path = out_dir / "alp_fit_predictions.csv"
     mat = np.column_stack(
         [
-            t_day_dense,
-            t_h_dense,
-            con_dense,
-            os_dense,
-            np.maximum(con_dense - ci_con_dense, 0.0),
-            con_dense + ci_con_dense,
-            np.maximum(os_dense - ci_os_dense, 0.0),
-            os_dense + ci_os_dense,
-            np.full_like(t_day_dense, fit["r_b_h"]),
-            np.full_like(t_day_dense, fit["r_o_h"]),
+            t_day,
+            24.0 * t_day,
+            tau_h,
+            con,
+            os_,
+            np.full_like(t_day, fit["p0"]),
+            np.full_like(t_day, fit["r_b_h"]),
+            np.full_like(t_day, fit["r_o_h"]),
         ]
     )
     np.savetxt(
         csv_path,
         mat,
         delimiter=",",
-        header=(
-            "day,hour,alp_control_pred,alp_osteo_pred,"
-            "alp_control_ci95_low,alp_control_ci95_high,"
-            "alp_osteo_ci95_low,alp_osteo_ci95_high,"
-            "r_basal_per_h,r_osteo_per_h"
-        ),
+        header="day,hour,tau_h,alp_con_pred,alp_os_pred,P0_day3,r_basal_per_h,r_osteo_extra_per_h",
         comments="",
     )
+    return csv_path
 
-    png_path = out_dir / "alp_hourly_fit.png"
-    try:
-        import matplotlib.pyplot as plt
 
-        plt.style.use("seaborn-v0_8-whitegrid")
-        fig, ax = plt.subplots(figsize=(8.2, 5.1))
-        ax.fill_between(
-            t_day_dense,
-            np.maximum(con_dense - ci_con_dense, 0.0),
-            con_dense + ci_con_dense,
-            color="#1f77b4",
-            alpha=0.18,
-            linewidth=0.0,
-            label="Control 95% CI",
-        )
-        ax.fill_between(
-            t_day_dense,
-            np.maximum(os_dense - ci_os_dense, 0.0),
-            os_dense + ci_os_dense,
-            color="#d62728",
-            alpha=0.15,
-            linewidth=0.0,
-            label="Osteogenic 95% CI",
-        )
-        ax.plot(t_day_dense, con_dense, color="#1f77b4", lw=2.6, label="Control fit")
-        ax.plot(t_day_dense, os_dense, color="#d62728", lw=2.6, label="Osteogenic fit")
-        ax.scatter(
-            T_DAYS,
-            ALP_CON,
-            color="#1f77b4",
-            edgecolor="white",
-            linewidth=0.8,
-            s=48,
-            zorder=3,
-            label="Control data",
-        )
-        ax.scatter(
-            T_DAYS,
-            ALP_OS,
-            color="#d62728",
-            edgecolor="white",
-            linewidth=0.8,
-            s=48,
-            zorder=3,
+def save_metrics_json(out_dir: Path, fit: Dict) -> Path:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    js_path = out_dir / "alp_fit_metrics.json"
+    payload = {
+        "t0_day": fit["t0_day"],
+        "P0_day3": fit["p0"],
+        "r_basal_per_h": fit["r_b_h"],
+        "r_osteo_extra_per_h": fit["r_o_h"],
+        "metrics_overall": fit["metrics_overall"],
+        "metrics_control": fit["metrics_con"],
+        "metrics_osteo": fit["metrics_os"],
+        "data": {
+            "t_days": T_DAYS.tolist(),
+            "alp_con": ALP_CON.tolist(),
+            "alp_os": ALP_OS.tolist(),
+        },
+    }
+    js_path.write_text(json.dumps(payload, indent=2))
+    return js_path
+
+
+def make_style_plot(out_dir: Path, fit: Dict, *, t_max_day: float, dt_day: float) -> Tuple[Path, Path]:
+    """
+    Single main axes: data + fits (PLOS Comp Bio style)
+    Primary x-axis in hours, with a secondary top axis in days.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    import matplotlib.pyplot as plt
+    from matplotlib.lines import Line2D
+    from matplotlib.ticker import MultipleLocator
+
+    t_day = np.arange(0.0, float(t_max_day) + 1e-12, float(dt_day))
+    t_hour = 24.0 * t_day
+    con_dense, os_dense = model(t_day, fit["p0"], fit["r_b_h"], fit["r_o_h"], t0_day=fit["t0_day"])
+
+    t_data_hour = 24.0 * T_DAYS
+
+    fig = plt.figure(figsize=(7.8, 4.8))
+    ax = fig.add_subplot(1, 1, 1)
+    fig.patch.set_facecolor("white")
+    ax.set_facecolor("white")
+
+    c_basal = "#1f78b4"
+    c_osteo = "#d95f02"
+
+    ax.plot(t_hour, con_dense, lw=2.5, color=c_basal, label="Control fit")
+    ax.plot(t_hour, os_dense, lw=2.5, color=c_osteo, label="Osteogenic fit")
+
+    ax.scatter(
+        t_data_hour, ALP_CON, s=56, color=c_basal, edgecolor="white",
+        linewidth=0.8, zorder=3, clip_on=False, label="Control data"
+    )
+    ax.scatter(
+        t_data_hour, ALP_OS, s=56, color=c_osteo, edgecolor="white",
+        linewidth=0.8, zorder=3, clip_on=False, label="Osteogenic data"
+    )
+
+    ax.set_xlabel("Time (hours)")
+    ax.set_ylabel("ALP activity (assay units)")
+    x_max_h = float(t_max_day) * 24.0
+    x_pad_h = max(6.0, 0.02 * x_max_h)
+    y_all = np.concatenate([ALP_CON, ALP_OS, con_dense, os_dense])
+    y_min, y_max = float(np.min(y_all)), float(np.max(y_all))
+    y_pad = max(8.0, 0.06 * (y_max - y_min if y_max > y_min else 1.0))
+
+    ax.set_xlim(-x_pad_h, x_max_h + x_pad_h)
+    ax.set_ylim(max(0.0, y_min - y_pad), y_max + y_pad)
+    ax.xaxis.set_major_locator(MultipleLocator(24.0 * 3.0))
+    y_lo, y_hi = ax.get_ylim()
+    y_start = 50.0 * np.floor(y_lo / 50.0)
+    y_stop = 50.0 * np.ceil(y_hi / 50.0)
+    y_ticks = np.arange(y_start, y_stop + 1e-12, 50.0)
+
+    ax.set_yticks(y_ticks)
+    ax.yaxis.set_minor_locator(MultipleLocator(25.0))
+
+    ax.grid(True, which="major", color="#b0b0b0", alpha=0.28, linewidth=0.75)
+    ax.grid(True, which="minor", color="#d0d0d0", alpha=0.18, linewidth=0.5)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["left"].set_linewidth(1.0)
+    ax.spines["bottom"].set_linewidth(1.0)
+
+    ax.set_title("ALP Activity Fit", fontsize=11, pad=8)
+    ax.tick_params(labelsize=9, top=False, labeltop=False)
+    ax.xaxis.set_ticks_position("bottom")
+    ax.xaxis.label.set_size(10.5)
+    ax.yaxis.label.set_size(10.5)
+
+    met = fit["metrics_overall"]
+    txt = "\n".join(
+        [
+            f"P₀ (AU)        {fit['p0']:.3g}",
+            f"r_b (AU h⁻¹)   {fit['r_b_h']:.3g}",
+            f"r_o (AU h⁻¹)   {fit['r_o_h']:.3g}",
+            f"RMSE (AU)      {met['RMSE']:.3g}",
+            f"R²             {met['R2']:.3g}",
+        ]
+    )
+    ax.text(
+        0.02, 0.70, txt,
+        transform=ax.transAxes,
+        va="top", ha="left",
+        fontsize=8.6,
+        family="monospace",
+        bbox=dict(boxstyle="round,pad=0.28", facecolor="white", edgecolor="#bcbcbc", alpha=0.96),
+    )
+
+    legend_handles = [
+        Line2D([0], [0], color=c_basal, lw=2.5, label="Basal fit"),
+        Line2D([0], [0], color=c_osteo, lw=2.5, label="Osteogenic fit"),
+        Line2D(
+            [0], [0], color=c_basal, lw=2.0, marker="o", markersize=7,
+            markerfacecolor=c_basal, markeredgecolor="white", markeredgewidth=0.8,
+            label="Basal data",
+        ),
+        Line2D(
+            [0], [0], color=c_osteo, lw=2.0, marker="o", markersize=7,
+            markerfacecolor=c_osteo, markeredgecolor="white", markeredgewidth=0.8,
             label="Osteogenic data",
-        )
-        ax.set_xlabel("Time (day)")
-        ax.set_ylabel("ALP signal (assay units)")
-        ax.set_title("ALP Rate Fit with 95% Confidence Bands")
-        ax.grid(alpha=0.3, linewidth=0.8)
-        ax.spines["top"].set_visible(False)
-        ax.spines["right"].set_visible(False)
-        ax.set_xlim(float(np.min(t_day_dense)), float(np.max(t_day_dense)))
-        ax.legend(loc="upper left", ncol=2, frameon=True, framealpha=0.9)
-        fig.tight_layout()
-        fig.savefig(png_path, dpi=220)
-        plt.close(fig)
-    except Exception:
-        png_path = Path("")
+        ),
+    ]
+    ax.legend(
+        handles=legend_handles,
+        loc="upper left",
+        frameon=False,
+        fontsize=9,
+        handlelength=2.0,
+        borderaxespad=0.6,
+    )
 
-    return csv_path, png_path
+    fig.tight_layout()
+
+    png_path = out_dir / "alp_fit_style.png"
+    pdf_path = out_dir / "alp_fit_style.pdf"
+    fig.savefig(png_path, dpi=300)
+    fig.savefig(pdf_path)
+    plt.close(fig)
+
+    return png_path, pdf_path
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
+    ap.add_argument("--t0_day", type=float, default=3.0)
     ap.add_argument("--t_max_day", type=float, default=21.0)
     ap.add_argument("--dt_day", type=float, default=0.1)
-    ap.add_argument(
-        "--out_dir", type=Path, default=Path(__file__).resolve().parent / "alp"
-    )
+    ap.add_argument("--out_dir", type=Path, default=Path(__file__).resolve().parent / "alp_fit")
+    ap.add_argument("--allow_negative", action="store_true", help="Allow negative fitted rates (default clamps to >=0).")
     args = ap.parse_args()
 
-    fit = fit_rates(T_DAYS, ALP_CON, ALP_OS)
-    csv_path, png_path = save_outputs(args.out_dir, fit, args.t_max_day, args.dt_day)
-
-    print("=== ALP hourly fit ===")
-    print(f"fit_method      : {fit['method']}")
-    print(f"P0              : {fit['p0']:.6g} assay units")
-    print(f"r_basal_P       : {fit['r_b_h']:.6g} assay units/hour")
-    print(f"r_osteo_P       : {fit['r_o_h']:.6g} assay units/hour")
-    final_day = T_DAYS[-1]
-    final_idx = -1
-    print(f"SSE             : {fit['sse']:.6g}")
-    print(
-        f"final_day       : {final_day:.0f} d | "
-        f"CON obs={ALP_CON[final_idx]:.6g}, pred={fit['con_hat'][final_idx]:.6g} | "
-        f"OS obs={ALP_OS[final_idx]:.6g}, pred={fit['os_hat'][final_idx]:.6g}"
+    fit = fit_day3_single_baseline(
+        T_DAYS, ALP_CON, ALP_OS,
+        t0_day=args.t0_day,
+        nonneg=(not args.allow_negative),
     )
+
+    out_dir: Path = args.out_dir
+    csv_path = save_predictions_csv(out_dir, fit, t_max_day=args.t_max_day, dt_day=args.dt_day)
+    js_path = save_metrics_json(out_dir, fit)
+    png_path, pdf_path = make_style_plot(out_dir, fit, t_max_day=args.t_max_day, dt_day=args.dt_day)
+
+    met = fit["metrics_overall"]
+    print("=== ALP fit (day-3 anchored, single baseline) ===")
+    print(f"t0_day          : {fit['t0_day']:.0f} d")
+    print(f"P0 (day3)       : {fit['p0']:.6g} assay units")
+    print(f"r_basal_P       : {fit['r_b_h']:.6g} assay units/hour")
+    print(f"r_osteo_extra_P : {fit['r_o_h']:.6g} assay units/hour")
+    print(f"SSE             : {met['SSE']:.6g}")
+    print(f"RMSE            : {met['RMSE']:.6g}")
+    print(f"MAE             : {met['MAE']:.6g}")
+    print(f"R2              : {met['R2']:.6g}")
+
+    final_idx = -1
+    con_hat, os_hat = fit["con_hat"], fit["os_hat"]
+    print(
+        f"final_day       : {T_DAYS[final_idx]:.0f} d | "
+        f"CON obs={ALP_CON[final_idx]:.6g}, pred={con_hat[final_idx]:.6g} | "
+        f"OS obs={ALP_OS[final_idx]:.6g}, pred={os_hat[final_idx]:.6g}"
+    )
+
     print(f"saved_csv       : {csv_path}")
-    if str(png_path):
-        print(f"saved_plot      : {png_path}")
-    else:
-        print("saved_plot      : matplotlib unavailable (plot not generated)")
+    print(f"saved_metrics   : {js_path}")
+    print(f"saved_plot_png  : {png_path}")
+    print(f"saved_plot_pdf  : {pdf_path}")
 
 
 if __name__ == "__main__":
