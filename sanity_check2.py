@@ -610,8 +610,6 @@ def run_replicate(
             hourly_exports=False,
             show_runtime=show_runtime,
             runtime_every_days=1,
-            datafit_path=None,
-            datafit_condition=None,
             nodule_connectivity="40n",
         )
         model.abm.seed_from_coords(coords, day0=0)

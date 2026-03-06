@@ -100,8 +100,8 @@ def load_inputs(input_dir: Path) -> tuple[pd.DataFrame, dict]:
 
 def save_figure(fig: plt.Figure, out_dir: Path, stem: str) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out_dir / f"{stem}.png", dpi=320, bbox_inches="tight", pad_inches=0.08)
-    fig.savefig(out_dir / f"{stem}.pdf", dpi=320, bbox_inches="tight", pad_inches=0.08)
+    fig.savefig(out_dir / f"{stem}.png", dpi=320, bbox_inches="tight", pad_inches=0.12)
+    fig.savefig(out_dir / f"{stem}.pdf", dpi=320, bbox_inches="tight", pad_inches=0.12)
     plt.close(fig)
 
 
@@ -335,15 +335,17 @@ def compute_statistics(replicate_summary: pd.DataFrame, assay_hours: dict[str, i
 def prep_summary(summary: pd.DataFrame) -> pd.DataFrame:
     df = summary.copy().sort_values("condition_index").reset_index(drop=True)
     base = df.iloc[0]
-    for src, dest in [
-        ("assay_collagen_mean", "assay_collagen_pct"),
-        ("final_collagen_mean", "final_collagen_pct"),
-        ("assay_ha_mean", "assay_ha_pct"),
-        ("final_ha_mean", "final_ha_pct"),
-        ("assay_alp_mean", "assay_alp_pct"),
-        ("final_live_mean", "final_live_pct"),
+    for mean_src, sd_src, pct_dest, sd_dest in [
+        ("assay_collagen_mean", "assay_collagen_sd", "assay_collagen_pct", "assay_collagen_pct_sd"),
+        ("final_collagen_mean", "final_collagen_sd", "final_collagen_pct", "final_collagen_pct_sd"),
+        ("assay_ha_mean", "assay_ha_sd", "assay_ha_pct", "assay_ha_pct_sd"),
+        ("final_ha_mean", "final_ha_sd", "final_ha_pct", "final_ha_pct_sd"),
+        ("assay_alp_mean", "assay_alp_sd", "assay_alp_pct", "assay_alp_pct_sd"),
+        ("final_live_mean", "final_live_sd", "final_live_pct", "final_live_pct_sd"),
     ]:
-        df[dest] = 100.0 * (df[src] - float(base[src])) / max(float(base[src]), 1e-12)
+        denom = max(float(base[mean_src]), 1e-12)
+        df[pct_dest] = 100.0 * (df[mean_src] - float(base[mean_src])) / denom
+        df[sd_dest] = 100.0 * df[sd_src].astype(float) / denom
     df["condition_label"] = [f"C{int(i):02d}" for i in df["condition_index"]]
     df["row_label"] = df["condition_label"] + "  " + df["slug"]
     return df
@@ -458,14 +460,6 @@ def export_assay_triptych(
     cbar = fig.colorbar(im, cax=cax)
     cbar.set_label("% difference vs C01", rotation=90)
     fig.suptitle("Figure 1. Assay endpoint heatmaps across initialization modes", fontsize=16, fontweight="semibold", y=0.955)
-    fig.text(
-        0.125,
-        0.925,
-        f"Simple 2D comparison of ALP ({assay_hours['alp']} h), collagen ({assay_hours['collagen']} h), and HAp ({assay_hours['ha']} h). Cell text shows percent change and Holm-adjusted significance (`*, **, ***`; `ns` = not significant).",
-        fontsize=9.3,
-        color=COLORS["muted"],
-        ha="left",
-    )
     fig.subplots_adjust(top=0.86)
     save_figure(fig, out_dir, "figure_1_assay_triptych")
 
@@ -503,7 +497,6 @@ def export_simple_heatmap(
     ax.axhline(control_row - 0.5, color=COLORS["control"], lw=1.2)
     ax.axhline(control_row + 0.5, color=COLORS["control"], lw=1.2)
     ax.set_title(title, pad=12)
-    fig.text(0.12, 0.955, subtitle, fontsize=9.2, color=COLORS["muted"], ha="left")
     cbar = fig.colorbar(im, ax=ax, fraction=0.03, pad=0.03)
     cbar.set_label("% difference vs C01")
     save_figure(fig, out_dir, stem)
@@ -565,14 +558,6 @@ def export_ecm_overview_heatmap(df: pd.DataFrame, out_dir: Path, assay_hours: di
             ax_geo.text(j, i, f"{geo[i, j]:.2f}", ha="center", va="center", fontsize=7.0, color=COLORS["ink"])
 
     fig.suptitle("Figure 3. ECM response overview heatmap", fontsize=15, fontweight="semibold", y=0.955)
-    fig.text(
-        0.125,
-        0.925,
-        "A compact comparison of selected assay endpoints with initialization geometry context.",
-        fontsize=9.2,
-        color=COLORS["muted"],
-        ha="left",
-    )
     cbar = fig.colorbar(im, ax=ax_main, fraction=0.025, pad=0.015)
     cbar.set_label("% difference vs C01")
     geo_cbar = fig.colorbar(
@@ -607,10 +592,16 @@ def export_ecm_fingerprint(df: pd.DataFrame, replicate_df: pd.DataFrame | None, 
     col_vals = order["final_collagen_pct"].to_numpy(dtype=float)
     ha_672 = order["assay_ha_pct"].to_numpy(dtype=float)
     col_336 = order["assay_collagen_pct"].to_numpy(dtype=float)
+    ha_err = order["final_ha_pct_sd"].to_numpy(dtype=float)
+    col_err = order["final_collagen_pct_sd"].to_numpy(dtype=float)
+    ha_672_err = order["assay_ha_pct_sd"].to_numpy(dtype=float)
+    col_336_err = order["assay_collagen_pct_sd"].to_numpy(dtype=float)
 
     ax_ha.axvline(0.0, color=COLORS["neutral"], lw=0.9)
     ax_ha.hlines(y, 0.0, ha_vals, color=COLORS["ha"], lw=2.1, alpha=0.85)
+    ax_ha.errorbar(ha_vals, y, xerr=ha_err, fmt="none", ecolor=COLORS["muted"], elinewidth=0.8, alpha=0.75, capsize=2, zorder=2)
     ax_ha.scatter(ha_vals, y, s=56, color=COLORS["ha"], edgecolors="white", linewidths=0.55, zorder=3)
+    ax_ha.errorbar(ha_672, y, xerr=ha_672_err, fmt="none", ecolor=COLORS["muted"], elinewidth=0.65, alpha=0.65, capsize=1.5, zorder=2)
     ax_ha.scatter(ha_672, y, s=24, color="#d97706", edgecolors="white", linewidths=0.45, zorder=3)
     style_axes(ax_ha, "x")
     ax_ha.set_title("HAp response")
@@ -620,7 +611,9 @@ def export_ecm_fingerprint(df: pd.DataFrame, replicate_df: pd.DataFrame | None, 
 
     ax_col.axvline(0.0, color=COLORS["neutral"], lw=0.9)
     ax_col.hlines(y, 0.0, col_vals, color=COLORS["collagen"], lw=2.1, alpha=0.85)
+    ax_col.errorbar(col_vals, y, xerr=col_err, fmt="none", ecolor=COLORS["muted"], elinewidth=0.8, alpha=0.75, capsize=2, zorder=2)
     ax_col.scatter(col_vals, y, s=56, color=COLORS["collagen"], edgecolors="white", linewidths=0.55, zorder=3)
+    ax_col.errorbar(col_336, y, xerr=col_336_err, fmt="none", ecolor=COLORS["muted"], elinewidth=0.65, alpha=0.65, capsize=1.5, zorder=2)
     ax_col.scatter(col_336, y, s=24, color="#0f9f6e", edgecolors="white", linewidths=0.45, zorder=3)
     style_axes(ax_col, "x")
     ax_col.set_title("Collagen response")
@@ -656,14 +649,6 @@ def export_ecm_fingerprint(df: pd.DataFrame, replicate_df: pd.DataFrame | None, 
         fontweight="semibold",
         y=0.98,
     )
-    fig.text(
-        0.125,
-        0.945,
-        f"Large markers: final endpoint deviations. Small markers: selected assay endpoints (collagen {assay_hours['collagen']} h, HAp {assay_hours['ha']} h).",
-        fontsize=9.2,
-        color=COLORS["muted"],
-        ha="left",
-    )
     save_figure(fig, out_dir, "figure_4_ecm_fingerprint")
 
 
@@ -679,11 +664,10 @@ def export_hap_collagen_map(df: pd.DataFrame, out_dir: Path, assay_hours: dict[s
     cmap = response_cmap()
     vmax = max(3.0, float(np.max(np.abs(alp))))
 
-    fig = plt.figure(figsize=(11.6, 7.8))
-    gs = gridspec.GridSpec(1, 3, width_ratios=[5.2, 0.18, 1.25], wspace=0.24)
+    fig = plt.figure(figsize=(9.8, 7.2))
+    gs = gridspec.GridSpec(1, 2, width_ratios=[5.2, 0.18], wspace=0.2)
     ax = fig.add_subplot(gs[0, 0])
     cax = fig.add_subplot(gs[0, 1])
-    lax = fig.add_subplot(gs[0, 2])
 
     xmin = min(float(np.min(x)), -1.0) - 0.5
     xmax = max(float(np.max(x)), 1.0) + 0.5
@@ -711,27 +695,23 @@ def export_hap_collagen_map(df: pd.DataFrame, out_dir: Path, assay_hours: dict[s
         zorder=3,
     )
 
-    label_offsets = {
-        "C01": (0.12, -0.10),
-        "C03": (0.10, 0.18),
-        "C13": (0.10, 0.30),
-        "C14": (0.10, 0.08),
-        "C09": (0.10, 0.06),
-        "C08": (0.10, 0.16),
-    }
+    radial = np.hypot(x, y)
+    label_idx = set(np.argsort(radial)[-7:].tolist())
+    control_idx = int(order.index[order["condition_index"] == 1][0])
+    label_idx.add(control_idx)
     for idx, row in order.iterrows():
-        dx = 0.11 if float(row["final_collagen_pct"]) <= 0 else 0.08
-        dy = 0.11 if idx % 2 == 0 else -0.14
-        if row["condition_label"] in label_offsets:
-            dx, dy = label_offsets[row["condition_label"]]
+        if idx not in label_idx:
+            continue
+        dx = 0.08 if float(row["final_collagen_pct"]) >= 0 else -0.18
+        dy = 0.08 if float(row["final_ha_pct"]) >= 0 else -0.14
         ax.text(
             float(row["final_collagen_pct"]) + dx,
             float(row["final_ha_pct"]) + dy,
             row["condition_label"],
-            fontsize=7.9,
+            fontsize=8.0,
             color=COLORS["ink"],
             zorder=4,
-            bbox={"boxstyle": "round,pad=0.14", "fc": (1, 1, 1, 0.72), "ec": "none"},
+            bbox={"boxstyle": "round,pad=0.12", "fc": (1, 1, 1, 0.72), "ec": "none"},
         )
 
     ctrl = order.loc[order["condition_index"] == 1].iloc[0]
@@ -751,45 +731,27 @@ def export_hap_collagen_map(df: pd.DataFrame, out_dir: Path, assay_hours: dict[s
     ax.set_xlabel("Final collagen difference vs C01 (%)")
     ax.set_ylabel("Final HAp difference vs C01 (%)")
     ax.set_title(f"Figure 2. ECM response map with ALP encoding ({assay_hours['alp']} h)", pad=18)
-    fig.text(
-        0.125,
-        0.935,
-        "Point color encodes the selected ALP assay response. Point size encodes initial edge fraction.",
-        fontsize=9.1,
-        color=COLORS["muted"],
-        ha="left",
-    )
-    ax.text(
-        0.01,
-        0.98,
-        "Control circled in blue",
-        transform=ax.transAxes,
-        fontsize=8.6,
-        color=COLORS["muted"],
-        ha="left",
-        va="top",
-    )
-
     cbar = fig.colorbar(sc, cax=cax)
     cbar.set_label("Selected ALP difference vs C01 (%)")
     cbar.ax.yaxis.set_label_position("right")
     cbar.ax.yaxis.tick_right()
 
-    lax.set_xlim(0.0, 1.0)
-    lax.set_ylim(0.0, 1.0)
-    lax.axis("off")
-    lax.text(0.0, 0.98, "Interpretation", fontsize=11.0, fontweight="semibold", ha="left", va="top")
-    lax.text(0.0, 0.84, "Upper-right", fontsize=8.9, fontweight="semibold", ha="left")
-    lax.text(0.0, 0.79, "Higher collagen and higher HAp than control.", fontsize=8.3, color=COLORS["muted"], ha="left", wrap=True)
-    lax.text(0.0, 0.66, "Lower-left", fontsize=8.9, fontweight="semibold", ha="left")
-    lax.text(0.0, 0.61, "Coordinated ECM suppression relative to control.", fontsize=8.3, color=COLORS["muted"], ha="left", wrap=True)
-    lax.text(0.0, 0.46, "Size legend", fontsize=8.9, fontweight="semibold", ha="left")
-    for ypos, frac in zip([0.33, 0.24, 0.15], [0.0, 0.4, 0.8]):
-        ssize = 70.0 + 170.0 * frac
-        lax.scatter([0.10], [ypos], s=ssize, color="#94a3b8", edgecolors="white", linewidths=0.8)
-        lax.text(0.22, ypos, f"Edge fraction {frac:.1f}", fontsize=8.4, va="center", ha="left", color=COLORS["ink"])
+    legend_sizes = [0.0, 0.4, 0.8]
+    size_handles = [
+        plt.scatter([], [], s=70.0 + 170.0 * frac, color="#94a3b8", edgecolors="white", linewidths=0.8)
+        for frac in legend_sizes
+    ]
+    ax.legend(
+        size_handles,
+        [f"Edge fraction {frac:.1f}" for frac in legend_sizes],
+        frameon=False,
+        loc="lower right",
+        fontsize=8.2,
+        title="Point size",
+        title_fontsize=8.6,
+    )
 
-    fig.subplots_adjust(top=0.86, right=0.96)
+    fig.subplots_adjust(top=0.86, right=0.93)
     save_figure(fig, out_dir, "figure_2_ecm_response_map")
 
 
@@ -803,7 +765,7 @@ def export_geometry_heatmap(df: pd.DataFrame, out_dir: Path) -> None:
         col = geo[:, i]
         denom = max(float(np.max(col) - np.min(col)), 1e-12)
         scaled[:, i] = (col - np.min(col)) / denom
-    fig, ax = plt.subplots(figsize=(7.8, 9.0), constrained_layout=True)
+    fig, ax = plt.subplots(figsize=(7.8, 9.0))
     im = ax.imshow(scaled, aspect="auto", cmap=LinearSegmentedColormap.from_list("geo_grey", ["#f8fafc", "#4b5563"]), vmin=0.0, vmax=1.0)
     ax.set_xticks(np.arange(len(geo_labels)), geo_labels, rotation=25, ha="right")
     ax.set_yticks(np.arange(len(ordered)), ordered["row_label"])
@@ -813,10 +775,10 @@ def export_geometry_heatmap(df: pd.DataFrame, out_dir: Path) -> None:
     for i in range(geo.shape[0]):
         for j in range(geo.shape[1]):
             ax.text(j, i, f"{geo[i, j]:.2f}", ha="center", va="center", fontsize=8.0, color=COLORS["ink"])
-    ax.set_title("Figure 5. Initialization geometry reference", pad=14)
-    fig.text(0.125, 0.955, "Geometry descriptors for interpreting the response figures.", fontsize=9.1, color=COLORS["muted"], ha="left")
+    ax.set_title("Figure 5. Initialization geometry reference", pad=10)
     cbar = fig.colorbar(im, ax=ax, fraction=0.03, pad=0.03)
     cbar.set_label("Scaled descriptor value")
+    fig.subplots_adjust(top=0.9)
     save_figure(fig, out_dir, "figure_5_geometry_reference")
 
 
@@ -867,7 +829,7 @@ def _render_state_thumb(ax: plt.Axes, ha: np.ndarray, state: np.ndarray, vmax: f
         ax.set_title(title, loc="left", fontsize=8.2, pad=2.5)
 
 
-def export_hap_pairwise_heatmap(df: pd.DataFrame, out_dir: Path, assay_hours: dict[str, int]) -> None:
+def export_spatial_gallery(df: pd.DataFrame, out_dir: Path, assay_hours: dict[str, int]) -> None:
     ordered = df.sort_values(["assay_ha_pct", "condition_index"], ascending=[False, True]).reset_index(drop=True)
     labels = ordered["condition_label"].tolist()
     target_day = max(0, int(round(float(assay_hours["ha"]) / 24.0)))
@@ -905,18 +867,9 @@ def export_hap_pairwise_heatmap(df: pd.DataFrame, out_dir: Path, assay_hours: di
         gax = fig.add_subplot(gallery_gs[r, c])
         gax.axis("off")
 
-    fig.suptitle(f"Figure 6. Final spatial-state gallery at HAp {assay_hours['ha']} h", fontsize=17, fontweight="semibold", y=0.985)
-    fig.text(
-        0.06,
-        0.95,
-        "Representative end-state maps for every initialization mode. Background color encodes HAp accumulation; cyan points show preOB cells and pale-yellow points show OB cells.",
-        fontsize=9.4,
-        color=COLORS["muted"],
-        ha="left",
-    )
-    fig.text(0.06, 0.928, "Blue border marks the control condition (C01).", fontsize=8.7, color=COLORS["muted"], ha="left")
+    fig.suptitle(f"Supplementary Figure S1. Final spatial-state gallery at HAp {assay_hours['ha']} h", fontsize=17, fontweight="semibold", y=0.985)
     fig.subplots_adjust(top=0.92, right=0.985, left=0.03, bottom=0.035)
-    save_figure(fig, out_dir, "figure_6_hap_pairwise_heatmap")
+    save_figure(fig, out_dir, "supplementary_figure_s1_spatial_gallery")
 
 
 def main() -> None:
@@ -937,7 +890,7 @@ def main() -> None:
     export_ecm_overview_heatmap(summary, out_dir, assay_hours)
     export_ecm_fingerprint(summary, replicate_df, out_dir, assay_hours)
     export_geometry_heatmap(summary, out_dir)
-    export_hap_pairwise_heatmap(summary, out_dir, assay_hours)
+    export_spatial_gallery(summary, out_dir, assay_hours)
     print(f"Wrote figures to {out_dir}")
 
 

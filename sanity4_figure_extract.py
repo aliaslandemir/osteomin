@@ -20,7 +20,7 @@ COLORS = {
     "muted": "#64748b",
     "grid": "#d8dee9",
     "dex": "#d55e00",
-    "mk4": "#009e73",
+    "mk4": "#0072b2",
     "alp": "#c2410c",
     "collagen": "#059669",
     "ha": "#1d4e89",
@@ -76,8 +76,8 @@ def parse_args() -> argparse.Namespace:
 
 def save_figure(fig: plt.Figure, out_dir: Path, stem: str) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out_dir / f"{stem}.png", dpi=320, bbox_inches="tight", pad_inches=0.08)
-    fig.savefig(out_dir / f"{stem}.pdf", dpi=320, bbox_inches="tight", pad_inches=0.08)
+    fig.savefig(out_dir / f"{stem}.png", dpi=320, bbox_inches="tight", pad_inches=0.12)
+    fig.savefig(out_dir / f"{stem}.pdf", dpi=320, bbox_inches="tight", pad_inches=0.12)
     plt.close(fig)
 
 
@@ -98,6 +98,17 @@ def row_at_hours(df: pd.DataFrame, hours: int) -> pd.Series:
     return df.loc[idx]
 
 
+def find_condition_timeseries(condition_out_dir: Path) -> list[Path]:
+    direct = condition_out_dir / "timeseries.csv"
+    if direct.exists():
+        return [direct]
+    replicate_paths = sorted(condition_out_dir.glob("r*/timeseries.csv"))
+    if replicate_paths:
+        return replicate_paths
+    nested = sorted(condition_out_dir.rglob("timeseries.csv"))
+    return nested
+
+
 def load_manifest(input_dir: Path) -> pd.DataFrame:
     manifest_csv = input_dir / "condition_manifest.csv"
     manifest_json = input_dir / "condition_manifest.json"
@@ -113,14 +124,27 @@ def build_summary(input_dir: Path, assay_hours: dict[str, int]) -> pd.DataFrame:
     rows: list[dict[str, float | int | str]] = []
     for _, row in manifest.iterrows():
         out_dir = Path(str(row["out_dir"]))
-        ts_path = out_dir / "timeseries.csv"
-        if not ts_path.exists():
-            raise SystemExit(f"timeseries.csv not found for condition output: {ts_path}")
-        ts = pd.read_csv(ts_path)
-        alp_row = row_at_hours(ts, assay_hours["alp"])
-        col_row = row_at_hours(ts, assay_hours["collagen"])
-        ha_row = row_at_hours(ts, assay_hours["ha"])
-        final_row = ts.iloc[-1]
+        ts_paths = find_condition_timeseries(out_dir)
+        if not ts_paths:
+            raise SystemExit(f"timeseries.csv not found under condition output: {out_dir}")
+        metrics_by_run: list[dict[str, float]] = []
+        for ts_path in ts_paths:
+            ts = pd.read_csv(ts_path)
+            alp_row = row_at_hours(ts, assay_hours["alp"])
+            col_row = row_at_hours(ts, assay_hours["collagen"])
+            ha_row = row_at_hours(ts, assay_hours["ha"])
+            final_row = ts.iloc[-1]
+            metrics_by_run.append(
+                {
+                    "assay_alp": float(alp_row["alp_total"]),
+                    "assay_collagen": float(col_row["collagen_total"]),
+                    "assay_ha": float(ha_row["ha_total"]),
+                    "final_live": float(final_row["n_total"]),
+                    "final_preob": float(final_row["n_preob"]),
+                    "final_ob": float(final_row["n_osteoblast"]),
+                }
+            )
+        run_df = pd.DataFrame(metrics_by_run)
         dex = float(row["dex_conc_nM"])
         mk4 = float(row["mk4_conc_uM"])
         branch = "mk4" if dex == 0.0 and mk4 > 0.0 else "dex"
@@ -134,23 +158,42 @@ def build_summary(input_dir: Path, assay_hours: dict[str, int]) -> pd.DataFrame:
                 "dose_units": "uM" if branch == "mk4" else "nM",
                 "dex_conc_nM": dex,
                 "mk4_conc_uM": mk4,
-                "assay_alp": float(alp_row["alp_total"]),
-                "assay_collagen": float(col_row["collagen_total"]),
-                "assay_ha": float(ha_row["ha_total"]),
-                "final_live": float(final_row["n_total"]),
-                "final_preob": float(final_row["n_preob"]),
-                "final_ob": float(final_row["n_osteoblast"]),
+                "n_replicates": int(len(run_df)),
+                "assay_alp": float(run_df["assay_alp"].mean()),
+                "assay_collagen": float(run_df["assay_collagen"].mean()),
+                "assay_ha": float(run_df["assay_ha"].mean()),
+                "final_live": float(run_df["final_live"].mean()),
+                "final_preob": float(run_df["final_preob"].mean()),
+                "final_ob": float(run_df["final_ob"].mean()),
+                "assay_alp_sd": float(run_df["assay_alp"].std(ddof=1)) if len(run_df) > 1 else 0.0,
+                "assay_collagen_sd": float(run_df["assay_collagen"].std(ddof=1)) if len(run_df) > 1 else 0.0,
+                "assay_ha_sd": float(run_df["assay_ha"].std(ddof=1)) if len(run_df) > 1 else 0.0,
+                "final_live_sd": float(run_df["final_live"].std(ddof=1)) if len(run_df) > 1 else 0.0,
+                "final_preob_sd": float(run_df["final_preob"].std(ddof=1)) if len(run_df) > 1 else 0.0,
+                "final_ob_sd": float(run_df["final_ob"].std(ddof=1)) if len(run_df) > 1 else 0.0,
             }
         )
     df = pd.DataFrame(rows).sort_values(["branch", "dose"]).reset_index(drop=True)
     for branch in ("dex", "mk4"):
         mask = df["branch"] == branch
         branch_df = df.loc[mask].copy().sort_values("dose")
-        for col in ("assay_alp", "assay_collagen", "assay_ha", "final_live", "final_preob", "final_ob"):
-            base = float(branch_df.iloc[0][col])
-            df.loc[mask, f"{col}_pct_vs_branch_min"] = 100.0 * (
+        vehicle_mask = branch_df["dose"] == 0.0
+        for col, sd_col in [
+            ("assay_alp", "assay_alp_sd"),
+            ("assay_collagen", "assay_collagen_sd"),
+            ("assay_ha", "assay_ha_sd"),
+            ("final_live", "final_live_sd"),
+            ("final_preob", "final_preob_sd"),
+            ("final_ob", "final_ob_sd"),
+        ]:
+            if bool(vehicle_mask.any()):
+                base = float(branch_df.loc[vehicle_mask, col].iloc[0])
+            else:
+                base = float(branch_df.iloc[0][col])
+            df.loc[mask, f"{col}_pct_vs_vehicle"] = 100.0 * (
                 branch_df[col].to_numpy(dtype=float) - base
             ) / max(base, 1e-12)
+            df.loc[mask, f"{col}_pct_sd_vs_vehicle"] = 100.0 * branch_df[sd_col].to_numpy(dtype=float) / max(base, 1e-12)
     return df
 
 
@@ -173,43 +216,59 @@ def write_tables(df: pd.DataFrame, out_dir: Path) -> None:
 
 def export_assay_dose_curves(dex_df: pd.DataFrame, mk4_df: pd.DataFrame, out_dir: Path, assay_hours: dict[str, int]) -> None:
     fig, axes = plt.subplots(3, 2, figsize=(11.6, 10.2), sharex="col", constrained_layout=True)
+    axes[0, 0].set_title("Dex only", pad=8)
+    axes[0, 1].set_title("MK-4 only", pad=8)
     rows = [
-        ("assay_alp_pct_vs_branch_min", f"ALP {assay_hours['alp']} h", COLORS["alp"]),
-        ("assay_collagen_pct_vs_branch_min", f"Collagen {assay_hours['collagen']} h", COLORS["collagen"]),
-        ("assay_ha_pct_vs_branch_min", f"HAp {assay_hours['ha']} h", COLORS["ha"]),
+        ("assay_alp_pct_vs_vehicle", "assay_alp_pct_sd_vs_vehicle", f"ALP {assay_hours['alp']} h", COLORS["alp"]),
+        ("assay_collagen_pct_vs_vehicle", "assay_collagen_pct_sd_vs_vehicle", f"Collagen {assay_hours['collagen']} h", COLORS["collagen"]),
+        ("assay_ha_pct_vs_vehicle", "assay_ha_pct_sd_vs_vehicle", f"HAp {assay_hours['ha']} h", COLORS["ha"]),
     ]
-    for ridx, (col, title, color) in enumerate(rows):
+    for ridx, (col, err_col, title, color) in enumerate(rows):
         ax = axes[ridx, 0]
         style_axes(ax, "both")
-        ax.plot(dex_df["dose"], dex_df[col], color=color, marker="o", lw=2.1, ms=5.5)
+        ax.errorbar(
+            dex_df["dose"],
+            dex_df[col],
+            yerr=dex_df[err_col],
+            color=color,
+            marker="o",
+            lw=2.1,
+            ms=5.5,
+            capsize=2,
+        )
         ax.yaxis.set_major_formatter(ScalarFormatter(useOffset=False))
-        ax.set_title(title if ridx == 0 else "", pad=8)
-        ax.set_ylabel("% vs branch minimum")
+        ax.set_ylabel(f"{title}\n% vs vehicle")
         if ridx == 2:
             ax.set_xlabel("Dex concentration (nM)")
-        ax.text(0.02, 0.90, "Dex only", transform=ax.transAxes, fontsize=8.7, color=COLORS["muted"])
 
         ax = axes[ridx, 1]
         style_axes(ax, "both")
-        ax.plot(mk4_df["dose"], mk4_df[col], color=color, marker="o", lw=2.1, ms=5.5)
+        ax.errorbar(
+            mk4_df["dose"],
+            mk4_df[col],
+            yerr=mk4_df[err_col],
+            color=color,
+            marker="o",
+            lw=2.1,
+            ms=5.5,
+            capsize=2,
+        )
         ax.yaxis.set_major_formatter(ScalarFormatter(useOffset=False))
-        ax.set_title(title if ridx == 0 else "", pad=8)
         if ridx == 2:
             ax.set_xlabel("MK-4 concentration (uM)")
-        ax.text(0.02, 0.90, "MK-4 only", transform=ax.transAxes, fontsize=8.7, color=COLORS["muted"])
-
-    fig.suptitle("Figure 1. Single-drug dose-response curves", fontsize=15, fontweight="semibold", y=1.01)
+    fig.suptitle("Figure 1. Single-drug dose-response curves", fontsize=15, fontweight="semibold", y=1.03)
     save_figure(fig, out_dir, "figure_1_dose_response_curves")
 
 
 def export_relative_effect_heatmap(dex_df: pd.DataFrame, mk4_df: pd.DataFrame, out_dir: Path, assay_hours: dict[str, int]) -> None:
     fig, axes = plt.subplots(1, 2, figsize=(12.2, 6.6), constrained_layout=True)
     metric_cols = [
-        ("assay_alp_pct_vs_branch_min", f"ALP {assay_hours['alp']} h"),
-        ("assay_collagen_pct_vs_branch_min", f"Collagen {assay_hours['collagen']} h"),
-        ("assay_ha_pct_vs_branch_min", f"HAp {assay_hours['ha']} h"),
-        ("final_live_pct_vs_branch_min", "Final live"),
+        ("assay_alp_pct_vs_vehicle", f"ALP {assay_hours['alp']} h"),
+        ("assay_collagen_pct_vs_vehicle", f"Collagen {assay_hours['collagen']} h"),
+        ("assay_ha_pct_vs_vehicle", f"HAp {assay_hours['ha']} h"),
+        ("final_live_pct_vs_vehicle", "Final live"),
     ]
+    metric_sd_cols = [c.replace("_pct_vs_vehicle", "_pct_sd_vs_vehicle") for c, _ in metric_cols]
     vmax = max(
         0.02,
         float(
@@ -228,6 +287,7 @@ def export_relative_effect_heatmap(dex_df: pd.DataFrame, mk4_df: pd.DataFrame, o
     for ax, branch_df, title in zip(axes, [dex_df, mk4_df], ["Dex only", "MK-4 only"]):
         style_axes(ax, None)
         values = branch_df[[c for c, _ in metric_cols]].to_numpy(dtype=float).T
+        errors = branch_df[metric_sd_cols].to_numpy(dtype=float).T
         im = ax.imshow(
             values,
             aspect="auto",
@@ -240,9 +300,9 @@ def export_relative_effect_heatmap(dex_df: pd.DataFrame, mk4_df: pd.DataFrame, o
         ax.set_title(title, pad=10)
         for i in range(values.shape[0]):
             for j in range(values.shape[1]):
-                ax.text(j, i, f"{values[i, j]:+.3f}", ha="center", va="center", fontsize=7.4, color=COLORS["ink"])
+                ax.text(j, i, f"{values[i, j]:+.2f}\n±{errors[i, j]:.2f}", ha="center", va="center", fontsize=6.6, color=COLORS["ink"])
     cbar = fig.colorbar(im, ax=axes, fraction=0.028, pad=0.02)
-    cbar.set_label("% difference vs branch minimum dose")
+    cbar.set_label("Mean % difference vs branch vehicle")
     fig.suptitle("Figure 2. Relative effect heatmaps", fontsize=15, fontweight="semibold", y=1.02)
     save_figure(fig, out_dir, "figure_2_relative_effect_heatmap")
 
@@ -250,50 +310,81 @@ def export_relative_effect_heatmap(dex_df: pd.DataFrame, mk4_df: pd.DataFrame, o
 def export_local_sensitivity(dex_df: pd.DataFrame, mk4_df: pd.DataFrame, out_dir: Path, assay_hours: dict[str, int]) -> None:
     fig, axes = plt.subplots(1, 2, figsize=(11.8, 5.2), constrained_layout=True)
     metric_defs = [
-        ("assay_alp_pct_vs_branch_min", f"ALP {assay_hours['alp']} h", COLORS["alp"]),
-        ("assay_collagen_pct_vs_branch_min", f"Collagen {assay_hours['collagen']} h", COLORS["collagen"]),
-        ("assay_ha_pct_vs_branch_min", f"HAp {assay_hours['ha']} h", COLORS["ha"]),
+        ("assay_alp_pct_vs_vehicle", f"ALP {assay_hours['alp']} h", COLORS["alp"]),
+        ("assay_collagen_pct_vs_vehicle", f"Collagen {assay_hours['collagen']} h", COLORS["collagen"]),
+        ("assay_ha_pct_vs_vehicle", f"HAp {assay_hours['ha']} h", COLORS["ha"]),
     ]
-    for ax, branch_df, title, xlabel in zip(
+    for panel_idx, (ax, branch_df, title, xlabel) in enumerate(zip(
         axes,
         [dex_df, mk4_df],
-        ["Dex local sensitivity", "MK-4 local sensitivity"],
-        ["Dex concentration (nM)", "MK-4 concentration (uM)"],
-    ):
+        ["Dex adjacent-dose sensitivity", "MK-4 adjacent-dose sensitivity"],
+        ["Dex concentration (nM, log scale)", "MK-4 concentration (uM, log scale)"],
+    )):
         style_axes(ax, "both")
         dose = branch_df["dose"].to_numpy(dtype=float)
+        pos_mask = dose > 0.0
+        dose_pos = dose[pos_mask]
+        if dose_pos.size < 2:
+            continue
+        x_mid = np.sqrt(dose_pos[:-1] * dose_pos[1:])
+        denom = np.diff(np.log10(dose_pos))
         for col, label, color in metric_defs:
-            values = branch_df[col].to_numpy(dtype=float)
-            slope = np.gradient(values, dose)
-            ax.plot(dose, slope, color=color, marker="o", lw=2.0, ms=5.0, label=label)
+            values = branch_df[col].to_numpy(dtype=float)[pos_mask]
+            slope = np.diff(values) / np.maximum(denom, 1e-12)
+            ax.plot(x_mid, slope, color=color, marker="o", lw=2.0, ms=5.0, label=label)
+        ax.set_xscale("log")
         ax.axhline(0.0, color=COLORS["neutral"], lw=0.9)
         ax.set_title(title, pad=10)
         ax.set_xlabel(xlabel)
-        ax.set_ylabel("Local slope (% per dose unit)")
-        ax.legend(frameon=False, loc="best")
-    fig.suptitle("Figure 3. Local sensitivity analysis", fontsize=15, fontweight="semibold", y=1.02)
+        ax.set_ylabel("Adjacent slope (% per log10 dose)")
+        if panel_idx == 1:
+            ax.legend(frameon=False, loc="upper right")
+    fig.suptitle("Figure 3. Adjacent-dose sensitivity analysis", fontsize=15, fontweight="semibold", y=1.03)
     save_figure(fig, out_dir, "figure_3_local_sensitivity")
 
 
 def export_peak_summary(dex_df: pd.DataFrame, mk4_df: pd.DataFrame, out_dir: Path, assay_hours: dict[str, int]) -> None:
     metric_defs = [
-        ("assay_alp", f"ALP {assay_hours['alp']} h", COLORS["alp"], "assay_alp_pct_vs_branch_min"),
-        ("assay_collagen", f"Collagen {assay_hours['collagen']} h", COLORS["collagen"], "assay_collagen_pct_vs_branch_min"),
-        ("assay_ha", f"HAp {assay_hours['ha']} h", COLORS["ha"], "assay_ha_pct_vs_branch_min"),
+        ("assay_alp", f"ALP {assay_hours['alp']} h", COLORS["alp"], "assay_alp_pct_vs_vehicle"),
+        ("assay_collagen", f"Collagen {assay_hours['collagen']} h", COLORS["collagen"], "assay_collagen_pct_vs_vehicle"),
+        ("assay_ha", f"HAp {assay_hours['ha']} h", COLORS["ha"], "assay_ha_pct_vs_vehicle"),
     ]
     rows: list[dict[str, float | str]] = []
     for branch_name, branch_df in [("Dex", dex_df), ("MK-4", mk4_df)]:
         for col, label, color, pct_col in metric_defs:
-            idx = int(branch_df[col].astype(float).idxmax())
-            row = branch_df.loc[idx]
+            branch_sorted = branch_df.sort_values("dose").reset_index(drop=True)
+            local_idx = int(branch_sorted[col].astype(float).idxmax())
+            row = branch_sorted.loc[local_idx]
+            sd_col = pct_col.replace("_pct_vs_vehicle", "_pct_sd_vs_vehicle")
+            max_idx = int(branch_sorted[pct_col].astype(float).idxmax())
+            min_idx = int(branch_sorted[pct_col].astype(float).idxmin())
+            range_sd = float(
+                np.sqrt(
+                    float(branch_sorted.iloc[max_idx][sd_col]) ** 2
+                    + float(branch_sorted.iloc[min_idx][sd_col]) ** 2
+                )
+            )
+            peak_val = float(row[col])
+            doses = branch_sorted["dose"].to_numpy(dtype=float)
+            if local_idx > 0:
+                peak_low = float(doses[local_idx - 1])
+            else:
+                peak_low = float(doses[local_idx])
+            if local_idx < len(doses) - 1:
+                peak_high = float(doses[local_idx + 1])
+            else:
+                peak_high = float(doses[local_idx])
             rows.append(
                 {
                     "branch": branch_name,
                     "metric": label,
                     "color": color,
-                    "peak_value": float(row[col]),
+                    "peak_value": peak_val,
                     "peak_dose": float(row["dose"]),
+                    "peak_dose_low": peak_low,
+                    "peak_dose_high": peak_high,
                     "dynamic_range_pct": float(branch_df[pct_col].max() - branch_df[pct_col].min()),
+                    "dynamic_range_sd": range_sd,
                 }
             )
     summary = pd.DataFrame(rows)
@@ -305,10 +396,12 @@ def export_peak_summary(dex_df: pd.DataFrame, mk4_df: pd.DataFrame, out_dir: Pat
     width = 0.35
     dex_rng = summary[summary["branch"] == "Dex"]["dynamic_range_pct"].to_numpy(dtype=float)
     mk4_rng = summary[summary["branch"] == "MK-4"]["dynamic_range_pct"].to_numpy(dtype=float)
-    ax.bar(x - width / 2.0, dex_rng, width=width, color=COLORS["dex"], label="Dex")
-    ax.bar(x + width / 2.0, mk4_rng, width=width, color=COLORS["mk4"], label="MK-4")
+    dex_err = summary[summary["branch"] == "Dex"]["dynamic_range_sd"].to_numpy(dtype=float)
+    mk4_err = summary[summary["branch"] == "MK-4"]["dynamic_range_sd"].to_numpy(dtype=float)
+    ax.bar(x - width / 2.0, dex_rng, width=width, color=COLORS["dex"], yerr=dex_err, capsize=2, label="Dex")
+    ax.bar(x + width / 2.0, mk4_rng, width=width, color=COLORS["mk4"], yerr=mk4_err, capsize=2, label="MK-4")
     ax.set_xticks(x, [label for _, label, _, _ in metric_defs], rotation=20, ha="right")
-    ax.set_ylabel("Dynamic range (% vs branch minimum)")
+    ax.set_ylabel("Dynamic range (% vs vehicle)")
     ax.set_title("Dynamic range by drug branch", pad=10)
     ax.legend(frameon=False, loc="best")
 
@@ -318,16 +411,29 @@ def export_peak_summary(dex_df: pd.DataFrame, mk4_df: pd.DataFrame, out_dir: Pat
     metric_offsets = {metric_defs[0][1]: -0.18, metric_defs[1][1]: 0.0, metric_defs[2][1]: 0.18}
     for _, row in summary.iterrows():
         xpos = branch_pos[str(row["branch"])] + metric_offsets[str(row["metric"])]
+        y = float(row["peak_dose"])
+        low = float(row["peak_dose_low"])
+        high = float(row["peak_dose_high"])
         ax.scatter(
             xpos,
-            float(row["peak_dose"]),
+            y,
             s=90,
             color=str(row["color"]),
             edgecolors="white",
             linewidths=0.7,
             zorder=3,
         )
-        ax.text(xpos, float(row["peak_dose"]), f"{row['peak_dose']:.4g}", ha="center", va="center", fontsize=7.5, color="white")
+        ax.errorbar(
+            xpos,
+            y,
+            yerr=[[max(y - low, 0.0)], [max(high - y, 0.0)]],
+            fmt="none",
+            ecolor=COLORS["muted"],
+            elinewidth=1.0,
+            capsize=2,
+            zorder=2,
+        )
+        ax.text(xpos, y, f"{row['peak_dose']:.4g}", ha="center", va="center", fontsize=7.5, color="white")
     ax.set_xlim(-0.45, 1.45)
     ax.set_xticks([0.0, 1.0], ["Dex", "MK-4"])
     ax.set_ylabel("Peak dose (native units)")
@@ -338,7 +444,7 @@ def export_peak_summary(dex_df: pd.DataFrame, mk4_df: pd.DataFrame, out_dir: Pat
     ]
     ax.legend(handles=legend_handles, frameon=False, loc="best")
 
-    fig.suptitle("Figure 4. Peak-response summary", fontsize=15, fontweight="semibold", y=1.03)
+    fig.suptitle("Figure 4. Peak-response summary", fontsize=15, fontweight="semibold", y=1.02)
     save_figure(fig, out_dir, "figure_4_peak_summary")
 
 

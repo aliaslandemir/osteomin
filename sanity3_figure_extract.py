@@ -82,8 +82,8 @@ def parse_args() -> argparse.Namespace:
 
 def save_figure(fig: plt.Figure, out_dir: Path, stem: str) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out_dir / f"{stem}.png", dpi=320, bbox_inches="tight", pad_inches=0.08)
-    fig.savefig(out_dir / f"{stem}.pdf", dpi=320, bbox_inches="tight", pad_inches=0.08)
+    fig.savefig(out_dir / f"{stem}.png", dpi=320, bbox_inches="tight", pad_inches=0.12)
+    fig.savefig(out_dir / f"{stem}.pdf", dpi=320, bbox_inches="tight", pad_inches=0.12)
     plt.close(fig)
 
 
@@ -112,6 +112,17 @@ def row_at_hours(df: pd.DataFrame, hours: int) -> pd.Series:
     return df.loc[idx]
 
 
+def find_condition_timeseries(condition_out_dir: Path) -> list[Path]:
+    direct = condition_out_dir / "timeseries.csv"
+    if direct.exists():
+        return [direct]
+    replicate_paths = sorted(condition_out_dir.glob("r*/timeseries.csv"))
+    if replicate_paths:
+        return replicate_paths
+    nested = sorted(condition_out_dir.rglob("timeseries.csv"))
+    return nested
+
+
 def load_manifest(input_dir: Path) -> pd.DataFrame:
     manifest_csv = input_dir / "condition_manifest.csv"
     manifest_json = input_dir / "condition_manifest.json"
@@ -131,14 +142,33 @@ def build_summary(input_dir: Path, assay_hours: dict[str, int]) -> pd.DataFrame:
 
     for _, row in manifest.iterrows():
         out_dir = Path(str(row["out_dir"]))
-        ts_path = out_dir / "timeseries.csv"
-        if not ts_path.exists():
-            raise SystemExit(f"timeseries.csv not found for condition output: {ts_path}")
-        ts = pd.read_csv(ts_path)
-        alp_row = row_at_hours(ts, assay_hours["alp"])
-        col_row = row_at_hours(ts, assay_hours["collagen"])
-        ha_row = row_at_hours(ts, assay_hours["ha"])
-        final_row = ts.iloc[-1]
+        ts_paths = find_condition_timeseries(out_dir)
+        if not ts_paths:
+            raise SystemExit(f"timeseries.csv not found under condition output: {out_dir}")
+        metrics_by_run: list[dict[str, float]] = []
+        for ts_path in ts_paths:
+            ts = pd.read_csv(ts_path)
+            alp_row = row_at_hours(ts, assay_hours["alp"])
+            col_row = row_at_hours(ts, assay_hours["collagen"])
+            ha_row = row_at_hours(ts, assay_hours["ha"])
+            final_row = ts.iloc[-1]
+            metrics_by_run.append(
+                {
+                    "assay_alp": float(alp_row["alp_total"]),
+                    "assay_collagen": float(col_row["collagen_total"]),
+                    "assay_ha": float(ha_row["ha_total"]),
+                    "final_alp": float(final_row["alp_total"]),
+                    "final_collagen": float(final_row["collagen_total"]),
+                    "final_ha": float(final_row["ha_total"]),
+                    "final_preob": float(final_row["n_preob"]),
+                    "final_ob": float(final_row["n_osteoblast"]),
+                    "final_live": float(final_row["n_total"]),
+                    "final_nodule_count": float(final_row["nodule_count_ever"])
+                    if "nodule_count_ever" in final_row
+                    else np.nan,
+                }
+            )
+        run_df = pd.DataFrame(metrics_by_run)
         rows.append(
             {
                 "condition_index": int(row["index"]),
@@ -148,18 +178,21 @@ def build_summary(input_dir: Path, assay_hours: dict[str, int]) -> pd.DataFrame:
                 "mk4_conc_uM": float(row["mk4_conc_uM"]),
                 "log10_dex_nM": _safe_log10(float(row["dex_conc_nM"])),
                 "log10_mk4_uM": _safe_log10(float(row["mk4_conc_uM"])),
-                "assay_alp": float(alp_row["alp_total"]),
-                "assay_collagen": float(col_row["collagen_total"]),
-                "assay_ha": float(ha_row["ha_total"]),
-                "final_alp": float(final_row["alp_total"]),
-                "final_collagen": float(final_row["collagen_total"]),
-                "final_ha": float(final_row["ha_total"]),
-                "final_preob": float(final_row["n_preob"]),
-                "final_ob": float(final_row["n_osteoblast"]),
-                "final_live": float(final_row["n_total"]),
-                "final_nodule_count": float(final_row["nodule_count_ever"])
-                if "nodule_count_ever" in final_row
-                else np.nan,
+                "n_replicates": int(len(run_df)),
+                "assay_alp": float(run_df["assay_alp"].mean()),
+                "assay_collagen": float(run_df["assay_collagen"].mean()),
+                "assay_ha": float(run_df["assay_ha"].mean()),
+                "final_alp": float(run_df["final_alp"].mean()),
+                "final_collagen": float(run_df["final_collagen"].mean()),
+                "final_ha": float(run_df["final_ha"].mean()),
+                "final_preob": float(run_df["final_preob"].mean()),
+                "final_ob": float(run_df["final_ob"].mean()),
+                "final_live": float(run_df["final_live"].mean()),
+                "final_nodule_count": float(run_df["final_nodule_count"].mean()),
+                "assay_alp_sd": float(run_df["assay_alp"].std(ddof=1)) if len(run_df) > 1 else 0.0,
+                "assay_collagen_sd": float(run_df["assay_collagen"].std(ddof=1)) if len(run_df) > 1 else 0.0,
+                "assay_ha_sd": float(run_df["assay_ha"].std(ddof=1)) if len(run_df) > 1 else 0.0,
+                "final_live_sd": float(run_df["final_live"].std(ddof=1)) if len(run_df) > 1 else 0.0,
             }
         )
     df = pd.DataFrame(rows).sort_values("condition_index").reset_index(drop=True)
@@ -174,8 +207,24 @@ def build_summary(input_dir: Path, assay_hours: dict[str, int]) -> pd.DataFrame:
         "final_preob",
         "final_ob",
     ]:
-        baseline = float(df[col].min())
-        df[f"{col}_pct_vs_min"] = 100.0 * (df[col] - baseline) / max(baseline, 1e-12)
+        control_mask = (df["dex_conc_nM"] == 0.0) & (df["mk4_conc_uM"] == 0.0)
+        if bool(control_mask.any()):
+            baseline = float(df.loc[control_mask, col].iloc[0])
+        else:
+            baseline = float(df[col].min())
+        df[f"{col}_pct_vs_control"] = 100.0 * (df[col] - baseline) / max(baseline, 1e-12)
+    for col, sd_col in [
+        ("assay_alp", "assay_alp_sd"),
+        ("assay_collagen", "assay_collagen_sd"),
+        ("assay_ha", "assay_ha_sd"),
+        ("final_live", "final_live_sd"),
+    ]:
+        control_mask = (df["dex_conc_nM"] == 0.0) & (df["mk4_conc_uM"] == 0.0)
+        if bool(control_mask.any()):
+            baseline = float(df.loc[control_mask, col].iloc[0])
+        else:
+            baseline = float(df[col].min())
+        df[f"{col}_pct_sd_vs_control"] = 100.0 * df[sd_col].astype(float) / max(baseline, 1e-12)
     return df
 
 
@@ -204,56 +253,6 @@ def heatmap_with_labels(
     return im
 
 
-def sparse_dose_grid(
-    ax: plt.Axes,
-    df: pd.DataFrame,
-    value_col: str,
-    *,
-    cmap,
-    norm,
-    text_fmt: str,
-) -> any:
-    dex_vals = np.array(sorted(df["dex_conc_nM"].unique()), dtype=float)
-    mk4_vals = np.array(sorted(df["mk4_conc_uM"].unique()), dtype=float)
-    points = df[["dex_conc_nM", "mk4_conc_uM", value_col]].copy()
-
-    ax.set_facecolor("white")
-    for x in dex_vals:
-        ax.axvline(x, color=COLORS["grid"], lw=0.8, alpha=0.6, zorder=0)
-    for y in mk4_vals:
-        ax.axhline(y, color=COLORS["grid"], lw=0.8, alpha=0.6, zorder=0)
-
-    sc = ax.scatter(
-        points["dex_conc_nM"],
-        points["mk4_conc_uM"],
-        c=points[value_col],
-        cmap=cmap,
-        norm=norm,
-        s=880,
-        marker="s",
-        edgecolors="white",
-        linewidths=1.2,
-        zorder=3,
-    )
-    for row in points.itertuples():
-        ax.text(
-            float(row.dex_conc_nM),
-            float(row.mk4_conc_uM),
-            text_fmt.format(float(getattr(row, value_col))),
-            ha="center",
-            va="center",
-            fontsize=8.6,
-            color=COLORS["ink"],
-            zorder=4,
-        )
-
-    ax.set_xticks(dex_vals, [f"{v:.4g}" for v in dex_vals])
-    ax.set_yticks(mk4_vals, [f"{v:.4g}" for v in mk4_vals])
-    ax.set_xlim(float(dex_vals.min()) - 5.0, float(dex_vals.max()) + 5.0)
-    ax.set_ylim(float(mk4_vals.min()) - 0.5, float(mk4_vals.max()) + 0.5)
-    return sc
-
-
 def export_assay_triptych(df: pd.DataFrame, out_dir: Path, assay_hours: dict[str, int]) -> None:
     metrics = [
         ("assay_alp", f"ALP {assay_hours['alp']} h", sequential_cmap("alp", COLORS["alp"])),
@@ -264,18 +263,27 @@ def export_assay_triptych(df: pd.DataFrame, out_dir: Path, assay_hours: dict[str
         ),
         ("assay_ha", f"HAp {assay_hours['ha']} h", sequential_cmap("ha", COLORS["ha"])),
     ]
-    fig, axes = plt.subplots(1, 3, figsize=(11.8, 4.8), constrained_layout=True)
+    dex_vals = np.array(sorted(df["dex_conc_nM"].unique()), dtype=float)
+    mk4_vals = np.array(sorted(df["mk4_conc_uM"].unique()), dtype=float)
+    fig, axes = plt.subplots(1, 3, figsize=(12.2, 5.2), constrained_layout=True)
     for ax, (metric, title, cmap) in zip(axes, metrics):
-        vals = df[metric].to_numpy(dtype=float)
-        norm = Normalize(vmin=float(np.min(vals)), vmax=float(np.max(vals)))
-        im = sparse_dose_grid(
-            ax,
-            df,
-            metric,
-            cmap=cmap,
-            norm=norm,
-            text_fmt="{:.1f}",
+        table = (
+            df.pivot(index="mk4_conc_uM", columns="dex_conc_nM", values=metric)
+            .reindex(index=mk4_vals, columns=dex_vals)
         )
+        matrix = table.to_numpy(dtype=float)
+        vals = matrix[np.isfinite(matrix)]
+        norm = Normalize(vmin=float(np.min(vals)), vmax=float(np.max(vals)))
+        im = ax.imshow(np.ma.array(matrix, mask=~np.isfinite(matrix)), aspect="auto", cmap=cmap, norm=norm, origin="lower")
+        for i in range(matrix.shape[0]):
+            for j in range(matrix.shape[1]):
+                val = matrix[i, j]
+                if np.isfinite(val):
+                    ax.text(j, i, f"{val:.1f}", ha="center", va="center", fontsize=8.0, color=COLORS["ink"])
+                else:
+                    ax.text(j, i, "-", ha="center", va="center", fontsize=8.0, color=COLORS["muted"])
+        ax.set_xticks(np.arange(len(dex_vals)), [f"{v:.4g}" for v in dex_vals])
+        ax.set_yticks(np.arange(len(mk4_vals)), [f"{v:.4g}" for v in mk4_vals])
         ax.set_title(title, pad=10)
         ax.set_xlabel("Dex (nM)")
         ax.set_ylabel("MK-4 (uM)")
@@ -292,13 +300,10 @@ def export_assay_triptych(df: pd.DataFrame, out_dir: Path, assay_hours: dict[str
 
 
 def export_response_map(df: pd.DataFrame, out_dir: Path, assay_hours: dict[str, int]) -> None:
-    x = df["assay_collagen_pct_vs_min"].to_numpy(dtype=float)
-    y = df["assay_ha_pct_vs_min"].to_numpy(dtype=float)
-    c = df["assay_alp_pct_vs_min"].to_numpy(dtype=float)
-    size = 70.0 + 170.0 * (
-        (df["dex_conc_nM"].to_numpy(dtype=float) - df["dex_conc_nM"].min())
-        / max(float(df["dex_conc_nM"].max() - df["dex_conc_nM"].min()), 1e-12)
-    )
+    x = df["assay_collagen_pct_vs_control"].to_numpy(dtype=float)
+    y = df["assay_ha_pct_vs_control"].to_numpy(dtype=float)
+    c = df["assay_alp_pct_vs_control"].to_numpy(dtype=float)
+    size = np.full_like(x, 130.0, dtype=float)
     vmax = max(1.0, float(np.max(np.abs(c))))
 
     fig, ax = plt.subplots(figsize=(8.6, 6.6))
@@ -313,39 +318,49 @@ def export_response_map(df: pd.DataFrame, out_dir: Path, assay_hours: dict[str, 
         linewidths=0.8,
         alpha=0.96,
     )
-    for _, row in df.iterrows():
+    radial = np.hypot(x, y)
+    label_idx = set(np.argsort(radial)[-5:].tolist())
+    control_hits = np.where((df["dex_conc_nM"].to_numpy(dtype=float) == 0.0) & (df["mk4_conc_uM"].to_numpy(dtype=float) == 0.0))[0]
+    if control_hits.size > 0:
+        label_idx.add(int(control_hits[0]))
+    xspan = max(float(np.max(x) - np.min(x)), 1e-12)
+    yspan = max(float(np.max(y) - np.min(y)), 1e-12)
+    placed: list[tuple[float, float]] = []
+    for idx, row in df.reset_index(drop=True).iterrows():
+        if idx not in label_idx:
+            continue
+        dx = (0.018 * xspan) * (1.0 if float(row["assay_collagen_pct_vs_control"]) >= 0 else -1.0)
+        dy = (0.022 * yspan) * (1.0 if float(row["assay_ha_pct_vs_control"]) >= 0 else -1.0)
+        tx = float(row["assay_collagen_pct_vs_control"]) + dx
+        ty = float(row["assay_ha_pct_vs_control"]) + dy
+        if any((tx - px) ** 2 + (ty - py) ** 2 < (0.045 * xspan) ** 2 for px, py in placed):
+            continue
         ax.text(
-            float(row["assay_collagen_pct_vs_min"]) + 0.7,
-            float(row["assay_ha_pct_vs_min"]) + 0.7,
+            tx,
+            ty,
             f"C{int(row['condition_index']):02d}",
             fontsize=7.8,
             color=COLORS["ink"],
+            bbox={"boxstyle": "round,pad=0.12", "fc": (1, 1, 1, 0.68), "ec": "none"},
         )
+        placed.append((tx, ty))
     style_axes(ax, "both")
     ax.axhline(0.0, color=COLORS["neutral"], lw=1.0)
     ax.axvline(0.0, color=COLORS["neutral"], lw=1.0)
-    ax.set_xlabel(f"Collagen {assay_hours['collagen']} h vs minimum condition (%)")
-    ax.set_ylabel(f"HAp {assay_hours['ha']} h vs minimum condition (%)")
+    ax.set_xlabel(f"Collagen {assay_hours['collagen']} h vs control (%)")
+    ax.set_ylabel(f"HAp {assay_hours['ha']} h vs control (%)")
     ax.set_title("Figure 2. Dex/MK-4 response map", pad=14)
     cbar = fig.colorbar(sc, ax=ax, fraction=0.04, pad=0.03)
-    cbar.set_label(f"ALP {assay_hours['alp']} h vs minimum condition (%)")
-    fig.text(
-        0.125,
-        0.94,
-        "Point size increases with Dex concentration. Point color encodes the ALP assay response.",
-        fontsize=9.1,
-        color=COLORS["muted"],
-        ha="left",
-    )
+    cbar.set_label(f"ALP {assay_hours['alp']} h vs control (%)")
     save_figure(fig, out_dir, "figure_2_ecm_response_map")
 
 
 def export_overview_heatmap(df: pd.DataFrame, out_dir: Path, assay_hours: dict[str, int]) -> None:
     metrics = [
-        ("assay_alp_pct_vs_min", f"ALP {assay_hours['alp']} h"),
-        ("assay_collagen_pct_vs_min", f"Collagen {assay_hours['collagen']} h"),
-        ("assay_ha_pct_vs_min", f"HAp {assay_hours['ha']} h"),
-        ("final_live_pct_vs_min", "Final live"),
+        ("assay_alp_pct_vs_control", f"ALP {assay_hours['alp']} h"),
+        ("assay_collagen_pct_vs_control", f"Collagen {assay_hours['collagen']} h"),
+        ("assay_ha_pct_vs_control", f"HAp {assay_hours['ha']} h"),
+        ("final_live_pct_vs_control", "Final live"),
     ]
     ordered = df.sort_values(["mk4_conc_uM", "dex_conc_nM"]).reset_index(drop=True)
     values = ordered[[m[0] for m in metrics]].to_numpy(dtype=float)
@@ -370,20 +385,25 @@ def export_overview_heatmap(df: pd.DataFrame, out_dir: Path, assay_hours: dict[s
             ax.text(j, i, f"{values[i, j]:+.1f}", ha="center", va="center", fontsize=7.6, color=COLORS["ink"])
     ax.set_title("Figure 3. Dose overview heatmap", pad=12)
     cbar = fig.colorbar(im, ax=ax, fraction=0.032, pad=0.025)
-    cbar.set_label("% difference vs minimum condition")
+    cbar.set_label("% difference vs control")
     save_figure(fig, out_dir, "figure_3_ecm_overview_heatmap")
 
 
 def export_fingerprint(df: pd.DataFrame, out_dir: Path, assay_hours: dict[str, int]) -> None:
-    ordered = df.sort_values(["assay_ha_pct_vs_min", "assay_collagen_pct_vs_min"], ascending=[False, False]).reset_index(drop=True)
+    ordered = df.sort_values(["assay_ha_pct_vs_control", "assay_collagen_pct_vs_control"], ascending=[False, False]).reset_index(drop=True)
     y = np.arange(len(ordered))
 
     fig, axes = plt.subplots(1, 3, figsize=(15.2, 8.8), sharey=True, constrained_layout=True)
     cols = [
-        ("assay_alp_pct_vs_min", f"ALP {assay_hours['alp']} h", COLORS["alp"]),
-        ("assay_collagen_pct_vs_min", f"Collagen {assay_hours['collagen']} h", COLORS["collagen"]),
-        ("assay_ha_pct_vs_min", f"HAp {assay_hours['ha']} h", COLORS["ha"]),
+        ("assay_alp_pct_vs_control", f"ALP {assay_hours['alp']} h", COLORS["alp"]),
+        ("assay_collagen_pct_vs_control", f"Collagen {assay_hours['collagen']} h", COLORS["collagen"]),
+        ("assay_ha_pct_vs_control", f"HAp {assay_hours['ha']} h", COLORS["ha"]),
     ]
+    err_cols = {
+        "assay_alp_pct_vs_control": "assay_alp_pct_sd_vs_control",
+        "assay_collagen_pct_vs_control": "assay_collagen_pct_sd_vs_control",
+        "assay_ha_pct_vs_control": "assay_ha_pct_sd_vs_control",
+    }
     labels = [
         f"C{int(row.condition_index):02d} | D={row.dex_conc_nM:.4g} | K={row.mk4_conc_uM:.4g}"
         for row in ordered.itertuples()
@@ -391,12 +411,14 @@ def export_fingerprint(df: pd.DataFrame, out_dir: Path, assay_hours: dict[str, i
 
     for ax, (col, title, color) in zip(axes, cols):
         vals = ordered[col].to_numpy(dtype=float)
+        errs = ordered[err_cols[col]].to_numpy(dtype=float)
         ax.axvline(0.0, color=COLORS["neutral"], lw=0.9)
         ax.hlines(y, 0.0, vals, color=color, lw=2.0, alpha=0.9)
         ax.scatter(vals, y, s=42, color=color, edgecolors="white", linewidths=0.6, zorder=3)
+        ax.errorbar(vals, y, xerr=errs, fmt="none", ecolor=COLORS["muted"], elinewidth=0.8, alpha=0.75, capsize=2, zorder=2)
         style_axes(ax, "x")
         ax.set_title(title, pad=10)
-        ax.set_xlabel("% vs minimum")
+        ax.set_xlabel("% vs control")
         ax.set_yticks(y)
         if ax is axes[0]:
             ax.set_yticklabels(labels, fontsize=8.2)
@@ -442,14 +464,6 @@ def export_geometry_reference(df: pd.DataFrame, out_dir: Path) -> None:
     ax.set_xlabel("Dex concentration (nM, log10-spaced)")
     ax.set_ylabel("MK-4 concentration (uM, log10-spaced)")
     ax.set_title("Figure 5. Dose grid reference", pad=12)
-    fig.text(
-        0.125,
-        0.94,
-        "Reference layout of the 21 combinatory conditions used in sanity_check3 (the no-drug baseline is omitted on log axes).",
-        fontsize=9.1,
-        color=COLORS["muted"],
-        ha="left",
-    )
     save_figure(fig, out_dir, "figure_5_geometry_reference")
 
 
@@ -488,14 +502,6 @@ def export_hap_pairwise_heatmap(df: pd.DataFrame, out_dir: Path) -> None:
                 ax.text(j, i, f"{pairwise[i, j]:+.0f}", ha="center", va="center", fontsize=6.4, color=COLORS["ink"])
     cbar = fig.colorbar(im, ax=ax, fraction=0.03, pad=0.03)
     cbar.set_label("Pairwise HAp difference (%)")
-    fig.text(
-        0.125,
-        0.94,
-        "Conditions are ordered by decreasing HAp response; only the upper triangle is shown to reduce redundancy.",
-        fontsize=9.0,
-        color=COLORS["muted"],
-        ha="left",
-    )
     save_figure(fig, out_dir, "figure_6_hap_pairwise_heatmap")
 
 
@@ -504,13 +510,29 @@ def export_dose_response_ranges(df: pd.DataFrame, out_dir: Path, assay_hours: di
     unique_mk4 = np.array(sorted(df["mk4_conc_uM"].unique()), dtype=float)
 
     dex_summary = (
-        df.groupby("dex_conc_nM", sort=True)[["assay_alp", "assay_collagen", "assay_ha"]]
-        .mean()
+        df.groupby("dex_conc_nM", sort=True)
+        .agg(
+            assay_alp_mean=("assay_alp", "mean"),
+            assay_alp_sd=("assay_alp", "std"),
+            assay_collagen_mean=("assay_collagen", "mean"),
+            assay_collagen_sd=("assay_collagen", "std"),
+            assay_ha_mean=("assay_ha", "mean"),
+            assay_ha_sd=("assay_ha", "std"),
+        )
+        .fillna(0.0)
         .reset_index()
     )
     mk4_summary = (
-        df.groupby("mk4_conc_uM", sort=True)[["assay_alp", "assay_collagen", "assay_ha"]]
-        .mean()
+        df.groupby("mk4_conc_uM", sort=True)
+        .agg(
+            assay_alp_mean=("assay_alp", "mean"),
+            assay_alp_sd=("assay_alp", "std"),
+            assay_collagen_mean=("assay_collagen", "mean"),
+            assay_collagen_sd=("assay_collagen", "std"),
+            assay_ha_mean=("assay_ha", "mean"),
+            assay_ha_sd=("assay_ha", "std"),
+        )
+        .fillna(0.0)
         .reset_index()
     )
 
@@ -523,51 +545,57 @@ def export_dose_response_ranges(df: pd.DataFrame, out_dir: Path, assay_hours: di
     )
 
     ax = axes[0, 0]
-    ax.scatter(unique_dex, np.ones_like(unique_dex), s=84, color=COLORS["dex"], edgecolors="white", linewidths=0.8)
-    for x in unique_dex:
-        ax.text(x, 1.07, f"{x:.4g}", ha="center", va="bottom", fontsize=8.3, color=COLORS["ink"])
-    ax.set_xscale("linear")
+    dex_pos = np.arange(len(unique_dex), dtype=float)
+    ax.scatter(dex_pos, np.ones_like(dex_pos), s=84, color=COLORS["dex"], edgecolors="white", linewidths=0.8)
+    ax.set_xticks(dex_pos, [f"{v:.4g}" for v in unique_dex])
     ax.set_yticks([])
-    ax.set_ylim(0.9, 1.18)
+    ax.set_ylim(0.92, 1.08)
+    ax.set_xlim(-0.5, len(unique_dex) - 0.5)
     ax.set_xlabel("Dex concentrations sampled (nM)")
     ax.set_title("Dex range from condition_manifest", pad=8)
     style_axes(ax, "x")
 
     ax = axes[0, 1]
-    ax.scatter(unique_mk4, np.ones_like(unique_mk4), s=84, color=COLORS["mk4"], edgecolors="white", linewidths=0.8)
-    for x in unique_mk4:
-        ax.text(x, 1.07, f"{x:.4g}", ha="center", va="bottom", fontsize=8.3, color=COLORS["ink"])
-    ax.set_xscale("linear")
+    mk4_pos = np.arange(len(unique_mk4), dtype=float)
+    ax.scatter(mk4_pos, np.ones_like(mk4_pos), s=84, color=COLORS["mk4"], edgecolors="white", linewidths=0.8)
+    ax.set_xticks(mk4_pos, [f"{v:.4g}" for v in unique_mk4])
     ax.set_yticks([])
-    ax.set_ylim(0.9, 1.18)
+    ax.set_ylim(0.92, 1.08)
+    ax.set_xlim(-0.5, len(unique_mk4) - 0.5)
     ax.set_xlabel("MK-4 concentrations sampled (uM)")
     ax.set_title("MK-4 range from condition_manifest", pad=8)
     style_axes(ax, "x")
 
     ax = axes[1, 0]
     style_axes(ax, "both")
-    ax.plot(
+    ax.errorbar(
         dex_summary["dex_conc_nM"],
-        dex_summary["assay_alp"],
+        dex_summary["assay_alp_mean"],
+        yerr=dex_summary["assay_alp_sd"],
         color=COLORS["alp"],
         marker="o",
         lw=2.0,
+        capsize=2,
         label=f"ALP {assay_hours['alp']} h",
     )
-    ax.plot(
+    ax.errorbar(
         dex_summary["dex_conc_nM"],
-        dex_summary["assay_collagen"],
+        dex_summary["assay_collagen_mean"],
+        yerr=dex_summary["assay_collagen_sd"],
         color=COLORS["collagen"],
         marker="o",
         lw=2.0,
+        capsize=2,
         label=f"Collagen {assay_hours['collagen']} h",
     )
-    ax.plot(
+    ax.errorbar(
         dex_summary["dex_conc_nM"],
-        dex_summary["assay_ha"],
+        dex_summary["assay_ha_mean"],
+        yerr=dex_summary["assay_ha_sd"],
         color=COLORS["ha"],
         marker="o",
         lw=2.0,
+        capsize=2,
         label=f"HAp {assay_hours['ha']} h",
     )
     ax.set_xlabel("Dex concentration (nM)")
@@ -577,28 +605,34 @@ def export_dose_response_ranges(df: pd.DataFrame, out_dir: Path, assay_hours: di
 
     ax = axes[1, 1]
     style_axes(ax, "both")
-    ax.plot(
+    ax.errorbar(
         mk4_summary["mk4_conc_uM"],
-        mk4_summary["assay_alp"],
+        mk4_summary["assay_alp_mean"],
+        yerr=mk4_summary["assay_alp_sd"],
         color=COLORS["alp"],
         marker="o",
         lw=2.0,
+        capsize=2,
         label=f"ALP {assay_hours['alp']} h",
     )
-    ax.plot(
+    ax.errorbar(
         mk4_summary["mk4_conc_uM"],
-        mk4_summary["assay_collagen"],
+        mk4_summary["assay_collagen_mean"],
+        yerr=mk4_summary["assay_collagen_sd"],
         color=COLORS["collagen"],
         marker="o",
         lw=2.0,
+        capsize=2,
         label=f"Collagen {assay_hours['collagen']} h",
     )
-    ax.plot(
+    ax.errorbar(
         mk4_summary["mk4_conc_uM"],
-        mk4_summary["assay_ha"],
+        mk4_summary["assay_ha_mean"],
+        yerr=mk4_summary["assay_ha_sd"],
         color=COLORS["ha"],
         marker="o",
         lw=2.0,
+        capsize=2,
         label=f"HAp {assay_hours['ha']} h",
     )
     ax.set_xlabel("MK-4 concentration (uM)")
@@ -612,23 +646,23 @@ def export_dose_response_ranges(df: pd.DataFrame, out_dir: Path, assay_hours: di
         fontweight="semibold",
         y=1.01,
     )
-    fig.text(
-        0.125,
-        0.958,
-        "Top panels list all concentration values present in condition_manifest. Bottom panels summarize marginal Dex and MK-4 responses across the sampled combinatory design.",
-        fontsize=9.0,
-        color=COLORS["muted"],
-        ha="left",
-    )
     save_figure(fig, out_dir, "figure_7_dose_response_ranges")
 
 
 def write_tables(df: pd.DataFrame, out_dir: Path) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     df.to_csv(out_dir / "condition_summary.csv", index=False)
-    summary_json = df.to_dict(orient="records")
+    summary_json = []
+    for rec in df.to_dict(orient="records"):
+        clean = {}
+        for key, value in rec.items():
+            if isinstance(value, (float, np.floating)) and (not np.isfinite(float(value))):
+                clean[key] = None
+            else:
+                clean[key] = value
+        summary_json.append(clean)
     (out_dir / "condition_summary.json").write_text(
-        json.dumps(summary_json, indent=2),
+        json.dumps(summary_json, indent=2, allow_nan=False),
         encoding="utf-8",
     )
 
@@ -645,8 +679,13 @@ def main() -> None:
     df = build_summary(args.input, assay_hours)
     write_tables(df, out_dir)
 
+    export_assay_triptych(df, out_dir, assay_hours)
+    export_response_map(df, out_dir, assay_hours)
     export_overview_heatmap(df, out_dir, assay_hours)
     export_fingerprint(df, out_dir, assay_hours)
+    export_geometry_reference(df, out_dir)
+    export_hap_pairwise_heatmap(df, out_dir)
+    export_dose_response_ranges(df, out_dir, assay_hours)
 
     print(f"[sanity3_figure_extract] processed {len(df)} conditions")
     print(f"[sanity3_figure_extract] figures written to {out_dir}")
