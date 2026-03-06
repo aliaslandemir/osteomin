@@ -21,6 +21,7 @@ class FieldManager:
         mk4_ref_conc: float = 1.0,
         alp_basal_rate: float = 0.0,
         alp_osteo_rate: float = 0.0,
+        alp_initial: float = 0.0,
         alp_a_d: float = 0.0,
         alp_b_d: float = 0.0,
         alp_a_k: float = 0.0,
@@ -35,6 +36,7 @@ class FieldManager:
         aa_half_life_hours: float = 6.0,
         collagen_aa_half_sat: float = 1.0,
         ha_model: str = "minimal",
+        ha_initial: float = 0.0,
         ha_osteo_rate: float = 0.0,
         ha_a_d: float = 0.0,
         ha_b_d: float = 0.0,
@@ -61,6 +63,7 @@ class FieldManager:
         self.mk4_ref_conc = max(1e-12, float(mk4_ref_conc))
         self.alp_basal_rate = float(alp_basal_rate)
         self.alp_osteo_rate = float(alp_osteo_rate)
+        self.alp_initial = max(0.0, float(alp_initial))
         self.alp_a_d = float(alp_a_d)
         self.alp_b_d = float(alp_b_d)
         self.alp_a_k = float(alp_a_k)
@@ -75,6 +78,7 @@ class FieldManager:
         self.aa_half_life_hours = max(1e-9, float(aa_half_life_hours))
         self.collagen_aa_half_sat = max(1e-9, float(collagen_aa_half_sat))
         self.ha_model = str(ha_model).lower().strip()
+        self.ha_initial = max(0.0, float(ha_initial))
         self.ha_osteo_rate = float(ha_osteo_rate)
         self.ha_a_d = float(ha_a_d)
         self.ha_b_d = float(ha_b_d)
@@ -90,11 +94,11 @@ class FieldManager:
         self._ha_tau_n = self.ha_tau_hours ** self.ha_hill_n
         self.collagen = np.zeros((self.height, self.width), dtype=float)
         self.collagen_mature = np.zeros((self.height, self.width), dtype=float)
-        self.alp = np.zeros((self.height, self.width), dtype=float)
-        self.ha = np.zeros((self.height, self.width), dtype=float)
+        self.alp = np.full((self.height, self.width), self.alp_initial, dtype=float)
+        self.ha = np.full((self.height, self.width), self.ha_initial, dtype=float)
 
         self.total_collagen = 0.0
-        self.total_alp = 0.0
+        self.total_alp = float(self.alp.sum())
         self.collagen_preob_total = 0.0
         self.collagen_ob_total = 0.0
         self.alp_preob_total = 0.0
@@ -198,14 +202,18 @@ class FieldManager:
         i_d = 1.0 if self.dex_conc > 0.0 else 0.0
         i_k = 1.0 if self.mk4_conc > 0.0 else 0.0
 
-        m_d_alp = 1.0 + i_d * (self.alp_a_d - self.alp_b_d * dex_offset_sq)
-        m_k_alp = 1.0 + i_k * (self.alp_a_k - self.alp_b_k * mk4_offset_sq)
+        m_d_alp = max(0.0, 1.0 + i_d * (self.alp_a_d - self.alp_b_d * dex_offset_sq))
+        m_k_alp = max(0.0, 1.0 + i_k * (self.alp_a_k - self.alp_b_k * mk4_offset_sq))
         m_alp = m_d_alp * m_k_alp
-        m_d_col = 1.0 + i_d * (self.collagen_a_d - self.collagen_b_d * dex_offset_sq)
-        m_k_col = 1.0 + i_k * (self.collagen_a_k - self.collagen_b_k * mk4_offset_sq)
+        m_d_col = max(
+            0.0, 1.0 + i_d * (self.collagen_a_d - self.collagen_b_d * dex_offset_sq)
+        )
+        m_k_col = max(
+            0.0, 1.0 + i_k * (self.collagen_a_k - self.collagen_b_k * mk4_offset_sq)
+        )
         m_col = m_d_col * m_k_col
-        m_d_ha = 1.0 + i_d * (self.ha_a_d - self.ha_b_d * dex_offset_sq)
-        m_k_ha = 1.0 + i_k * (self.ha_a_k - self.ha_b_k * mk4_offset_sq)
+        m_d_ha = max(0.0, 1.0 + i_d * (self.ha_a_d - self.ha_b_d * dex_offset_sq))
+        m_k_ha = max(0.0, 1.0 + i_k * (self.ha_a_k - self.ha_b_k * mk4_offset_sq))
         m_ha = m_d_ha * m_k_ha
 
         if pre_mask is not None and pre_mask.any():

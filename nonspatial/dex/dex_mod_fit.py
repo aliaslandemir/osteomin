@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Dex dose-response fit for ALP (biphasic log-parabola, day 5 style).
+Phenomenological Dex dose-response fit for ALP using a symmetric
+log-parabolic model centered at 10 nM.
 """
 
 from __future__ import annotations
@@ -15,20 +16,22 @@ import numpy as np
 
 # Approximate demo points with biphasic Dex response.
 # Replace ALP_DAY5_DEX with your measured values if needed.
-DEX_DOSE_nM = np.array([0.0, 1.0, 3.0, 10.0, 30.0, 100.0], dtype=float)
-ALP_DAY5_DEX = np.array([5.5, 7.1, 9.6, 11.8, 8.2, 4.9], dtype=float)
+DEX_DOSE_nM = np.array([0.0, 1.0, 10.0, 100.0], dtype=float)
+ALP_DAY5_DEX = np.array([0.8, 1.2, 3.6, 3.1], dtype=float)
 
 CD0_nM = 10.0
 
-
-def dex_modulation_mP(c_dex_nM: np.ndarray, a_d: float, b_d: float, c_d0_nM: float = CD0_nM) -> np.ndarray:
+def dex_modulation_mP(
+    c_dex_nM: np.ndarray, a_d: float, b_d: float, c_d0_nM: float = CD0_nM
+) -> np.ndarray:
     """m_D^P(c_D) = 1 + I(c_D>0) * (a_D - b_D * log10(c_D/c_D0)^2)."""
     c = np.asarray(c_dex_nM, dtype=float)
     out = np.ones_like(c, dtype=float)
     mask = c > 0.0
     if np.any(mask):
         x_d = np.log10(c[mask] / float(c_d0_nM))
-        out[mask] = 1.0 + (a_d - b_d * x_d * x_d)
+        raw = 1.0 + (a_d - b_d * x_d * x_d)
+        out[mask] = np.maximum(0.0, raw)
     return out
 
 
@@ -43,7 +46,7 @@ def _metrics(y: np.ndarray, yhat: np.ndarray) -> Dict[str, float]:
     sse = float(np.sum(resid**2))
     rmse = float(np.sqrt(np.mean(resid**2)))
     mae = float(np.mean(np.abs(resid)))
-    sst = float(np.sum((y - np.mean(y))**2))
+    sst = float(np.sum((y - np.mean(y)) ** 2))
     r2 = float(1.0 - sse / sst) if sst > 0 else float("nan")
     return {"SSE": sse, "RMSE": rmse, "MAE": mae, "R2": r2}
 
@@ -114,21 +117,41 @@ def save_outputs(
 ) -> tuple[Path, Path, Path, Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    c_dense = np.logspace(np.log10(c_min_nM), np.log10(c_max_nM), int(n_dense))
-    m_dense = dex_modulation_mP(c_dense, fit["a_d"], fit["b_d"], CD0_nM)
-    y_dense = fit["y0"] * m_dense
+    positive_doses = DEX_DOSE_nM[DEX_DOSE_nM > 0.0]
+    if positive_doses.size:
+        default_positive_start = max(float(np.min(positive_doses)), np.nextafter(0.0, 1.0))
+    else:
+        default_positive_start = np.nextafter(0.0, 1.0)
+    positive_start = c_min_nM if c_min_nM > 0.0 else default_positive_start
+    positive_start = max(positive_start, np.nextafter(0.0, 1.0))
+
+    c_dense_pos = np.logspace(np.log10(positive_start), np.log10(c_max_nM), int(n_dense))
+    include_zero = c_min_nM <= 0.0
+    if include_zero:
+        c_dense_csv = np.concatenate(([0.0], c_dense_pos))
+    else:
+        c_dense_csv = c_dense_pos
+
+    m_dense_csv = dex_modulation_mP(c_dense_csv, fit["a_d"], fit["b_d"], CD0_nM)
+    y_dense_csv = fit["y0"] * m_dense_csv
+    log10_dex = np.full_like(c_dense_csv, float("nan"))
+    mask_positive = c_dense_csv > 0.0
+    log10_dex[mask_positive] = np.log10(c_dense_csv[mask_positive] / CD0_nM)
+
+    m_dense_pos = dex_modulation_mP(c_dense_pos, fit["a_d"], fit["b_d"], CD0_nM)
+    y_dense_pos = fit["y0"] * m_dense_pos
 
     csv_path = out_dir / "dex_fit_predictions.csv"
     mat = np.column_stack(
         [
-            c_dense,
-            np.log10(c_dense / CD0_nM),
-            m_dense,
-            y_dense,
-            np.full_like(c_dense, CD0_nM),
-            np.full_like(c_dense, fit["y0"]),
-            np.full_like(c_dense, fit["a_d"]),
-            np.full_like(c_dense, fit["b_d"]),
+            c_dense_csv,
+            log10_dex,
+            m_dense_csv,
+            y_dense_csv,
+            np.full_like(c_dense_csv, CD0_nM),
+            np.full_like(c_dense_csv, fit["y0"]),
+            np.full_like(c_dense_csv, fit["a_d"]),
+            np.full_like(c_dense_csv, fit["b_d"]),
         ]
     )
     np.savetxt(
@@ -167,20 +190,23 @@ def save_outputs(
     fig.patch.set_facecolor("white")
     ax.set_facecolor("white")
 
-    ax.plot(c_dense, y_dense, color=c_dex, lw=2.5)
+    ax.plot(c_dense_pos, y_dense_pos, color=c_dex, lw=2.5)
+    positive_mask = DEX_DOSE_nM > 0.0
+    if np.any(positive_mask):
+        ax.scatter(
+            DEX_DOSE_nM[positive_mask],
+            ALP_DAY5_DEX[positive_mask],
+            marker="s",
+            s=56,
+            color=c_dex,
+            edgecolor="white",
+            linewidth=0.8,
+            zorder=3,
+            clip_on=False,
+        )
+    control_x = 0.7 * positive_start
     ax.scatter(
-        DEX_DOSE_nM[1:],
-        ALP_DAY5_DEX[1:],
-        marker="s",
-        s=56,
-        color=c_dex,
-        edgecolor="white",
-        linewidth=0.8,
-        zorder=3,
-        clip_on=False,
-    )
-    ax.scatter(
-        [c_min_nM],
+        [control_x],
         [ALP_DAY5_DEX[0]],
         marker="s",
         s=56,
@@ -192,15 +218,17 @@ def save_outputs(
     )
 
     ax.set_xscale("log")
-    ax.set_xlim(c_min_nM * 0.9, c_max_nM * 1.1)
-    y_all = np.concatenate([ALP_DAY5_DEX, y_dense])
+    ax.set_xlim(c_dense_pos[0] * 0.9, c_dense_pos[-1] * 1.1)
+    ax.set_xticks([control_x, 1.0, 10.0, 100.0])
+    ax.set_xticklabels(["0", "1", "10", "100"])
+    y_all = np.concatenate([ALP_DAY5_DEX, y_dense_pos])
     y_min, y_max = float(np.min(y_all)), float(np.max(y_all))
     y_pad = max(0.4, 0.08 * (y_max - y_min if y_max > y_min else 1.0))
     ax.set_ylim(max(0.0, y_min - y_pad), y_max + y_pad)
 
     ax.set_xlabel("Dex concentration (nM, log scale)")
-    ax.set_ylabel("ALP activity (U/g)")
-    ax.set_title("Dex Dose-Response Fit (ALP Day 5)", fontsize=11, pad=8)
+    ax.set_ylabel("ALP activity (nmol/min/μg protein)")
+    ax.set_title("Dex Dose-Response Fit", fontsize=11, pad=8)
     ax.tick_params(labelsize=9, top=False, labeltop=False)
     ax.xaxis.set_ticks_position("bottom")
     ax.grid(True, which="major", color="#b0b0b0", alpha=0.28, linewidth=0.75)
@@ -212,7 +240,7 @@ def save_outputs(
 
     ax.axvline(CD0_nM, color="#777777", ls="--", lw=1.0, alpha=0.9)
 
-    met = fit["metrics_overall"]
+    met = fit["metrics_dosed"]
     txt = "\n".join(
         [
             f"cD0 (nM)       {CD0_nM:.3g}",
@@ -225,14 +253,19 @@ def save_outputs(
     )
     ax.text(
         0.98,
-        0.98,
+        0.08,
         txt,
         transform=ax.transAxes,
-        va="top",
+        va="bottom",
         ha="right",
         fontsize=8.6,
         family="monospace",
-        bbox=dict(boxstyle="round,pad=0.28", facecolor="white", edgecolor="#bcbcbc", alpha=0.96),
+        bbox=dict(
+            boxstyle="round,pad=0.28",
+            facecolor="white",
+            edgecolor="#bcbcbc",
+            alpha=0.96,
+        ),
     )
 
     legend_handles = [
@@ -250,7 +283,14 @@ def save_outputs(
             label="ALP day-5 data",
         ),
     ]
-    ax.legend(handles=legend_handles, loc="upper left", frameon=False, fontsize=9, handlelength=2.0, borderaxespad=0.6)
+    ax.legend(
+        handles=legend_handles,
+        loc="upper left",
+        frameon=False,
+        fontsize=9,
+        handlelength=2.0,
+        borderaxespad=0.6,
+    )
 
     fig.tight_layout()
     png_path = out_dir / "dex_fit_style.png"
@@ -264,14 +304,18 @@ def save_outputs(
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--c_min_nM", type=float, default=1.0)
+    ap.add_argument("--c_min_nM", type=float, default=0.0)
     ap.add_argument("--c_max_nM", type=float, default=100.0)
     ap.add_argument("--n_dense", type=int, default=400)
-    ap.add_argument("--out_dir", type=Path, default=Path(__file__).resolve().parent / "dex_fit")
+    ap.add_argument(
+        "--out_dir", type=Path, default=Path(__file__).resolve().parent / "dex_fit"
+    )
     args = ap.parse_args()
 
-    if args.c_min_nM <= 0.0:
-        raise ValueError("--c_min_nM must be > 0 for log-scale plotting and log-space predictions.")
+    if args.c_min_nM < 0.0:
+        raise ValueError(
+            "--c_min_nM must be >= 0 for log-scale plotting and log-space predictions."
+        )
     if args.c_max_nM <= args.c_min_nM:
         raise ValueError("--c_max_nM must be greater than --c_min_nM.")
     if args.n_dense < 20:
@@ -286,7 +330,7 @@ def main() -> None:
         args.n_dense,
     )
 
-    met = fit["metrics_overall"]
+    met = fit["metrics_dosed"]
     print("=== Dex dose-response fit (ALP day 5) ===")
     print(f"fit_method      : {fit['method']}")
     print(f"cD0_nM          : {CD0_nM:.6g}")

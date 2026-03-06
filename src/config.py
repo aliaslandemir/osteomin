@@ -45,6 +45,7 @@ class FieldConfig:
     mk4_ref_conc: float = 1.0
     alp_basal_rate: float = 0.0
     alp_osteo_rate: float = 0.0
+    alp_initial: float = 0.0
     alp_a_d: float = 0.0
     alp_b_d: float = 0.0
     alp_a_k: float = 0.0
@@ -59,6 +60,7 @@ class FieldConfig:
     aa_half_life_hours: float = 6.0
     collagen_aa_half_sat: float = 1.0
     ha_model: str = "minimal"
+    ha_initial: float = 0.0
     ha_osteo_rate: float = 0.0
     ha_a_d: float = 0.0
     ha_b_d: float = 0.0

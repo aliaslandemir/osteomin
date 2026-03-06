@@ -40,8 +40,8 @@ def drug_response_summary(field_cfg: object) -> dict[str, float | str]:
         b_d = float(getattr(field_cfg, f"{prefix}_b_d", 0.0))
         a_k = float(getattr(field_cfg, f"{prefix}_a_k", 0.0))
         b_k = float(getattr(field_cfg, f"{prefix}_b_k", 0.0))
-        m_d = 1.0 + i_d * (a_d - b_d * x_d_sq)
-        m_k = 1.0 + i_k * (a_k - b_k * x_k_sq)
+        m_d = max(0.0, 1.0 + i_d * (a_d - b_d * x_d_sq))
+        m_k = max(0.0, 1.0 + i_k * (a_k - b_k * x_k_sq))
         return m_d, m_k, m_d * m_k
 
     alp_base = float(getattr(field_cfg, "alp_osteo_rate", 0.0))
@@ -93,7 +93,7 @@ def drug_response_summary(field_cfg: object) -> dict[str, float | str]:
             "Collagen effective rate is shown before AA gating; HAp effective rate is shown "
             "before Hill-time and matured-collagen gates. Drug effects scale the osteogenic "
             "rate multiplicatively as r_o * m_D(c_D) * m_K(c_K), where each m term is "
-            "a peaked quadratic response in log-dose."
+            "a peaked quadratic response in log-dose and clipped to stay non-negative."
         ),
     }
 
@@ -205,17 +205,24 @@ def plot_drug_modulation_summary(
             return f"{value:.1f}".rstrip("0").rstrip(".")
         return f"{value:.2f}".rstrip("0").rstrip(".")
 
-    fig, axes = plt.subplots(1, 3, figsize=(13.4, 5.6), sharey=False)
+    fig, axes = plt.subplots(1, 3, figsize=(12.6, 4.8), sharey=False)
     if not isinstance(axes, np.ndarray):
         axes = np.array([axes])
 
-    base_color = "#cfd6de"
-    dex_color = "#d55e00"
-    mk4_color = "#009e73"
-    interaction_color = "#7c3aed"
-    total_color = "#1f3b5c"
-    baseline_color = "#94a3b8"
-    grid_color = "#e2e8f0"
+    base_color = "#b0b9c6"
+    dex_color = "#c44e52"
+    mk4_color = "#4c9f70"
+    interaction_color = "#8172b3"
+    total_color = "#2f4b7c"
+    grid_color = "#e5e7eb"
+    edge_color = "#2f3e4f"
+    legend_handles = [
+        plt.Rectangle((0, 0), 1, 1, facecolor=base_color, edgecolor=edge_color, linewidth=0.8, label="Base"),
+        plt.Rectangle((0, 0), 1, 1, facecolor=dex_color, edgecolor=edge_color, linewidth=0.8, label="Dex"),
+        plt.Rectangle((0, 0), 1, 1, facecolor=mk4_color, edgecolor=edge_color, linewidth=0.8, label="MK-4"),
+        plt.Rectangle((0, 0), 1, 1, facecolor=interaction_color, edgecolor=edge_color, linewidth=0.8, label="Interaction"),
+        plt.Rectangle((0, 0), 1, 1, facecolor=total_color, edgecolor=edge_color, linewidth=0.8, label="Total"),
+    ]
     for ax, rec in zip(axes, records):
         set_white(ax)
         base = float(rec["base"])
@@ -247,106 +254,86 @@ def plot_drug_modulation_summary(
             xpos,
             heights,
             bottom=starts,
-            width=0.62,
+            width=0.58,
             color=colors_local,
-            edgecolor="#334155",
-            linewidth=0.9,
+            edgecolor=edge_color,
+            linewidth=0.8,
             zorder=3,
         )
-        ax.plot(
-            [0, 1, 2, 3, 4],
-            [base, base, base + dex, base + dex + mk4, total],
-            color=baseline_color,
-            lw=1.2,
-            zorder=2,
-        )
-        ax.axhline(0.0, color="#475569", lw=0.9, zorder=1)
+        ax.axhline(0.0, color="#6b7280", lw=0.9, zorder=1)
         ax.grid(axis="y", color=grid_color, lw=0.8, zorder=0)
 
-        bar_centers = [
-            base / 2.0,
-            base + dex / 2.0,
-            base + dex + mk4 / 2.0,
-            base + dex + mk4 + interaction / 2.0,
-            total / 2.0,
-        ]
-        value_labels = [
-            _fmt_value(base),
-            _fmt_signed(dex),
-            _fmt_signed(mk4),
-            _fmt_signed(interaction),
-            _fmt_value(total),
-        ]
-        for x, y, text in zip(xpos, bar_centers, value_labels):
-            ax.text(
-                x,
-                y,
-                text,
-                ha="center",
-                va="center",
-                fontsize=9,
-                color="#0f172a",
-                zorder=4,
-            )
-
         top_anchor = max(base, base + dex + mk4 + interaction, total)
-        ax.text(
-            2.0,
-            top_anchor,
-            f"{rec['fold']:.2f}x",
-            ha="center",
-            va="bottom",
-            fontsize=10,
-            color="#0f172a",
-            zorder=5,
+        info_text = "\n".join(
+            [
+                f"Fold change: {rec['fold']:.2f}x",
+                f"Delta vs base: {_fmt_signed(total - base)}",
+                f"Total: {_fmt_value(total)}",
+            ]
         )
-        total_change = dex + mk4 + interaction
-        if abs(total_change) > 1e-12:
-            dex_share = 100.0 * dex / total_change
-            mk4_share = 100.0 * mk4 / total_change
-            interaction_share = 100.0 * interaction / total_change
-            ax.text(
-                2.0,
-                panel_ymin + 0.06 * (panel_ymax - panel_ymin),
-                f"Dex {dex_share:.0f}%   MK-4 {mk4_share:.0f}%   Int {interaction_share:.0f}%",
-                ha="center",
-                va="bottom",
-                fontsize=8.5,
-                color="#334155",
-            )
+        ax.text(
+            0.98,
+            0.96,
+            info_text,
+            transform=ax.transAxes,
+            ha="right",
+            va="top",
+            fontsize=8.2,
+            color="#1f2937",
+            bbox=dict(
+                boxstyle="round,pad=0.22",
+                facecolor="white",
+                edgecolor="#d1d5db",
+                alpha=0.96,
+            ),
+        )
 
         ax.set_xticks(xpos)
-        ax.set_xticklabels(labels)
-        ax.set_title(str(rec["label"]), pad=10)
+        ax.set_xticklabels(labels, fontsize=8.5)
+        ax.set_title(str(rec["label"]), pad=8, fontsize=10.5)
         if str(rec["prefix"]) == "alp":
-            ax.set_ylabel("Cumulative biomarker drive (a.u.)")
+            ax.set_ylabel("Cumulative biomarker drive (a.u.)", fontsize=9.5)
         ax.grid(axis="x", alpha=0.0)
         ax.set_xlim(-0.55, 4.55)
         ax.set_ylim(panel_ymin, panel_ymax)
+        ax.tick_params(axis="y", labelsize=8.5)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ax.spines["left"].set_linewidth(0.8)
+        ax.spines["bottom"].set_linewidth(0.8)
+
+    fig.legend(
+        handles=legend_handles,
+        loc="upper center",
+        ncol=5,
+        frameon=False,
+        fontsize=8.4,
+        bbox_to_anchor=(0.5, 0.955),
+    )
     fig.suptitle(
         "Dex and MK-4 contributions to cumulative osteogenic drive",
-        y=0.985,
-        fontsize=13,
+        y=0.995,
+        fontsize=12.5,
         fontweight="semibold",
     )
     fig.text(
         0.5,
-        0.925,
+        0.90,
         f"Dex concentration: {dex_conc:.4g} nM   |   MK-4 concentration: {mk4_conc:.4g} uM",
         ha="center",
         va="center",
-        fontsize=9,
-        color="#475569",
+        fontsize=8.6,
+        color="#4b5563",
     )
     fig.text(
         0.5,
-        0.01,
+        0.02,
         "Independent y-scales because biomarkers accumulate on different magnitudes.",
         ha="center",
         va="bottom",
-        fontsize=9,
-        color="#475569",
+        fontsize=8.4,
+        color="#6b7280",
     )
-    fig.tight_layout(rect=(0.02, 0.05, 0.98, 0.9), pad=0.9)
+    fig.tight_layout(rect=(0.02, 0.06, 0.98, 0.86), pad=0.8)
     save_figure(fig, outdir, "13_drug_modulation_summary")
     plt.close(fig)

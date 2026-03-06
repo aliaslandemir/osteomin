@@ -218,6 +218,7 @@ def make_condition_specs(seed: int) -> list[ConditionSpec]:
         ("vertical_stripes", "Condition 12: Vertical stripes", "Cells are confined to repeated vertical stripe bands."),
         ("checkerboard_sparse", "Condition 13: Checkerboard sparse", "Cells are sampled from alternating parity sites to maximize spacing."),
         ("radial_spokes", "Condition 14: Radial spokes", "Cells are distributed along multiple radial spokes emerging from the center."),
+        ("ring_periphery", "Condition 15: Peripheral ring", "Cells are initialized on an annular ring surrounding the center to emphasize boundary-facing growth fronts."),
     ]
     return [
         ConditionSpec(

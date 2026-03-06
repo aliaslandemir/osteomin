@@ -12,28 +12,24 @@ from pathlib import Path
 
 
 BASE_OUT = Path("out") / "sanity_check4"
-TOTAL_CONDITIONS = 21
+TOTAL_CONDITIONS = 15
+DEFAULT_REPLICATES = 5
+BASE_SEED = 12345
 DOSE_MATRIX = [
     (0.0, 0.0),
     (0.1, 0.0),
     (0.3, 0.0),
-    (0.6, 0.0),
     (1.0, 0.0),
-    (1.5, 0.0),
     (2.5, 0.0),
     (4.0, 0.0),
     (6.0, 0.0),
-    (8.0, 0.0),
     (10.0, 0.0),
     (0.0, 1.0),
     (0.0, 3.0),
     (0.0, 6.0),
     (0.0, 10.0),
-    (0.0, 15.0),
-    (0.0, 25.0),
-    (0.0, 40.0),
+    (0.0, 30.0),
     (0.0, 60.0),
-    (0.0, 80.0),
     (0.0, 100.0),
 ]
 
@@ -57,38 +53,42 @@ BASE_ARGS = [
     "0.001",
     "--alp-ro",
     "0.002",
+    "--alp-p0",
+    "0.0",
     "--alp-a-d",
-    "0.03",
+    "0.08",
     "--alp-b-d",
-    "0.03",
+    "0.08",
     "--alp-a-k",
-    "0.025",
+    "0.06",
     "--alp-b-k",
-    "0.025",
+    "0.06",
     "--collagen-rb",
     "0.001",
     "--collagen-ro",
     "0.002",
     "--collagen-a-d",
-    "0.03",
+    "0.08",
     "--collagen-b-d",
-    "0.03",
+    "0.08",
     "--collagen-a-k",
-    "0.025",
+    "0.06",
     "--collagen-b-k",
-    "0.025",
+    "0.06",
     "--ha-model",
     "minimal",
+    "--ha-h0",
+    "0.0",
     "--ha-ro",
     "0.075",
     "--ha-a-d",
-    "0.03",
+    "0.08",
     "--ha-b-d",
-    "0.03",
+    "0.08",
     "--ha-a-k",
-    "0.025",
+    "0.06",
     "--ha-b-k",
-    "0.025",
+    "0.06",
     "--ha-tau",
     "384",
     "--ha-hill-n",
@@ -158,6 +158,8 @@ class ConditionSpec:
 @dataclass
 class RunResult:
     index: int
+    replicate_index: int
+    seed: int
     dex_conc_nM: float
     mk4_conc_uM: float
     out_dir: str
@@ -185,6 +187,18 @@ def parse_args() -> argparse.Namespace:
         help="rerun conditions even if timeseries.csv already exists",
     )
     parser.add_argument(
+        "--replicates",
+        type=int,
+        default=DEFAULT_REPLICATES,
+        help="replicates per condition",
+    )
+    parser.add_argument(
+        "--base-seed",
+        type=int,
+        default=BASE_SEED,
+        help="base RNG seed used to derive replicate seeds",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="print commands and write manifests without launching simulations",
@@ -194,7 +208,10 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="forward --runtime to main.py for progress logging",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.replicates <= 0:
+        raise SystemExit("--replicates must be >= 1")
+    return args
 
 
 def build_condition_specs(out_root: Path) -> list[ConditionSpec]:
@@ -216,11 +233,18 @@ def build_condition_specs(out_root: Path) -> list[ConditionSpec]:
     return specs
 
 
-def build_command(spec: ConditionSpec, python_exe: str, runtime: bool) -> list[str]:
+def build_command(
+    spec: ConditionSpec,
+    python_exe: str,
+    runtime: bool,
+    seed: int,
+    out_dir: Path,
+) -> list[str]:
     cmd = [python_exe, *BASE_ARGS]
+    cmd += ["--seed", str(int(seed))]
     cmd += ["--dex-conc", f"{spec.dex_conc_nM:.10g}"]
     cmd += ["--mk4-conc", f"{spec.mk4_conc_uM:.10g}"]
-    cmd += ["--out", str(spec.out_dir)]
+    cmd += ["--out", str(out_dir)]
     if runtime:
         cmd += ["--runtime"]
     return cmd
@@ -228,23 +252,28 @@ def build_command(spec: ConditionSpec, python_exe: str, runtime: bool) -> list[s
 
 def run_condition(
     spec: ConditionSpec,
+    replicate_index: int,
+    seed: int,
     *,
     python_exe: str,
     overwrite: bool,
     dry_run: bool,
     runtime: bool,
 ) -> RunResult:
-    spec.out_dir.mkdir(parents=True, exist_ok=True)
-    timeseries_path = spec.out_dir / "timeseries.csv"
-    cmd = build_command(spec, python_exe, runtime)
+    run_out_dir = spec.out_dir / f"r{replicate_index:02d}"
+    run_out_dir.mkdir(parents=True, exist_ok=True)
+    timeseries_path = run_out_dir / "timeseries.csv"
+    cmd = build_command(spec, python_exe, runtime, seed, run_out_dir)
     command_str = shlex.join(cmd)
 
     if timeseries_path.exists() and not overwrite:
         return RunResult(
             index=spec.index,
+            replicate_index=replicate_index,
+            seed=seed,
             dex_conc_nM=spec.dex_conc_nM,
             mk4_conc_uM=spec.mk4_conc_uM,
-            out_dir=str(spec.out_dir),
+            out_dir=str(run_out_dir),
             success=True,
             returncode=0,
             command=command_str,
@@ -255,9 +284,11 @@ def run_condition(
         print(command_str)
         return RunResult(
             index=spec.index,
+            replicate_index=replicate_index,
+            seed=seed,
             dex_conc_nM=spec.dex_conc_nM,
             mk4_conc_uM=spec.mk4_conc_uM,
-            out_dir=str(spec.out_dir),
+            out_dir=str(run_out_dir),
             success=True,
             returncode=0,
             command=command_str,
@@ -269,9 +300,11 @@ def run_condition(
     except OSError as exc:
         return RunResult(
             index=spec.index,
+            replicate_index=replicate_index,
+            seed=seed,
             dex_conc_nM=spec.dex_conc_nM,
             mk4_conc_uM=spec.mk4_conc_uM,
-            out_dir=str(spec.out_dir),
+            out_dir=str(run_out_dir),
             success=False,
             returncode=-1,
             command=command_str,
@@ -280,9 +313,11 @@ def run_condition(
 
     return RunResult(
         index=spec.index,
+        replicate_index=replicate_index,
+        seed=seed,
         dex_conc_nM=spec.dex_conc_nM,
         mk4_conc_uM=spec.mk4_conc_uM,
-        out_dir=str(spec.out_dir),
+        out_dir=str(run_out_dir),
         success=(completed.returncode == 0),
         returncode=int(completed.returncode),
         command=command_str,
@@ -323,6 +358,8 @@ def write_run_summary(out_root: Path, results: list[RunResult]) -> None:
             fh,
             fieldnames=[
                 "index",
+                "replicate_index",
+                "seed",
                 "dex_conc_nM",
                 "mk4_conc_uM",
                 "out_dir",
@@ -349,6 +386,7 @@ def main() -> None:
     print("[sanity_check4] MK-4-only branch: 0.1 to 10 uM at Dex = 0 (dense sampling below 1 uM)")
     print("[sanity_check4] Dex-only branch: 1 to 100 nM at MK-4 = 0 (dense sampling below 10 nM)")
     print("[sanity_check4] Baseline branch: 0 nM Dex and 0 uM MK-4")
+    print(f"[sanity_check4] replicates per condition: {args.replicates}")
 
     results: list[RunResult] = []
     for spec in specs:
@@ -356,22 +394,26 @@ def main() -> None:
             f"[sanity_check4] condition {spec.index:02d}/{len(specs)}: "
             f"Dex={spec.dex_conc_nM:.4g} nM, MK-4={spec.mk4_conc_uM:.4g} uM"
         )
-        result = run_condition(
-            spec,
-            python_exe=args.python,
-            overwrite=args.overwrite,
-            dry_run=args.dry_run,
-            runtime=args.runtime,
-        )
-        results.append(result)
-        if not result.success:
-            write_run_summary(args.out, results)
-            raise SystemExit(
-                f"condition {spec.index:02d} failed: {result.error or 'unknown error'}"
+        for rep_idx in range(1, args.replicates + 1):
+            rep_seed = int(args.base_seed + spec.index * 1000 + rep_idx)
+            result = run_condition(
+                spec,
+                rep_idx,
+                rep_seed,
+                python_exe=args.python,
+                overwrite=args.overwrite,
+                dry_run=args.dry_run,
+                runtime=args.runtime,
             )
+            results.append(result)
+            if not result.success:
+                write_run_summary(args.out, results)
+                raise SystemExit(
+                    f"condition {spec.index:02d} replicate {rep_idx:02d} failed: {result.error or 'unknown error'}"
+                )
 
     write_run_summary(args.out, results)
-    print(f"[sanity_check4] completed {len(results)} conditions")
+    print(f"[sanity_check4] completed {len(specs)} conditions x {args.replicates} replicates")
     print(f"[sanity_check4] manifest: {args.out / 'condition_manifest.csv'}")
     print(f"[sanity_check4] summary: {args.out / 'run_summary.csv'}")
 
