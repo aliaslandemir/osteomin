@@ -81,11 +81,11 @@ def save_figure(fig: plt.Figure, out_dir: Path, stem: str) -> None:
     plt.close(fig)
 
 
-def style_axes(ax: plt.Axes, grid_axis: str | None = "y") -> None:
+def style_axes(ax: plt.Axes, grid_axis: str | None = "y", grid_alpha: float = 0.7) -> None:
     ax.set_facecolor("white")
     ax.tick_params(direction="out", length=4.0, width=0.8)
     if grid_axis:
-        ax.grid(axis=grid_axis, color=COLORS["grid"], linewidth=0.8, alpha=0.7)
+        ax.grid(axis=grid_axis, color=COLORS["grid"], linewidth=0.8, alpha=grid_alpha)
 
 
 def response_cmap() -> LinearSegmentedColormap:
@@ -205,6 +205,20 @@ def split_branches(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     return dex_df, mk4_df
 
 
+def peak_window_from_endpoints(branch_df: pd.DataFrame) -> tuple[float, float]:
+    peak_cols = [
+        "assay_alp_pct_vs_vehicle",
+        "assay_collagen_pct_vs_vehicle",
+        "assay_ha_pct_vs_vehicle",
+    ]
+    peak_doses: list[float] = []
+    branch_sorted = branch_df.sort_values("dose").reset_index(drop=True)
+    for col in peak_cols:
+        idx = int(branch_sorted[col].astype(float).idxmax())
+        peak_doses.append(float(branch_sorted.loc[idx, "dose"]))
+    return min(peak_doses), max(peak_doses)
+
+
 def write_tables(df: pd.DataFrame, out_dir: Path) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     df.to_csv(out_dir / "condition_summary.csv", index=False)
@@ -215,48 +229,114 @@ def write_tables(df: pd.DataFrame, out_dir: Path) -> None:
 
 
 def export_assay_dose_curves(dex_df: pd.DataFrame, mk4_df: pd.DataFrame, out_dir: Path, assay_hours: dict[str, int]) -> None:
-    fig, axes = plt.subplots(3, 2, figsize=(11.6, 10.2), sharex="col", constrained_layout=True)
-    axes[0, 0].set_title("Dex only", pad=8)
-    axes[0, 1].set_title("MK-4 only", pad=8)
+    fig, axes = plt.subplots(3, 2, figsize=(11.1, 9.5), sharex="col", sharey="row")
+    axes[0, 0].set_title("Dex only", pad=4)
+    axes[0, 1].set_title("MK-4 only", pad=4)
     rows = [
         ("assay_alp_pct_vs_vehicle", "assay_alp_pct_sd_vs_vehicle", f"ALP {assay_hours['alp']} h", COLORS["alp"]),
         ("assay_collagen_pct_vs_vehicle", "assay_collagen_pct_sd_vs_vehicle", f"Collagen {assay_hours['collagen']} h", COLORS["collagen"]),
         ("assay_ha_pct_vs_vehicle", "assay_ha_pct_sd_vs_vehicle", f"HAp {assay_hours['ha']} h", COLORS["ha"]),
     ]
+    dex_pos = dex_df[dex_df["dose"] > 0.0].copy()
+    mk4_pos = mk4_df[mk4_df["dose"] > 0.0].copy()
+    dex_ticks = dex_pos["dose"].to_numpy(dtype=float)
+    mk4_ticks = mk4_pos["dose"].to_numpy(dtype=float)
+    dex_peak_low, dex_peak_high = peak_window_from_endpoints(dex_pos)
+    mk4_peak_low, mk4_peak_high = peak_window_from_endpoints(mk4_pos)
+
+    def add_peak_marker(ax: plt.Axes, peak_low: float, peak_high: float, shade_color: str, y_top: float) -> None:
+        ax.axvspan(peak_low, peak_high, color=shade_color, alpha=0.08, zorder=0)
+        ax.axvline(peak_low, color=COLORS["muted"], lw=1.0, ls=(0, (4, 3)), zorder=1)
+        ax.axvline(peak_high, color=COLORS["muted"], lw=1.0, ls=(0, (4, 3)), zorder=1)
+        ax.text(
+            np.sqrt(peak_low * peak_high),
+            y_top,
+            "peak window",
+            ha="center",
+            va="bottom",
+            fontsize=8.5,
+            color=COLORS["muted"],
+        )
+
     for ridx, (col, err_col, title, color) in enumerate(rows):
+        row_vals = np.concatenate(
+            [
+                dex_df[col].to_numpy(dtype=float),
+                dex_df[err_col].to_numpy(dtype=float),
+                mk4_df[col].to_numpy(dtype=float),
+                mk4_df[err_col].to_numpy(dtype=float),
+            ]
+        )
+        y_abs = float(np.max(np.abs(row_vals))) if row_vals.size else 1.0
+        y_pad = max(0.8, 0.14 * y_abs)
+        y_lim = (-y_abs - y_pad, y_abs + y_pad)
+        y_peak = y_lim[1] - 0.08 * (y_lim[1] - y_lim[0])
+        line_width = 2.5 if "ha" in col else 1.9
+
         ax = axes[ridx, 0]
-        style_axes(ax, "both")
+        style_axes(ax, "both", grid_alpha=0.3)
         ax.errorbar(
-            dex_df["dose"],
-            dex_df[col],
-            yerr=dex_df[err_col],
+            dex_pos["dose"],
+            dex_pos[col],
+            yerr=dex_pos[err_col],
             color=color,
             marker="o",
-            lw=2.1,
-            ms=5.5,
+            lw=line_width,
+            ms=5.2,
             capsize=2,
+            alpha=0.9,
+            elinewidth=0.8,
+            capthick=0.8,
+            markeredgewidth=0.6,
         )
+        ax.set_xscale("log")
+        ax.axhline(0.0, color=COLORS["neutral"], lw=0.9, ls=(0, (4, 3)))
+        ax.set_ylim(*y_lim)
+        ax.set_xticks(dex_ticks, [f"{d:.4g}" for d in dex_ticks])
         ax.yaxis.set_major_formatter(ScalarFormatter(useOffset=False))
         ax.set_ylabel(f"{title}\n% vs vehicle")
+        add_peak_marker(ax, dex_peak_low, dex_peak_high, COLORS["dex"], y_peak)
         if ridx == 2:
             ax.set_xlabel("Dex concentration (nM)")
 
         ax = axes[ridx, 1]
-        style_axes(ax, "both")
+        style_axes(ax, "both", grid_alpha=0.3)
         ax.errorbar(
-            mk4_df["dose"],
-            mk4_df[col],
-            yerr=mk4_df[err_col],
+            mk4_pos["dose"],
+            mk4_pos[col],
+            yerr=mk4_pos[err_col],
             color=color,
             marker="o",
-            lw=2.1,
-            ms=5.5,
+            lw=line_width,
+            ms=5.2,
             capsize=2,
+            alpha=0.9,
+            elinewidth=0.8,
+            capthick=0.8,
+            markeredgewidth=0.6,
         )
+        ax.set_xscale("log")
+        ax.axhline(0.0, color=COLORS["neutral"], lw=0.9, ls=(0, (4, 3)))
+        ax.set_ylim(*y_lim)
+        ax.set_xticks(mk4_ticks, [f"{d:.4g}" for d in mk4_ticks])
         ax.yaxis.set_major_formatter(ScalarFormatter(useOffset=False))
+        add_peak_marker(ax, mk4_peak_low, mk4_peak_high, COLORS["mk4"], y_peak)
         if ridx == 2:
             ax.set_xlabel("MK-4 concentration (uM)")
-    fig.suptitle("Figure 1. Single-drug dose-response curves", fontsize=15, fontweight="semibold", y=1.03)
+    fig.subplots_adjust(left=0.11, right=0.985, bottom=0.11, top=0.91, wspace=0.12, hspace=0.18)
+    fig.suptitle("Figure 1. Single-drug dose-response curves", fontsize=15, fontweight="semibold", y=0.975)
+    fig.text(
+        0.5,
+        0.035,
+        (
+            f"Mean ± SD (n=5 replicates); responses shown as % vs branch vehicle. "
+            f"Peak windows are defined from the assay-specific maxima: Dex {dex_peak_low:.4g}-{dex_peak_high:.4g} nM, "
+            f"MK-4 {mk4_peak_low:.4g}-{mk4_peak_high:.4g} uM."
+        ),
+        ha="center",
+        fontsize=9,
+        color=COLORS["muted"],
+    )
     save_figure(fig, out_dir, "figure_1_dose_response_curves")
 
 
