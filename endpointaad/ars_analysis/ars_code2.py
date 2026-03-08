@@ -1,39 +1,13 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
-ARS quantification — complementary-color ratio threshold (paper-aligned)
 
-ANALYSIS (kept):
-- score = R / (G + B + eps)
-- positive pixel if score >= threshold
-- threshold modes:
-    * ratio_fixed: use --ratio_thresh
-    * ratio_basal_percentile: compute threshold from C1 percentile of score
-- metrics:
-    * fraction_percent = 100 * positive_px / total_px
-    * stained_area_um2, total_area_um2 if --px is given
-- stats:
-    * Kruskal–Wallis across all present conditions
-    * Family A: C1 vs (C2–C8), Mann–Whitney U + BH
-    * Family B: C2 vs (C3–C8), Mann–Whitney U + BH
 
-PLOT STYLE (UPDATED to identical ALP Figure-2 master):
-- Column 1: Condition tags (two-line labels)
-- Column 2: ID (C1..C8)
-- Column 3: Mean ± SD + jittered points
-- Column 4: Δmean (vs C1 mean) with arrows
-- Column 5: Significance stars (blank = ns), dual-family: black vs C1; red vs C2
+Quantify ARS signal and generate summary outputs.
 
-Outputs:
-- CSV metrics
-- TXT stats
-- PDF/PNG plot (PDF is vector; embedded rasters at 300 dpi if any)
-- optional QC overlays (cyan mask)
-
-Run example:
 python ars_code2.py -input ../ars --mode ratio_fixed --ratio_thresh 0.55 \
   --metric fraction_percent --out_prefix ars_ratio1 --out_dir ars_output_2 --overlay
+"""
+
 """
 
 import argparse
@@ -66,11 +40,8 @@ COND_CODE = {
 }
 CONDITIONS = list(COND_CODE.keys())
 
-# Comparison families
-FAM_A_REF = "C1"
-FAM_A_TARGETS = ["C2", "C3", "C4", "C5", "C6", "C7", "C8"]  # vs C1
-FAM_B_REF = "C2"
-FAM_B_TARGETS = ["C3", "C4", "C5", "C6", "C7", "C8"]        # vs C2 (exclude C1)
+FAM_A_REF = "C2"
+FAM_A_TARGETS = ["C1", "C3", "C4", "C5", "C6", "C7", "C8"]  # vs C2
 
 # Palette
 COND_COLORS = {
@@ -84,15 +55,13 @@ COND_COLORS = {
     "C8": "#8C6D31",
 }
 
-# ALP Figure-2 cosmetics (locked)
+# Plot colors
 MEAN_COLOR = "#B22222"
 SD_COLOR = "#5A5A5A"
-STAR_COLOR_A = "#000000"  # vs C1
-STAR_COLOR_B = "#B22222"  # vs C2
-
-
+STAR_COLOR_A = "#000000"  # vs C2
+ 
 # =========================
-# GLOBAL PLOT SETTINGS (PLOS-ish)
+# GLOBAL PLOT SETTINGS
 # =========================
 def apply_pub_rcparams() -> None:
     mpl.rcParams.update(
@@ -293,7 +262,7 @@ def pairwise_vs_ref_BH(
 
 
 # =========================
-# ALP-STYLE FIGURE 2 (locked 5-column layout)
+# FIGURE
 # =========================
 def plot_fig2_tags_violin_delta_sig(
     df: pd.DataFrame,
@@ -312,66 +281,41 @@ def plot_fig2_tags_violin_delta_sig(
         for c in conds
     ]
 
-    ref_vals = df.loc[df["cond"] == "C1", value_col].dropna().astype(float).values
-    ref_mean = float(np.mean(ref_vals)) if ref_vals.size else np.nan
-
-    dmeans: List[float] = []
-    for c in conds:
-        vals = df.loc[df["cond"] == c, value_col].dropna().astype(float).values
-        if vals.size == 0 or not np.isfinite(ref_mean):
-            dmeans.append(np.nan)
-        else:
-            dmeans.append(float(np.mean(vals) - ref_mean))
-
-    def fmt_dmean(d: float) -> str:
-        if not np.isfinite(d):
-            return ""
-        if abs(d) < 0.005:
-            d = 0.0
-        arrow = "↑" if d > 0 else ("↓" if d < 0 else "→")
-        return f"{d:+.2f} {arrow}"
-
-    # xlim from pooled data with padding
     nonempty = [v for v in data if v.size > 0]
     if nonempty:
         allv = np.concatenate(nonempty)
         xmin = float(np.min(allv))
         xmax = float(np.max(allv))
         xr = (xmax - xmin) if xmax > xmin else (abs(xmax) if xmax != 0 else 1.0)
-        pad = 0.12 * xr
+        pad = 0.10 * xr
         xlim = (xmin - pad, xmax + pad)
     else:
         xlim = (0.0, 1.0)
 
-    # ---- layout (identical signature) ----
-    fig = plt.figure(figsize=(15.0, 6.3))
-    fig.subplots_adjust(left=0.03, right=0.995, bottom=0.12, top=0.86, wspace=0.16)
+    fig = plt.figure(figsize=(12.8, 6.0))
+    fig.subplots_adjust(left=0.04, right=0.995, bottom=0.12, top=0.82, wspace=0.16)
 
     gs = GridSpec(
-        1, 5,
-        width_ratios=[1.10, 0.60, 5.20, 0.80, 1.00],
+        1, 3,
+        width_ratios=[1.05, 6.10, 0.95],
         wspace=0.12,
         figure=fig,
     )
 
     axT  = fig.add_subplot(gs[0, 0])
-    axID = fig.add_subplot(gs[0, 1], sharey=axT)
-    axV  = fig.add_subplot(gs[0, 2], sharey=axT)
-    axD  = fig.add_subplot(gs[0, 3], sharey=axT)
-    axS  = fig.add_subplot(gs[0, 4], sharey=axT)
+    axV  = fig.add_subplot(gs[0, 1], sharey=axT)
+    axS  = fig.add_subplot(gs[0, 2], sharey=axT)
 
     y = np.arange(len(conds))
     axT.set_ylim(len(conds) - 0.5, -0.5)
 
-    # row guides
     row_color, row_alpha, row_lw = "#000000", 0.10, 0.8
     for yy in y:
-        for ax in (axT, axID, axV, axD, axS):
+        for ax in (axT, axV, axS):
             ax.axhline(yy, color=row_color, alpha=row_alpha, linewidth=row_lw, zorder=0)
 
-    title_pad = 10
+    title_pad = 6
 
-    # ---- Condition column ----
     axT.set_xlim(0, 1)
     axT.set_xticks([])
     axT.set_yticks(y)
@@ -382,138 +326,83 @@ def plot_fig2_tags_violin_delta_sig(
         axT.text(
             0.5, i, cond_id_to_tag(c),
             ha="center", va="center",
-            fontsize=12, color="#1a1a1a",
-            linespacing=1.10,
+            fontsize=11, color="#1a1a1a",
+            linespacing=1.05,
         )
     for s in axT.spines.values():
         s.set_visible(False)
 
-    # ---- ID column ----
-    axID.set_xlim(0, 1)
-    axID.set_xticks([])
-    axID.set_yticks(y)
-    axID.set_yticklabels([])
-    axID.set_title("ID", pad=title_pad)
-
-    for i, c in enumerate(conds):
-        axID.text(
-            0.5, i, c,
-            ha="center", va="center",
-            fontsize=12, fontweight="bold",
-            color="#1a1a1a",
-        )
-    for s in axID.spines.values():
-        s.set_visible(False)
-
-    # ---- Mean ± SD + raw points ----
     for i, (c, vals) in enumerate(zip(conds, data)):
         if vals.size == 0:
             continue
-        yj = i + rng.normal(0, 0.035, size=vals.size)
+        yj = i + rng.normal(0, 0.022, size=vals.size)
         axV.scatter(
             vals, yj,
-            s=20,
+            s=24,
             color=COND_COLORS.get(c, "#444444"),
             edgecolor="white",
-            linewidth=0.6,
-            alpha=0.75,
-            zorder=3,
+            linewidth=0.7,
+            alpha=0.9,
+            zorder=4,
         )
         mean, sd = _mean_sd(vals)
         if np.isfinite(mean):
             if np.isfinite(sd):
                 lo = mean - sd
                 hi = mean + sd
-                axV.hlines(i, lo, hi, color=SD_COLOR, linewidth=2.2, alpha=0.45, zorder=4)
+                axV.hlines(i, lo, hi, color=SD_COLOR, linewidth=1.2, alpha=0.24, zorder=2)
                 axV.scatter(
                     [lo, hi],
                     [i, i],
                     marker="|",
-                    s=170,
+                    s=105,
                     color=SD_COLOR,
-                    alpha=0.45,
-                    linewidths=2.2,
-                    zorder=4,
+                    alpha=0.24,
+                    linewidths=1.4,
+                    zorder=2,
                 )
             axV.scatter(
                 mean, i,
-                s=70, marker="o",
+                s=96, marker="o",
                 color=COND_COLORS.get(c, MEAN_COLOR),
                 edgecolor="black",
-                linewidth=0.7,
+                linewidth=0.9,
                 zorder=5,
             )
 
     axV.set_xlim(*xlim)
-    axV.set_xlabel(xlab)
-    axV.set_title("Mean ± SD", pad=14)
-    axV.grid(axis="x", alpha=0.15)
+    axV.set_xlabel("")
+    axV.set_title(xlab, pad=title_pad)
+    axV.grid(axis="x", alpha=0.05, linewidth=0.45)
     axV.set_yticks([])
     axV.yaxis.set_major_formatter(NullFormatter())
     axV.tick_params(axis="y", length=0, labelsize=11)
     for s in axV.spines.values():
         s.set_visible(False)
 
-    # ---- Δmean column ----
-    axD.set_xlim(0, 1)
-    axD.set_xticks([])
-    axD.set_yticks([])
-    axD.yaxis.set_major_formatter(NullFormatter())
-    axD.tick_params(axis="y", length=0)
-    axD.set_title("Δmean", pad=title_pad)
-
-    axD.text(
-        0.5, -0.085, "(vs C1)",
-        transform=axD.transAxes,
-        ha="center", va="top",
-        fontsize=10, color="0.65",
-    )
-
-    for i, (c, d) in enumerate(zip(conds, dmeans)):
-        if c == "C1":
-            txt, col = "baseline", "0.45"
-        else:
-            txt, col = fmt_dmean(d), "0.25"
-        axD.text(0.5, i, txt, ha="center", va="center", fontsize=10, color=col)
-
-    for s in axD.spines.values():
-        s.set_visible(False)
-
-    # ---- Significance column ----
-    axS.set_xlim(-0.6, 1.6)
+    axS.set_xlim(-0.6, 0.6)
     axS.set_yticks([])
     axS.yaxis.set_major_formatter(NullFormatter())
     axS.tick_params(axis="y", length=0)
     axS.set_xticks([])
 
-    axS.set_title("Significance\n(blank = ns)", pad=title_pad - 2)
-    axS.axvspan(-0.6, 0.5, color="0.0", alpha=0.015, zorder=0)
-    axS.axvline(0.5, color="0.0", alpha=0.18, lw=1.0, zorder=1)
+    axS.set_title("Significance", pad=title_pad)
+    axS.axvspan(-0.6, 0.6, color="0.0", alpha=0.008, zorder=0)
 
-    axS.text(0.25, -0.09, "vs C1", transform=axS.transAxes,
-             ha="center", va="top", fontsize=10)
-    axS.text(0.75, -0.09, "vs C2", transform=axS.transAxes,
-             ha="center", va="top", fontsize=10, color=STAR_COLOR_B)
+    axS.text(0.5, -0.09, "vs C2", transform=axS.transAxes,
+             ha="center", va="top", fontsize=9, color="0.45")
 
     for i, c in enumerate(conds):
-        # vs C1
         if c == "C1":
-            axS.text(0.0, i, "ref", ha="center", va="center", fontsize=10, color="0.5")
+            axS.text(0.0, i, "ref", ha="center", va="center", fontsize=12, color=STAR_COLOR_A)
         else:
             st = star_from_p(famA.get(c, {}).get("p_adj", np.nan))
             axS.text(0.0, i, st, ha="center", va="center", fontsize=10, color=STAR_COLOR_A)
 
-        # vs C2
-        if c == "C2":
-            axS.text(1.0, i, "ref", ha="center", va="center", fontsize=10, color="0.5")
-        elif c != "C1":
-            st = star_from_p(famB.get(c, {}).get("p_adj", np.nan))
-            axS.text(1.0, i, st, ha="center", va="center", fontsize=10, color=STAR_COLOR_B)
-
     for s in axS.spines.values():
         s.set_visible(False)
 
-    fig.suptitle(suptitle, fontsize=14, y=0.975)
+    fig.suptitle(suptitle, fontsize=14, y=0.955)
     return fig
 
 
@@ -540,10 +429,9 @@ def parse_args():
         type=str,
         default="fraction_percent",
         choices=["fraction_percent", "stained_area_um2", "total_area_um2"],
-        help="ABSOLUTE metric to plot/stats.",
+        help="Metric used for plots and statistics.",
     )
 
-    # overlay export (QC)
     ap.add_argument("--overlay", action="store_true", help="Export cyan overlay JPEGs.")
     ap.add_argument("--overlay_alpha", type=float, default=0.45, help="Cyan overlay strength (0..1).")
     ap.add_argument("--overlay_scale", type=float, default=0.5, help="Downscale factor for overlay export.")
@@ -650,19 +538,15 @@ def main():
         raise RuntimeError("No valid C1–C8 images processed.")
 
     conds = [c for c in CONDITIONS if (df["cond"] == c).any()]
-    if "C1" not in conds:
-        raise RuntimeError("Missing C1 (Basal).")
     if "C2" not in conds:
         raise RuntimeError("Missing C2 (Osteo).")
 
-    # Save CSV
     csv_path = args.out_dir / f"{args.out_prefix}_ars_metrics_absolute.csv"
     df.to_csv(csv_path, index=False)
     print("Saved:", csv_path)
     if args.overlay:
         print("Saved overlays to:", overlay_root)
 
-    # 3) Stats on chosen metric
     value_col = args.metric
     cond_to_vals: Dict[str, np.ndarray] = {
         c: df.loc[df["cond"] == c, value_col].dropna().astype(float).values for c in conds
@@ -676,14 +560,8 @@ def main():
         targets=[c for c in FAM_A_TARGETS if c in conds],
         alpha=args.alpha,
     )
-    famB = pairwise_vs_ref_BH(
-        cond_to_vals,
-        ref=FAM_B_REF,
-        targets=[c for c in FAM_B_TARGETS if c in conds],
-        alpha=args.alpha,
-    )
+    famB: Dict[str, Dict[str, float]] = {}
 
-    # labels
     if value_col == "fraction_percent":
         xlab = "ARS-positive area (% of field)"
     elif value_col == "stained_area_um2":
@@ -691,7 +569,7 @@ def main():
     else:
         xlab = r"Field area ($\mu m^2$)"
 
-    suptitle = f"ARS area fraction — score = R/(G+B) — {thr_note}"
+    suptitle = f"ARS area fraction / 672 hours"
 
     rpt = args.out_dir / f"{args.out_prefix}_{value_col}_stats.txt"
     with open(rpt, "w", encoding="utf-8") as f:
@@ -700,29 +578,21 @@ def main():
         f.write("Score: R/(G+B)\n")
         f.write(f"Thresholding: {thr_note}\n")
         f.write("Test: Mann–Whitney U (two-sided)\n")
-        f.write("Multiple testing: Benjamini–Hochberg within each family\n")
+        f.write("Multiple testing: Benjamini–Hochberg across C2-vs-target comparisons\n")
         f.write(f"Alpha: {args.alpha}\n")
         if args.px is not None:
             f.write(f"Pixel size: {args.px:g} µm/px\n")
         f.write(f"Kruskal–Wallis across all conditions: H={H:.4g}, p={pkw:.4g}\n\n")
 
-        f.write("Family A (black): C1 vs targets\n")
+        f.write("Pairwise comparisons vs C2\n")
         for c in [x for x in FAM_A_TARGETS if x in conds]:
             f.write(
-                f"  {c} vs C1: p_raw={famA.get(c, {}).get('p_raw', np.nan):.4g}, "
+                f"  {c} vs C2: p_raw={famA.get(c, {}).get('p_raw', np.nan):.4g}, "
                 f"p_adj={famA.get(c, {}).get('p_adj', np.nan):.4g}\n"
-            )
-
-        f.write("\nFamily B (red): C2 vs targets (excluding C1)\n")
-        for c in [x for x in FAM_B_TARGETS if x in conds]:
-            f.write(
-                f"  {c} vs C2: p_raw={famB.get(c, {}).get('p_raw', np.nan):.4g}, "
-                f"p_adj={famB.get(c, {}).get('p_adj', np.nan):.4g}\n"
             )
 
     print("Saved stats:", rpt)
 
-    # 4) Plot (ALP Figure-2 master)
     fig = plot_fig2_tags_violin_delta_sig(
         df=df,
         value_col=value_col,

@@ -1,24 +1,16 @@
 Collagen per DAPI-positive area (RAW)
 Metric column: M2_cov
 Test: Mann–Whitney U (two-sided)
-Multiple testing: Benjamini–Hochberg within each family
+Multiple testing: Benjamini–Hochberg across C2-vs-target comparisons
 Alpha: 0.05
 
-Kruskal–Wallis across all conditions: H=29.11, p=0.000138
+Kruskal–Wallis across all conditions: H=34.02, p=1.711e-05
 
-Family A (black): C1 vs targets
-  C2 vs C1: p_raw=0.6905, p_adj=0.6905
-  C3 vs C1: p_raw=0.03175, p_adj=0.04444
-  C4 vs C1: p_raw=0.007937, p_adj=0.01852
-  C5 vs C1: p_raw=0.1508, p_adj=0.1759
-  C6 vs C1: p_raw=0.007937, p_adj=0.01852
-  C7 vs C1: p_raw=0.03175, p_adj=0.04444
-  C8 vs C1: p_raw=0.007937, p_adj=0.01852
-
-Family B (red): C2 vs targets (excluding C1)
-  C3 vs C2: p_raw=0.09524, p_adj=0.1143
-  C4 vs C2: p_raw=0.007937, p_adj=0.01587
-  C5 vs C2: p_raw=0.1508, p_adj=0.1508
-  C6 vs C2: p_raw=0.007937, p_adj=0.01587
-  C7 vs C2: p_raw=0.05556, p_adj=0.08333
-  C8 vs C2: p_raw=0.007937, p_adj=0.01587
+Pairwise comparisons vs C2
+  C1 vs C2: p_raw=0.3095, p_adj=0.3095
+  C3 vs C2: p_raw=0.09524, p_adj=0.1111
+  C4 vs C2: p_raw=0.007937, p_adj=0.01389
+  C5 vs C2: p_raw=0.05556, p_adj=0.07778
+  C6 vs C2: p_raw=0.007937, p_adj=0.01389
+  C7 vs C2: p_raw=0.007937, p_adj=0.01389
+  C8 vs C2: p_raw=0.007937, p_adj=0.01389

@@ -1,20 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Simple overlay builder for confocal stacks.
 
-- Normalizes each channel using 1st/99th percentiles.
-- Composes screen-blended RGB.
-- Adds scale bar, channel legend, and ALP-style two-line condition label.
 
-python endpointaad/overlay_analysis/overlay_analysis.py \
-  --input endpointaad/confocal \
-  --out endpointaad/overlay_output \
+
+Build confocal overlay images with condition labels and scale bars.
+
+python overlay_analysis.py \
+  --input ../confocal \
+  --out overlay_output \
   --pix 0.21 \
   --scalebar_um 100 \
   --pdf
-
-
 
 """
 
@@ -35,7 +32,7 @@ COLOR_ACTIN = np.array([0.92, 0.16, 0.20])
 COLOR_COLLAGEN = np.array([0.12, 0.80, 0.32])
 
 PIX_CONVERSION = 0.21
-CHANNEL_SMOOTHING = {"dapi": 0.2, "actin": 0.35, "collagen": 1.1}
+CHANNEL_SMOOTHING = {"dapi": 0.2, "actin": 0.35, "collagen": 1.0}
 CHANNEL_UNSHARP = {
     "dapi": (0.45, 0.95),
     "actin": (0.55, 0.85),
@@ -220,15 +217,15 @@ def add_scale_bar_pil(im: Image.Image, pix_um: float, bar_um: float = None, colo
         nice = np.array([5, 10, 20, 25, 50, 100, 200, 500, 1000], dtype=float)
         bar_um = float(nice[np.argmin(np.abs(nice - target_um))])
     bar_px = max(int(round(bar_um / pix_um)), 1)
-    pad = 16
-    height_px = 8
+    pad = 24
+    height_px = 10
     x0 = pad
     y0 = H - pad - height_px
     draw = ImageDraw.Draw(im)
     draw.rectangle([x0, y0, x0 + bar_px, y0 + height_px], fill=color)
     txt = f"{int(bar_um) if float(bar_um).is_integer() else bar_um} µm"
     try:
-        font = ImageFont.truetype("DejaVuSans.ttf", 16)
+        font = ImageFont.truetype("DejaVuSans.ttf", 18)
     except Exception:
         font = ImageFont.load_default()
     try:
@@ -236,64 +233,28 @@ def add_scale_bar_pil(im: Image.Image, pix_um: float, bar_um: float = None, colo
         tw = bbox[2] - bbox[0]
     except AttributeError:
         tw = font.getsize(txt)[0]
-    draw.text((x0 + bar_px / 2 - tw / 2, y0 - 18), txt, fill=color, font=font)
+    _draw_outlined_text(draw, (x0 + bar_px / 2 - tw / 2, y0 - 24), txt, font=font, width=1.2)
     return im
-
-
-def add_channel_banner(im: Image.Image) -> Image.Image:
-    W, H = im.size
-    banner_h = 72
-    overlay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    banner = Image.new("RGBA", (W, banner_h), (0, 0, 0, 180))
-    overlay.paste(banner, (0, 0))
-    draw = ImageDraw.Draw(overlay)
-    try:
-        font = ImageFont.truetype("DejaVuSans.ttf", 18)
-        font_small = ImageFont.truetype("DejaVuSans.ttf", 15)
-    except Exception:
-        font = ImageFont.load_default()
-        font_small = ImageFont.load_default()
-
-    items = [
-        ("DAPI", COLOR_DAPI),
-        ("Actin", COLOR_ACTIN),
-        ("Collagen I", COLOR_COLLAGEN),
-    ]
-    box = 24
-    gap = 18
-    label_widths = [_text_width(draw, label, font) for label, _ in items]
-    total_w = sum(box + 10 + tw for tw in label_widths) + gap * (len(items) - 1)
-    x = W - total_w - 16
-    y = 12
-    for (label, rgb), tw in zip(items, label_widths):
-        color = tuple(int(np.clip(round(c * 255), 0, 255)) for c in rgb)
-        draw.rectangle([x, y, x + box, y + box], fill=color, outline=(255, 255, 255), width=2)
-        _draw_outlined_text(draw, (x + box + 10, y), label, font=font)
-        x += box + 10 + tw + gap
-
-
-
-    return Image.alpha_composite(im.convert("RGBA"), overlay).convert("RGB")
 
 
 def add_condition_label(im: Image.Image, label_lines: Tuple[str, str]) -> Image.Image:
     draw = ImageDraw.Draw(im)
     try:
-        base_font = ImageFont.truetype("DejaVuSans.ttf", 22)
+        base_font = ImageFont.truetype("DejaVuSans.ttf", 24)
     except Exception:
         base_font = ImageFont.load_default()
     try:
-        italic_font = ImageFont.truetype("DejaVuSans-Oblique.ttf", 20)
+        italic_font = ImageFont.truetype("DejaVuSans-Oblique.ttf", 22)
     except Exception:
         italic_font = base_font
-    pad = 16
+    pad = 24
     y = pad
     line1, line2 = label_lines
     if line1:
-        _draw_outlined_text(draw, (pad, y), line1, base_font, width=1.5)
-        y += base_font.getbbox(line1)[3] - base_font.getbbox(line1)[1] + 2 if hasattr(base_font, "getbbox") else base_font.getsize(line1)[1] + 2
+        _draw_outlined_text(draw, (pad, y), line1, base_font, width=1.8)
+        y += base_font.getbbox(line1)[3] - base_font.getbbox(line1)[1] + 4 if hasattr(base_font, "getbbox") else base_font.getsize(line1)[1] + 4
     if line2:
-        _draw_outlined_text(draw, (pad, y), line2, italic_font, width=1.0)
+        _draw_outlined_text(draw, (pad, y), line2, italic_font, width=1.4)
     return im
 
 
@@ -318,7 +279,6 @@ def main():
 
         rgb = compose_rgb(dapi, actin, collagen)
         img = Image.fromarray(to_uint8(rgb))
-        img = add_channel_banner(img)
         img = add_scale_bar_pil(img, args.pix, bar_um=args.scalebar_um)
         code = detect_code(path.name)
         label = condition_label_lines(code)
