@@ -459,7 +459,7 @@ def export_assay_triptych(
 
     cbar = fig.colorbar(im, cax=cax)
     cbar.set_label("% difference vs C01", rotation=90)
-    fig.suptitle("Figure 1. Assay endpoint heatmaps across initialization modes", fontsize=16, fontweight="semibold", y=0.955)
+    fig.suptitle("Assay endpoint heatmaps across initialization modes", fontsize=16, fontweight="semibold", y=0.955)
     fig.subplots_adjust(top=0.86)
     save_figure(fig, out_dir, "figure_1_assay_triptych")
 
@@ -557,7 +557,7 @@ def export_ecm_overview_heatmap(df: pd.DataFrame, out_dir: Path, assay_hours: di
         for j in range(geo.shape[1]):
             ax_geo.text(j, i, f"{geo[i, j]:.2f}", ha="center", va="center", fontsize=7.0, color=COLORS["ink"])
 
-    fig.suptitle("Figure 3. ECM response overview heatmap", fontsize=15, fontweight="semibold", y=0.955)
+    fig.suptitle("ECM response overview heatmap", fontsize=15, fontweight="semibold", y=0.955)
     cbar = fig.colorbar(im, ax=ax_main, fraction=0.025, pad=0.015)
     cbar.set_label("% difference vs C01")
     geo_cbar = fig.colorbar(
@@ -644,7 +644,7 @@ def export_ecm_fingerprint(df: pd.DataFrame, replicate_df: pd.DataFrame | None, 
 
     add_panel_label(ax_ha, "D")
     fig.suptitle(
-        "Figure 4. ECM fingerprint ranking across initialization modes",
+        "ECM fingerprint ranking across initialization modes",
         fontsize=15,
         fontweight="semibold",
         y=0.98,
@@ -730,7 +730,7 @@ def export_hap_collagen_map(df: pd.DataFrame, out_dir: Path, assay_hours: dict[s
     ax.set_ylim(ymin, ymax)
     ax.set_xlabel("Final collagen difference vs C01 (%)")
     ax.set_ylabel("Final HAp difference vs C01 (%)")
-    ax.set_title(f"Figure 2. ECM response map with ALP encoding ({assay_hours['alp']} h)", pad=18)
+    ax.set_title(f"ECM response map with ALP encoding ({assay_hours['alp']} h)", pad=18)
     cbar = fig.colorbar(sc, cax=cax)
     cbar.set_label("Selected ALP difference vs C01 (%)")
     cbar.ax.yaxis.set_label_position("right")
@@ -775,7 +775,7 @@ def export_geometry_heatmap(df: pd.DataFrame, out_dir: Path) -> None:
     for i in range(geo.shape[0]):
         for j in range(geo.shape[1]):
             ax.text(j, i, f"{geo[i, j]:.2f}", ha="center", va="center", fontsize=8.0, color=COLORS["ink"])
-    ax.set_title("Figure 5. Initialization geometry reference", pad=10)
+    ax.set_title("Initialization geometry reference", pad=10)
     cbar = fig.colorbar(im, ax=ax, fraction=0.03, pad=0.03)
     cbar.set_label("Scaled descriptor value")
     fig.subplots_adjust(top=0.9)

@@ -324,7 +324,7 @@ def export_assay_dose_curves(dex_df: pd.DataFrame, mk4_df: pd.DataFrame, out_dir
         if ridx == 2:
             ax.set_xlabel("MK-4 concentration (uM)")
     fig.subplots_adjust(left=0.11, right=0.985, bottom=0.11, top=0.91, wspace=0.12, hspace=0.18)
-    fig.suptitle("Figure 1. Single-drug dose-response curves", fontsize=15, fontweight="semibold", y=0.975)
+    fig.suptitle("Single-drug dose-response curves", fontsize=15, fontweight="semibold", y=0.975)
     fig.text(
         0.5,
         0.035,
@@ -383,7 +383,7 @@ def export_relative_effect_heatmap(dex_df: pd.DataFrame, mk4_df: pd.DataFrame, o
                 ax.text(j, i, f"{values[i, j]:+.2f}\n±{errors[i, j]:.2f}", ha="center", va="center", fontsize=6.6, color=COLORS["ink"])
     cbar = fig.colorbar(im, ax=axes, fraction=0.028, pad=0.02)
     cbar.set_label("Mean % difference vs branch vehicle")
-    fig.suptitle("Figure 2. Relative effect heatmaps", fontsize=15, fontweight="semibold", y=1.02)
+    fig.suptitle("Relative effect heatmaps", fontsize=15, fontweight="semibold", y=1.02)
     save_figure(fig, out_dir, "figure_2_relative_effect_heatmap")
 
 
@@ -419,7 +419,7 @@ def export_local_sensitivity(dex_df: pd.DataFrame, mk4_df: pd.DataFrame, out_dir
         ax.set_ylabel("Adjacent slope (% per log10 dose)")
         if panel_idx == 1:
             ax.legend(frameon=False, loc="upper right")
-    fig.suptitle("Figure 3. Adjacent-dose sensitivity analysis", fontsize=15, fontweight="semibold", y=1.03)
+    fig.suptitle("Adjacent-dose sensitivity analysis", fontsize=15, fontweight="semibold", y=1.03)
     save_figure(fig, out_dir, "figure_3_local_sensitivity")
 
 
@@ -524,7 +524,7 @@ def export_peak_summary(dex_df: pd.DataFrame, mk4_df: pd.DataFrame, out_dir: Pat
     ]
     ax.legend(handles=legend_handles, frameon=False, loc="best")
 
-    fig.suptitle("Figure 4. Peak-response summary", fontsize=15, fontweight="semibold", y=1.02)
+    fig.suptitle("Peak-response summary", fontsize=15, fontweight="semibold", y=1.02)
     save_figure(fig, out_dir, "figure_4_peak_summary")
 
 

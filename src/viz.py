@@ -369,7 +369,7 @@ def _plot_cumulative_components(
     ax.plot(
         days_plot,
         _normalize_cumulative(base_vals, denom),
-        label="preOB contribution",
+        label="Basal (live-cell) contribution",
         lw=PLOT_STYLE["line_width"],
         color="#0ea5e9",
     )

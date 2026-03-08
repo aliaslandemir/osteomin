@@ -11,8 +11,8 @@ python main.py \
   --seed 12345 \
   --w 33 --h 33 \
   --nodules 40n \
-  --dex-conc 10 \
-  --mk4-conc 10 \
+  --dex-conc 0 \
+  --mk4-conc 0 \
   --alp-rb 0.001 \
   --alp-ro 0.002 \
   --alp-a-d 0.08 \
@@ -38,12 +38,12 @@ python main.py \
   --random-move --move-prob 0.27 --max-moves 1 \
   --proliferation --ob-div-prob 0.0 \
   --apoptosis --apoptosis-prob 0.00042 \
-  --osteogenic-commitment \
+  --no-osteogenic-commitment \
   --osteo-induction-day 3 \
   --commit-delay 48 \
   --commit-k 0.08 \
   --commit-k-growth 0.0008 \
-  --aa0 1.0 \
+  --aa0 0.0 \
   --aa-half-life 6 \
   --collagen-aa-km 1.0 \
   --min-div-hours 38 --max-div-hours 52 \

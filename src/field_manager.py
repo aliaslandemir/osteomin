@@ -194,6 +194,14 @@ class FieldManager:
         dt = 1.0
         pre_mask = self._preob_mask
         ob_mask = self._ob_mask
+        if pre_mask is None and ob_mask is None:
+            live_mask = None
+        elif pre_mask is None:
+            live_mask = np.asarray(ob_mask, dtype=bool)
+        elif ob_mask is None:
+            live_mask = np.asarray(pre_mask, dtype=bool)
+        else:
+            live_mask = np.asarray(pre_mask, dtype=bool) | np.asarray(ob_mask, dtype=bool)
         u_osteo = self._osteo_active(hour)
         dex_offset = self._log_concentration_offset(self.dex_conc, self.dex_ref_conc)
         dex_offset_sq = dex_offset * dex_offset
@@ -216,10 +224,10 @@ class FieldManager:
         m_k_ha = max(0.0, 1.0 + i_k * (self.ha_a_k - self.ha_b_k * mk4_offset_sq))
         m_ha = m_d_ha * m_k_ha
 
-        if pre_mask is not None and pre_mask.any():
+        if live_mask is not None and live_mask.any():
             alp_added = self._deposit_uniform_to_mask(
                 self.alp,
-                pre_mask,
+                live_mask,
                 dt * max(0.0, self.alp_basal_rate),
             )
             if alp_added > 0.0:
@@ -228,7 +236,7 @@ class FieldManager:
 
             collagen_added = self._deposit_uniform_to_mask(
                 self.collagen,
-                pre_mask,
+                live_mask,
                 dt * max(0.0, self.collagen_basal_rate),
             )
             if collagen_added > 0.0:

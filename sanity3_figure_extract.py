@@ -291,7 +291,7 @@ def export_assay_triptych(df: pd.DataFrame, out_dir: Path, assay_hours: dict[str
         cbar.set_label("Absolute response (a.u.)", fontsize=9)
 
     fig.suptitle(
-        "Figure 1. Assay triptych across the Dex/MK-4 dose grid",
+        "Assay triptych across the Dex/MK-4 dose grid",
         fontsize=15,
         fontweight="semibold",
         y=1.02,
@@ -349,7 +349,7 @@ def export_response_map(df: pd.DataFrame, out_dir: Path, assay_hours: dict[str, 
     ax.axvline(0.0, color=COLORS["neutral"], lw=1.0)
     ax.set_xlabel(f"Collagen {assay_hours['collagen']} h vs control (%)")
     ax.set_ylabel(f"HAp {assay_hours['ha']} h vs control (%)")
-    ax.set_title("Figure 2. Dex/MK-4 response map", pad=14)
+    ax.set_title("Dex/MK-4 response map", pad=14)
     cbar = fig.colorbar(sc, ax=ax, fraction=0.04, pad=0.03)
     cbar.set_label(f"ALP {assay_hours['alp']} h vs control (%)")
     save_figure(fig, out_dir, "figure_2_ecm_response_map")
@@ -383,7 +383,7 @@ def export_overview_heatmap(df: pd.DataFrame, out_dir: Path, assay_hours: dict[s
     for i in range(values.shape[0]):
         for j in range(values.shape[1]):
             ax.text(j, i, f"{values[i, j]:+.1f}", ha="center", va="center", fontsize=7.6, color=COLORS["ink"])
-    ax.set_title("Figure 3. Dose overview heatmap", pad=12)
+    ax.set_title("Dose overview heatmap", pad=12)
     cbar = fig.colorbar(im, ax=ax, fraction=0.032, pad=0.025)
     cbar.set_label("% difference vs control")
     save_figure(fig, out_dir, "figure_3_ecm_overview_heatmap")
@@ -425,7 +425,7 @@ def export_fingerprint(df: pd.DataFrame, out_dir: Path, assay_hours: dict[str, i
         else:
             ax.tick_params(axis="y", labelleft=False)
     axes[0].invert_yaxis()
-    fig.suptitle("Figure 4. ECM fingerprint across Dex/MK-4 conditions", fontsize=15, fontweight="semibold", y=1.02)
+    fig.suptitle("ECM fingerprint across Dex/MK-4 conditions", fontsize=15, fontweight="semibold", y=1.02)
     save_figure(fig, out_dir, "figure_4_ecm_fingerprint")
 
 
@@ -463,7 +463,7 @@ def export_geometry_reference(df: pd.DataFrame, out_dir: Path) -> None:
         ax.set_yticks(np.log10(mk4_vals), [f"{v:.4g}" for v in mk4_vals])
     ax.set_xlabel("Dex concentration (nM, log10-spaced)")
     ax.set_ylabel("MK-4 concentration (uM, log10-spaced)")
-    ax.set_title("Figure 5. Dose grid reference", pad=12)
+    ax.set_title("Dose grid reference", pad=12)
     save_figure(fig, out_dir, "figure_5_geometry_reference")
 
 
@@ -491,7 +491,7 @@ def export_hap_pairwise_heatmap(df: pd.DataFrame, out_dir: Path) -> None:
     ax.set_yticks(np.arange(len(labels)), labels)
     ax.set_xlabel("Reference condition")
     ax.set_ylabel("Compared condition")
-    ax.set_title("Figure 6. HAp pairwise heatmap", pad=12)
+    ax.set_title("HAp pairwise heatmap", pad=12)
     for i in range(pairwise.shape[0]):
         for j in range(pairwise.shape[1]):
             if mask[i, j]:
@@ -641,7 +641,7 @@ def export_dose_response_ranges(df: pd.DataFrame, out_dir: Path, assay_hours: di
     ax.legend(frameon=False, loc="best")
 
     fig.suptitle(
-        "Figure 7. Dose ranges and marginal dose-response trends",
+        "Dose ranges and marginal dose-response trends",
         fontsize=15,
         fontweight="semibold",
         y=1.01,
