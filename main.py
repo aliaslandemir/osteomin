@@ -38,12 +38,12 @@ python main.py \
   --random-move --move-prob 0.27 --max-moves 1 \
   --proliferation --ob-div-prob 0.0 \
   --apoptosis --apoptosis-prob 0.00042 \
-  --no-osteogenic-commitment \
+  --osteogenic-commitment \
   --osteo-induction-day 3 \
   --commit-delay 48 \
   --commit-k 0.08 \
   --commit-k-growth 0.0008 \
-  --aa0 0.0 \
+  --aa0 1.0 \
   --aa-half-life 6 \
   --collagen-aa-km 1.0 \
   --min-div-hours 38 --max-div-hours 52 \
@@ -115,7 +115,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--hours",
         type=int,
-        default=672,
+        default=None,
         help="total hours to simulate (24 hours per day is assumed)",
     )
     p.add_argument(
@@ -149,112 +149,112 @@ def parse_args() -> argparse.Namespace:
         "--dex-conc",
         "--dex",
         type=float,
-        default=10.0,
+        default=0.0,
         help="Dex concentration c_D used to compute log10(c_D/c_D0) with c_D0 fixed to 10 nM; c_D<=0 is treated as baseline (x_D=0)",
     )
     p.add_argument(
         "--mk4-conc",
         "--mk4",
         type=float,
-        default=10.0,
+        default=0.0,
         help="MK-4 concentration c_K used to compute log10(c_K/c_K0) with c_K0 fixed to 1.0 uM; c_K<=0 is treated as baseline (x_K=0)",
     )
     p.add_argument(
         "--alp-rb",
         type=float,
-        default=0.001,
+        default=0.10710412147505423,
         help="basal ALP rate r_b^P per preOB site per hour",
     )
     p.add_argument(
         "--alp-ro",
         type=float,
-        default=0.002,
+        default=0.9856290672451192,
         help="osteogenic ALP rate r_o^P per OB site per hour",
     )
     p.add_argument(
         "--alp-p0",
         type=float,
-        default=0.0,
+        default=0.8,
         help="initial ALP field baseline P0 applied at simulation start",
     )
     p.add_argument(
         "--alp-a-d",
         type=float,
-        default=0.08,
+        default=3.5,
         help="Dex peaked-response height a_D^P in m_D^P = 1 + I_D (a_D^P - b_D^P x_D^2)",
     )
     p.add_argument(
         "--alp-b-d",
         type=float,
-        default=0.08,
+        default=1.8125,
         help="Dex peaked-response curvature b_D^P in m_D^P = 1 + I_D (a_D^P - b_D^P x_D^2)",
     )
     p.add_argument(
         "--alp-a-k",
         type=float,
-        default=0.06,
+        default=0.0,
         help="MK-4 peaked-response height a_K^P in m_K^P = 1 + I_K (a_K^P - b_K^P x_K^2)",
     )
     p.add_argument(
         "--alp-b-k",
         type=float,
-        default=0.06,
+        default=0.0,
         help="MK-4 peaked-response curvature b_K^P in m_K^P = 1 + I_K (a_K^P - b_K^P x_K^2)",
     )
     p.add_argument(
         "--collagen-rb",
         type=float,
-        default=0.001,
+        default=0.0035518253599441936,
         help="basal collagen rate r_b^C per preOB site per hour",
     )
     p.add_argument(
         "--collagen-ro",
         type=float,
-        default=0.002,
+        default=0.016203638699872385,
         help="osteogenic collagen rate r_o^C per OB site per hour before AA gating",
     )
     p.add_argument(
         "--collagen-a-d",
         type=float,
-        default=0.08,
+        default=0.0,
         help="Dex peaked-response height a_D^C in m_D^C = 1 + I_D (a_D^C - b_D^C x_D^2)",
     )
     p.add_argument(
         "--collagen-b-d",
         type=float,
-        default=0.08,
+        default=0.0,
         help="Dex peaked-response curvature b_D^C in m_D^C = 1 + I_D (a_D^C - b_D^C x_D^2)",
     )
     p.add_argument(
         "--collagen-a-k",
         type=float,
-        default=0.06,
+        default=0.0,
         help="MK-4 peaked-response height a_K^C in m_K^C = 1 + I_K (a_K^C - b_K^C x_K^2)",
     )
     p.add_argument(
         "--collagen-b-k",
         type=float,
-        default=0.06,
+        default=0.0,
         help="MK-4 peaked-response curvature b_K^C in m_K^C = 1 + I_K (a_K^C - b_K^C x_K^2)",
     )
     p.add_argument(
         "--aa0",
         "--aa-initial",
         type=float,
-        default=1.0,
+        default=50.0,
         help="AA concentration A0 immediately after medium refresh",
     )
     p.add_argument(
         "--aa-half-life",
         "--aa-half-life-hours",
         type=float,
-        default=6.0,
+        default=48.0,
         help="AA half-life in hours for exponential decay between media refreshes",
     )
     p.add_argument(
         "--collagen-aa-km",
         type=float,
-        default=1.0,
+        default=10.0,
         help="half-saturation constant K_A^C for AA-gated collagen production",
     )
     p.add_argument(
@@ -267,37 +267,37 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--ha-ro",
         type=float,
-        default=0.075,
+        default=24.147854915293642,
         help="osteogenic HAp rate r_o^H per OB site per hour before Hill gating",
     )
     p.add_argument(
         "--ha-h0",
         type=float,
-        default=0.0,
+        default=2.34150837894469,
         help="initial mineral field baseline H0 applied at simulation start",
     )
     p.add_argument(
         "--ha-a-d",
         type=float,
-        default=0.08,
+        default=0.0,
         help="Dex peaked-response height a_D^H in m_D^H = 1 + I_D (a_D^H - b_D^H x_D^2)",
     )
     p.add_argument(
         "--ha-b-d",
         type=float,
-        default=0.08,
+        default=0.0,
         help="Dex peaked-response curvature b_D^H in m_D^H = 1 + I_D (a_D^H - b_D^H x_D^2)",
     )
     p.add_argument(
         "--ha-a-k",
         type=float,
-        default=0.06,
+        default=4.55,
         help="MK-4 peaked-response height a_K^H in m_K^H = 1 + I_K (a_K^H - b_K^H x_K^2)",
     )
     p.add_argument(
         "--ha-b-k",
         type=float,
-        default=0.06,
+        default=2.075,
         help="MK-4 peaked-response curvature b_K^H in m_K^H = 1 + I_K (a_K^H - b_K^H x_K^2)",
     )
     p.add_argument(
@@ -325,7 +325,7 @@ def parse_args() -> argparse.Namespace:
         help="K_col half-saturation constant for matured-collagen mineral support",
     )
     p.add_argument(
-        "--seed", type=int, default=12345, help="random seed for reproducibility"
+        "--seed", type=int, default=None, help="random seed for reproducibility"
     )
 
     p.add_argument("--w", type=int, default=33, help="grid width")
@@ -427,13 +427,13 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--commit-k",
         type=float,
-        default=0.08,
+        default=0.06,
         help="commitment hazard rate k in day^-1 after induction+delay gate",
     )
     p.add_argument(
         "--commit-k-growth",
         type=float,
-        default=0.0008,
+        default=0.0,
         help="hourly increase of commitment hazard k (day^-1 per hour) after induction+delay gate",
     )
 
@@ -451,7 +451,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--apoptosis-prob",
         type=float,
-        default=0.00042,
+        default=0.01 / 24,
         help="per-cell apoptosis probability each hour (legacy 0.01/day)",
     )
 
@@ -502,7 +502,7 @@ def parse_args() -> argparse.Namespace:
         "--nodules",
         type=str,
         choices=["4n", "8n", "24n", "40n", "60n", "84n", "112n", "144n"],
-        default="40n",
+        default="8n",
         help="nodule connectivity rule: 4n (Manhattan r=1), 8n (Moore r=1), 24n (Moore r=2), 40n (Manhattan r=4), 60n (Manhattan r=5), 84n (Manhattan r=6), 112n (Manhattan r=7), 144n (Manhattan r=8)",
     )
     p.add_argument(
@@ -517,7 +517,7 @@ def parse_args() -> argparse.Namespace:
         default="",
         help="explicit export days, comma-separated e.g. '0,5,10,20'",
     )
-    p.add_argument("--out", type=str, default="main_out", help="output directory")
+    p.add_argument("--out", type=str, default="out", help="output directory")
     p.add_argument(
         "--xlsx", dest="xlsx", action="store_true", help="write Excel timeseries"
     )

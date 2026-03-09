@@ -8,8 +8,6 @@ python ars_code2.py -input ../ars --mode ratio_fixed --ratio_thresh 0.55 \
   --metric fraction_percent --out_prefix ars_ratio1 --out_dir ars_output_2 --overlay
 """
 
-"""
-
 import argparse
 import re
 from pathlib import Path
@@ -292,13 +290,13 @@ def plot_fig2_tags_violin_delta_sig(
     else:
         xlim = (0.0, 1.0)
 
-    fig = plt.figure(figsize=(12.8, 6.0))
-    fig.subplots_adjust(left=0.04, right=0.995, bottom=0.12, top=0.82, wspace=0.16)
+    fig = plt.figure(figsize=(8.6, 6.0))
+    fig.subplots_adjust(left=0.03, right=0.995, bottom=0.12, top=0.835, wspace=0.08)
 
     gs = GridSpec(
         1, 3,
-        width_ratios=[1.05, 6.10, 0.95],
-        wspace=0.12,
+        width_ratios=[0.78, 2.70, 0.45],
+        wspace=0.05,
         figure=fig,
     )
 
@@ -314,7 +312,7 @@ def plot_fig2_tags_violin_delta_sig(
         for ax in (axT, axV, axS):
             ax.axhline(yy, color=row_color, alpha=row_alpha, linewidth=row_lw, zorder=0)
 
-    title_pad = 6
+    title_pad = 4
 
     axT.set_xlim(0, 1)
     axT.set_xticks([])
@@ -326,7 +324,7 @@ def plot_fig2_tags_violin_delta_sig(
         axT.text(
             0.5, i, cond_id_to_tag(c),
             ha="center", va="center",
-            fontsize=11, color="#1a1a1a",
+            fontsize=10.2, color="#1a1a1a",
             linespacing=1.05,
         )
     for s in axT.spines.values():
@@ -380,7 +378,7 @@ def plot_fig2_tags_violin_delta_sig(
     for s in axV.spines.values():
         s.set_visible(False)
 
-    axS.set_xlim(-0.6, 0.6)
+    axS.set_xlim(-0.45, 0.45)
     axS.set_yticks([])
     axS.yaxis.set_major_formatter(NullFormatter())
     axS.tick_params(axis="y", length=0)
@@ -390,14 +388,14 @@ def plot_fig2_tags_violin_delta_sig(
     axS.axvspan(-0.6, 0.6, color="0.0", alpha=0.008, zorder=0)
 
     axS.text(0.5, -0.09, "vs C2", transform=axS.transAxes,
-             ha="center", va="top", fontsize=9, color="0.45")
+             ha="center", va="top", fontsize=8.5, color="0.45")
 
     for i, c in enumerate(conds):
         if c == "C1":
-            axS.text(0.0, i, "ref", ha="center", va="center", fontsize=12, color=STAR_COLOR_A)
+            axS.text(0.0, i, "ref", ha="center", va="center", fontsize=10.5, color=STAR_COLOR_A)
         else:
             st = star_from_p(famA.get(c, {}).get("p_adj", np.nan))
-            axS.text(0.0, i, st, ha="center", va="center", fontsize=10, color=STAR_COLOR_A)
+            axS.text(0.0, i, st, ha="center", va="center", fontsize=9.5, color=STAR_COLOR_A)
 
     for s in axS.spines.values():
         s.set_visible(False)
