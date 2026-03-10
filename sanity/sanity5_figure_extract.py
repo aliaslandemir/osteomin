@@ -14,8 +14,8 @@ import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 from matplotlib.ticker import MaxNLocator
 
-
-INPUT_DEFAULT = Path("out") / "sanity_check5"
+SCRIPT_DIR = Path(__file__).resolve().parent
+INPUT_DEFAULT = SCRIPT_DIR / "out" / "sanity_check5"
 BOOTSTRAP_SAMPLES = 5000
 BOOTSTRAP_SEED = 12345
 

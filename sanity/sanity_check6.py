@@ -14,17 +14,22 @@ import matplotlib
 import numpy as np
 import pandas as pd
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SCRIPT_DIR.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 
-BASE_OUT = Path("out") / "sanity_check6"
+BASE_OUT = SCRIPT_DIR / "out" / "sanity_check6"
 ALP_DAY = 10
 COLLAGEN_DAY = 14
 ARS_DAY = 28
 
 BASE_ARGS = [
-    "main.py",
+    str(PROJECT_ROOT / "main.py"),
     "--hours",
     "672",
     "--cells",

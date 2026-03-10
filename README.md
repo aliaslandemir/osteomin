@@ -44,7 +44,7 @@ The entry point is `main.py`. A run writes tables, figures, and metadata to the 
 ### Baseline osteogenic run
 
 ```bash
-python3 main.py \
+python main.py \
   --hours 672 \
   --cells 72 \
   --seed-mode random \
@@ -100,7 +100,7 @@ python3 main.py \
 ### Basal run
 
 ```bash
-python3 main.py \
+python main.py \
   --hours 672 \
   --cells 72 \
   --seed-mode random \
@@ -203,6 +203,3 @@ python3 sanity/sanity_check1.py
 - Treat `parameterfit/` as the source of fitted parameters, not as runtime output.
 - Use `result_report.md` for the current reference run description rather than burying run details in commit messages.
 
-## License
-
-Add a project license before making the repository public.

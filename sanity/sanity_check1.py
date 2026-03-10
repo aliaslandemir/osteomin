@@ -12,7 +12,9 @@ from typing import Iterable
 
 import pandas as pd
 
-BASE_OUT = Path("out") / "sanity_check1"
+SCRIPT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SCRIPT_DIR.parent
+BASE_OUT = SCRIPT_DIR / "out" / "sanity_check1"
 
 TOGGLES = [
     {
@@ -48,7 +50,7 @@ TOGGLES = [
 ]
 
 BASE_ARGS = [
-    "main.py",
+    str(PROJECT_ROOT / "main.py"),
     "--hours",
     "672",
     "--cells",

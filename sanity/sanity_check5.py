@@ -11,7 +11,9 @@ import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-BASE_OUT = Path("sanitycheck") / "sanity5"
+SCRIPT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SCRIPT_DIR.parent
+BASE_OUT = SCRIPT_DIR / "out" / "sanity_check5"
 DEFAULT_REPLICATES = 5
 BASE_SEED = 12345
 TOTAL_HOURS = 672
@@ -23,7 +25,7 @@ AA_OSTEO_M_M = 1.0
 BGP_OSTEO_M_M = 10.0
 
 BASE_ARGS = [
-    "main.py",
+    str(PROJECT_ROOT / "main.py"),
     "--hours",
     str(TOTAL_HOURS),
     "--cells",

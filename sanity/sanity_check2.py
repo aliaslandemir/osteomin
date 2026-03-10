@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from textwrap import fill
@@ -12,6 +13,11 @@ import matplotlib
 import numpy as np
 import pandas as pd
 from scipy import stats
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SCRIPT_DIR.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -24,7 +30,7 @@ from src.time_utils import HOURS_PER_DAY
 from src.viz import plot_summary
 
 
-BASE_OUT = Path("out") / "sanity_check2"
+BASE_OUT = SCRIPT_DIR / "out" / "sanity_check2"
 TOTAL_HOURS = 672
 CELLS = 72
 GRID_W = 33

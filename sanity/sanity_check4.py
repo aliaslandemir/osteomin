@@ -10,8 +10,9 @@ import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-
-BASE_OUT = Path("out") / "sanity_check4"
+SCRIPT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SCRIPT_DIR.parent
+BASE_OUT = SCRIPT_DIR / "out" / "sanity_check4"
 TOTAL_CONDITIONS = 15
 DEFAULT_REPLICATES = 5
 BASE_SEED = 12345
@@ -34,7 +35,7 @@ DOSE_MATRIX = [
 ]
 
 BASE_ARGS = [
-    "main.py",
+    str(PROJECT_ROOT / "main.py"),
     "--hours",
     "672",
     "--cells",
@@ -174,7 +175,9 @@ def parse_args() -> argparse.Namespace:
         description="Single-drug dose sanity suite for Dex-only and MK-4-only runs.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("--out", type=Path, default=BASE_OUT, help="output root directory")
+    parser.add_argument(
+        "--out", type=Path, default=BASE_OUT, help="output root directory"
+    )
     parser.add_argument(
         "--python",
         type=str,
@@ -339,7 +342,9 @@ def write_manifest(out_root: Path, specs: list[ConditionSpec]) -> None:
     with (out_root / "condition_manifest.json").open("w", encoding="utf-8") as fh:
         json.dump(rows, fh, indent=2)
 
-    with (out_root / "condition_manifest.csv").open("w", newline="", encoding="utf-8") as fh:
+    with (out_root / "condition_manifest.csv").open(
+        "w", newline="", encoding="utf-8"
+    ) as fh:
         writer = csv.DictWriter(
             fh,
             fieldnames=["index", "slug", "dex_conc_nM", "mk4_conc_uM", "out_dir"],
@@ -383,8 +388,12 @@ def main() -> None:
     print(
         f"[sanity_check4] prepared {len(specs)} single-drug conditions from the explicit Dex/MK-4 matrix plus no-drug baseline"
     )
-    print("[sanity_check4] MK-4-only branch: 0.1 to 10 uM at Dex = 0 (dense sampling below 1 uM)")
-    print("[sanity_check4] Dex-only branch: 1 to 100 nM at MK-4 = 0 (dense sampling below 10 nM)")
+    print(
+        "[sanity_check4] MK-4-only branch: 0.1 to 10 uM at Dex = 0 (dense sampling below 1 uM)"
+    )
+    print(
+        "[sanity_check4] Dex-only branch: 1 to 100 nM at MK-4 = 0 (dense sampling below 10 nM)"
+    )
     print("[sanity_check4] Baseline branch: 0 nM Dex and 0 uM MK-4")
     print(f"[sanity_check4] replicates per condition: {args.replicates}")
 
@@ -413,7 +422,9 @@ def main() -> None:
                 )
 
     write_run_summary(args.out, results)
-    print(f"[sanity_check4] completed {len(specs)} conditions x {args.replicates} replicates")
+    print(
+        f"[sanity_check4] completed {len(specs)} conditions x {args.replicates} replicates"
+    )
     print(f"[sanity_check4] manifest: {args.out / 'condition_manifest.csv'}")
     print(f"[sanity_check4] summary: {args.out / 'run_summary.csv'}")
 

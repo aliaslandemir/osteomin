@@ -17,6 +17,7 @@ from scipy import stats
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+SCRIPT_DIR = Path(__file__).resolve().parent
 
 COLORS = {
     "ink": "#0f172a",
@@ -71,7 +72,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--input",
         type=Path,
-        default=Path("out") / "sanity_check2",
+        default=SCRIPT_DIR / "out" / "sanity_check2",
         help="sanity_check2 output folder containing replicate_summary.csv",
     )
     parser.add_argument(

@@ -13,6 +13,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
 
+SCRIPT_DIR = Path(__file__).resolve().parent
 
 ENDPOINTS = [
     {
@@ -77,13 +78,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--input",
         type=str,
-        default="out/sanity_check6",
+        default=str(SCRIPT_DIR / "out" / "sanity_check6"),
         help="root folder with Sobol/output CSVs",
     )
     parser.add_argument(
         "--runs",
         type=str,
-        default="out/sanity_check6/runs",
+        default=str(SCRIPT_DIR / "out" / "sanity_check6" / "runs"),
         help="runs folder containing sXXXXX/timeseries.csv",
     )
     parser.add_argument(

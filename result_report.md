@@ -14,7 +14,7 @@ These two runs give a stable contrast between a culture allowed to progress into
 ## Osteogenic baseline
 
 ```bash
-python3 main.py \
+python main.py \
   --hours 672 \
   --cells 72 \
   --seed-mode random \
@@ -70,7 +70,7 @@ python3 main.py \
 ## Basal baseline
 
 ```bash
-python3 main.py \
+python main.py \
   --hours 672 \
   --cells 72 \
   --seed-mode random \

@@ -10,8 +10,9 @@ import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-
-BASE_OUT = Path("out") / "sanity_check3"
+SCRIPT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SCRIPT_DIR.parent
+BASE_OUT = SCRIPT_DIR / "out" / "sanity_check3"
 TOTAL_CONDITIONS = 15
 DEFAULT_REPLICATES = 5
 BASE_SEED = 12345
@@ -34,7 +35,7 @@ DOSE_MATRIX = [
 ]
 
 BASE_ARGS = [
-    "main.py",
+    str(PROJECT_ROOT / "main.py"),
     "--hours",
     "672",
     "--cells",

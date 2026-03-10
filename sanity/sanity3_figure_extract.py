@@ -14,6 +14,7 @@ from matplotlib.cm import ScalarMappable
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+SCRIPT_DIR = Path(__file__).resolve().parent
 
 COLORS = {
     "ink": "#0f172a",
@@ -60,7 +61,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--input",
         type=Path,
-        default=Path("out") / "sanity_check3",
+        default=SCRIPT_DIR / "out" / "sanity_check3",
         help="sanity_check3 output folder containing condition manifests and per-condition outputs",
     )
     parser.add_argument(

@@ -14,6 +14,7 @@ from matplotlib.ticker import ScalarFormatter
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+SCRIPT_DIR = Path(__file__).resolve().parent
 
 COLORS = {
     "ink": "#0f172a",
@@ -59,7 +60,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--input",
         type=Path,
-        default=Path("out") / "sanity_check4",
+        default=SCRIPT_DIR / "out" / "sanity_check4",
         help="sanity_check4 output folder containing condition_manifest and per-condition outputs",
     )
     parser.add_argument(
@@ -205,18 +206,17 @@ def split_branches(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     return dex_df, mk4_df
 
 
-def peak_window_from_endpoints(branch_df: pd.DataFrame) -> tuple[float, float]:
-    peak_cols = [
-        "assay_alp_pct_vs_vehicle",
-        "assay_collagen_pct_vs_vehicle",
-        "assay_ha_pct_vs_vehicle",
-    ]
-    peak_doses: list[float] = []
+def peak_window_for_metric(branch_df: pd.DataFrame, peak_col: str) -> tuple[float, float]:
     branch_sorted = branch_df.sort_values("dose").reset_index(drop=True)
-    for col in peak_cols:
-        idx = int(branch_sorted[col].astype(float).idxmax())
-        peak_doses.append(float(branch_sorted.loc[idx, "dose"]))
-    return min(peak_doses), max(peak_doses)
+    local_idx = int(branch_sorted[peak_col].astype(float).idxmax())
+    doses = branch_sorted["dose"].to_numpy(dtype=float)
+    peak_low = float(doses[local_idx - 1]) if local_idx > 0 else float(doses[local_idx])
+    peak_high = (
+        float(doses[local_idx + 1])
+        if local_idx < len(doses) - 1
+        else float(doses[local_idx])
+    )
+    return peak_low, peak_high
 
 
 def write_tables(df: pd.DataFrame, out_dir: Path) -> None:
@@ -241,8 +241,6 @@ def export_assay_dose_curves(dex_df: pd.DataFrame, mk4_df: pd.DataFrame, out_dir
     mk4_pos = mk4_df[mk4_df["dose"] > 0.0].copy()
     dex_ticks = dex_pos["dose"].to_numpy(dtype=float)
     mk4_ticks = mk4_pos["dose"].to_numpy(dtype=float)
-    dex_peak_low, dex_peak_high = peak_window_from_endpoints(dex_pos)
-    mk4_peak_low, mk4_peak_high = peak_window_from_endpoints(mk4_pos)
 
     def add_peak_marker(ax: plt.Axes, peak_low: float, peak_high: float, shade_color: str, y_top: float) -> None:
         ax.axvspan(peak_low, peak_high, color=shade_color, alpha=0.08, zorder=0)
@@ -272,6 +270,8 @@ def export_assay_dose_curves(dex_df: pd.DataFrame, mk4_df: pd.DataFrame, out_dir
         y_lim = (-y_abs - y_pad, y_abs + y_pad)
         y_peak = y_lim[1] - 0.08 * (y_lim[1] - y_lim[0])
         line_width = 2.5 if "ha" in col else 1.9
+        dex_peak_low, dex_peak_high = peak_window_for_metric(dex_pos, col)
+        mk4_peak_low, mk4_peak_high = peak_window_for_metric(mk4_pos, col)
 
         ax = axes[ridx, 0]
         style_axes(ax, "both", grid_alpha=0.3)
@@ -330,8 +330,7 @@ def export_assay_dose_curves(dex_df: pd.DataFrame, mk4_df: pd.DataFrame, out_dir
         0.035,
         (
             f"Mean ± SD (n=5 replicates); responses shown as % vs branch vehicle. "
-            f"Peak windows are defined from the assay-specific maxima: Dex {dex_peak_low:.4g}-{dex_peak_high:.4g} nM, "
-            f"MK-4 {mk4_peak_low:.4g}-{mk4_peak_high:.4g} uM."
+            "Each panel uses its own assay-specific peak window from the local sampled-dose neighborhood."
         ),
         ha="center",
         fontsize=9,
