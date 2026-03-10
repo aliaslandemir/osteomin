@@ -1,103 +1,169 @@
 # Result Report
 
-This repository currently runs the coupled hourly OsteoMin model with direct CLI-controlled field dynamics rather than relying on fitted `datafit` schedules by default.
 
-## Current reference configuration
 
-Reference runs use:
+## Reference cases
 
-- hourly updates over `672 h`
-- `72` initial cells on a `33 x 33` lattice
-- periodic boundaries
+Two baseline cases are useful for routine comparison:
+
+- `osteogenic baseline`: commitment enabled, AA present at refresh, secretion on
+- `basal baseline`: commitment disabled, no AA pulse, secretion still on
+
+These two runs give a stable contrast between a culture allowed to progress into the osteogenic program and a restrained baseline condition with the same lattice, seeding, movement, and death settings.
+
+## Osteogenic baseline
+
+```bash
+python3 main.py \
+  --hours 672 \
+  --cells 72 \
+  --seed-mode random \
+  --seed 12345 \
+  --w 33 --h 33 \
+  --nodules 40n \
+  --dex-conc 0 \
+  --mk4-conc 0 \
+  --alp-rb 0.001 \
+  --alp-ro 0.002 \
+  --alp-a-d 0.08 \
+  --alp-b-d 0.08 \
+  --alp-a-k 0.06 \
+  --alp-b-k 0.06 \
+  --collagen-rb 0.001 \
+  --collagen-ro 0.002 \
+  --collagen-a-d 0.08 \
+  --collagen-b-d 0.08 \
+  --collagen-a-k 0.06 \
+  --collagen-b-k 0.06 \
+  --ha-model minimal \
+  --ha-ro 0.075 \
+  --ha-a-d 0.08 \
+  --ha-b-d 0.08 \
+  --ha-a-k 0.06 \
+  --ha-b-k 0.06 \
+  --ha-tau 384 \
+  --ha-hill-n 4 \
+  --boundary-mode periodic \
+  --media-interval 48 \
+  --random-move --move-prob 0.27 --max-moves 1 \
+  --proliferation --ob-div-prob 0.0 \
+  --apoptosis --apoptosis-prob 0.00042 \
+  --osteogenic-commitment \
+  --osteo-induction-day 3 \
+  --commit-delay 48 \
+  --commit-k 0.08 \
+  --commit-k-growth 0.0008 \
+  --aa0 1.0 \
+  --aa-half-life 6 \
+  --collagen-aa-km 1.0 \
+  --min-div-hours 38 --max-div-hours 52 \
+  --secretion \
+  --spatial-every 1 \
+  --out main_out \
+  --alp-plot-hours 240 \
+  --collagen-plot-hours 336 \
+  --mineral-plot-hours 672 \
+  --no-hourly-exports \
+  --runtime
+```
+
+## Basal baseline
+
+```bash
+python3 main.py \
+  --hours 672 \
+  --cells 72 \
+  --seed-mode random \
+  --seed 12345 \
+  --w 33 --h 33 \
+  --nodules 40n \
+  --dex-conc 0 \
+  --mk4-conc 0 \
+  --alp-rb 0.001 \
+  --alp-ro 0.002 \
+  --alp-a-d 0.08 \
+  --alp-b-d 0.08 \
+  --alp-a-k 0.06 \
+  --alp-b-k 0.06 \
+  --collagen-rb 0.001 \
+  --collagen-ro 0.002 \
+  --collagen-a-d 0.08 \
+  --collagen-b-d 0.08 \
+  --collagen-a-k 0.06 \
+  --collagen-b-k 0.06 \
+  --ha-model minimal \
+  --ha-ro 0.075 \
+  --ha-a-d 0.08 \
+  --ha-b-d 0.08 \
+  --ha-a-k 0.06 \
+  --ha-b-k 0.06 \
+  --ha-tau 384 \
+  --ha-hill-n 4 \
+  --boundary-mode periodic \
+  --media-interval 48 \
+  --random-move --move-prob 0.27 --max-moves 1 \
+  --proliferation --ob-div-prob 0.0 \
+  --apoptosis --apoptosis-prob 0.00042 \
+  --no-osteogenic-commitment \
+  --osteo-induction-day 3 \
+  --commit-delay 48 \
+  --commit-k 0.08 \
+  --commit-k-growth 0.0008 \
+  --aa0 0.0 \
+  --aa-half-life 6 \
+  --collagen-aa-km 1.0 \
+  --min-div-hours 38 --max-div-hours 52 \
+  --secretion \
+  --spatial-every 1 \
+  --out main_out \
+  --alp-plot-hours 240 \
+  --collagen-plot-hours 336 \
+  --mineral-plot-hours 672 \
+  --no-hourly-exports \
+  --runtime
+```
+
+## Shared simulation frame
+
+Both reference cases use:
+
+- `672` simulated hours
+- `72` initial cells
+- a `33 x 33` periodic lattice
+- random seeding with fixed seed `12345`
 - movement enabled with `--move-prob 0.27`
 - proliferation enabled
-- preOB apoptosis enabled
-- osteogenic commitment enabled after induction at day `3` with a `48 h` delay
-- direct ALP, collagen, and HAp rate constants from the CLI
-- AA pulse-decay control via `--aa0`, `--aa-half-life`, `--collagen-aa-km`
+- pre-osteoblast apoptosis enabled
+- secretion enabled
+- daily spatial export through `--spatial-every 1`
 
-## Field model in use
+## Main distinctions between the two baselines
 
-The current non-legacy workflow is:
+- osteogenic baseline uses `--osteogenic-commitment`
+- basal baseline uses `--no-osteogenic-commitment`
+- osteogenic baseline uses `--aa0 1.0`
+- basal baseline uses `--aa0 0.0`
 
-- ALP: basal preOB contribution plus osteogenic OB contribution
-- Collagen: basal preOB contribution plus AA-gated osteogenic OB contribution
-- HAp: osteogenic OB contribution with Hill activation based on post-commitment time and a matured-collagen gate that lags behind total collagen accumulation
+Everything else is held fixed so that differences can be traced to the osteogenic program rather than unrelated run settings.
 
-The corresponding controls exposed in `main.py` are:
+## Output checklist
 
-- `--alp-rb`, `--alp-ro`
-- `--collagen-rb`, `--collagen-ro`
-- `--aa0`, `--aa-half-life`, `--collagen-aa-km`
-- `--ha-ro`, `--ha-tau`, `--ha-hill-n`
-- `--ha-collagen-maturation-tau`, `--ha-collagen-km`
-- `--dex-conc`, `--mk4-conc`
-
-## Main run products
-
-Each run can produce:
+For each reference run, the following files are the first ones worth checking:
 
 - `run.json`
-- `timeseries.xlsx` and/or `timeseries.csv`
-- publication-style summary figures in PNG and PDF
-- spatial cell maps
-- collagen/HAp overlays
-- raw grids when snapshots are enabled
+- `timeseries.xlsx`
+- `01_states_counts.png`
+- `05_minerals_cumulative.png`
+- `06_alp_total.png`
+- `07_collagen_total.png`
+- `08_nodule_count.png`
+- `09_field_totals_absolute.png`
 
-## Summary plots currently generated
+If snapshots are enabled, the grid and overlay folders provide the spatial readout for the same run.
 
-- `01_states_counts`
-- `02_events_cumulative`
-- `03_cell_motility`
-- `04_events_daily`
-- `05_minerals_cumulative`
-- `06_alp_total`
-- `07_collagen_total`
-- `08_nodule_count`
-- `09_field_totals_absolute`
-- `10_ascorbate_schedule`
-- `11_ascorbate_collagen_gate`
-- `12_cell_cycle_summary`
+## Related folders
 
-## Timeseries fields worth checking
+- `endpointaad/`: endpoint image and assay analysis
+- `parameterfit/`: parameter calibration and dose-response fitting
+- `sanity/`: sanity and regression-style scenario checks
 
-Population and events:
-
-- `n_preob`
-- `n_osteoblast`
-- `n_total`
-- `dead_preob_today`
-- `dead_ob_today`
-- `committed_today`
-
-Field totals:
-
-- `alp_total`
-- `collagen_total`
-- `ha_total`
-- `alp_preob_total`
-- `alp_ob_total`
-- `collagen_preob_total`
-- `collagen_ob_total`
-- `mineral_preob_total`
-- `mineral_ob_total`
-
-Additional summary metrics:
-
-- `msd_effective`
-- `avg_move_count`
-- `avg_division_interval`
-- `avg_live_age_hours`
-- `nodule_count_current`
-- `nodule_count_ever`
-
-## Sanity workflow
-
-`sanity_check1.py` is the first-line regression harness for the current model. It runs a positive control and toggle-specific perturbations, exports CSV summaries, and writes a markdown report under `out/sanity_check1/`.
-
-Use it to confirm:
-
-- cumulative fields remain monotone
-- counts remain non-negative
-- nodule history is non-decreasing
-- disabling key mechanisms produces the expected directional change relative to the positive control

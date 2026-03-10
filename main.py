@@ -76,7 +76,6 @@ import numpy as np
 
 from src.model import OsteoModel
 from src.config import FieldConfig, ABMConfig
-from src.modulatoreff import print_drug_response_summary
 from src.time_utils import HOURS_PER_DAY
 from src.viz import plot_summary, export_overlay_collagen_ha
 
@@ -709,7 +708,6 @@ def main() -> None:
         ha_collagen_maturation_tau_hours=args.ha_collagen_maturation_tau,
         ha_collagen_half_sat=args.ha_collagen_km,
     )
-    print_drug_response_summary(field_cfg)
     spatial_days = [int(x) for x in args.spatial_days.split(",") if x.strip()]
 
     if args.hours is not None:

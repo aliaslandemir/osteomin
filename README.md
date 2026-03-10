@@ -1,28 +1,35 @@
 # OsteoMin
 
-OsteoMin is a 2D lattice-based cellular automaton for MC3T3-E1 monolayers with coupled cumulative field dynamics for ALP, collagen, and HAp. The model advances in hourly steps and supports stochastic movement, proliferation, osteogenic commitment, apoptosis, and local field deposition.
+OsteoMin is a 2D lattice-based model for osteogenic cell culture simulations. It couples cell-state updates on an hourly grid with accumulated field production for ALP, collagen, and hydroxyapatite-like mineral output.
 
-## Layout
+The codebase is organized around three practical tasks:
+
+- running the spatial model from `main.py`
+- analyzing experimental endpoint data in `endpointaad/`
+- fitting rate and dose-response parameters in `parameterfit/`
+
+## Repository layout
 
 ```text
 .
 ├── main.py
 ├── README.md
 ├── result_report.md
-├── sanity_check1.py
-├── requirements.txt
-└── src/
-    ├── abm_manager.py
-    ├── agent.py
-    ├── config.py
-    ├── datafit.py
-    ├── field_manager.py
-    ├── io_utils.py
-    ├── model.py
-    └── viz.py
+├── src/
+├── endpointaad/
+├── parameterfit/
+└── sanity/
 ```
 
-## Run
+### Main folders
+
+- `src/`: simulation code, configuration objects, model logic, field dynamics, and plotting.
+- `endpointaad/`: experimental endpoint analysis scripts and associated image/data assets.
+- `parameterfit/`: scripts and metadata used to estimate rate parameters and dose modifiers.
+- `sanity/`: scenario-based sanity checks and figure extraction helpers.
+- `main_out/`: generated model outputs. This is run output, not source.
+
+## Setup
 
 ```bash
 python3 -m venv .venv
@@ -30,7 +37,11 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Reference run:
+## Running the model
+
+The entry point is `main.py`. A run writes tables, figures, and metadata to the directory passed with `--out`.
+
+### Baseline osteogenic run
 
 ```bash
 python3 main.py \
@@ -44,14 +55,24 @@ python3 main.py \
   --mk4-conc 0 \
   --alp-rb 0.001 \
   --alp-ro 0.002 \
+  --alp-a-d 0.08 \
+  --alp-b-d 0.08 \
+  --alp-a-k 0.06 \
+  --alp-b-k 0.06 \
   --collagen-rb 0.001 \
   --collagen-ro 0.002 \
+  --collagen-a-d 0.08 \
+  --collagen-b-d 0.08 \
+  --collagen-a-k 0.06 \
+  --collagen-b-k 0.06 \
   --ha-model minimal \
   --ha-ro 0.075 \
+  --ha-a-d 0.08 \
+  --ha-b-d 0.08 \
+  --ha-a-k 0.06 \
+  --ha-b-k 0.06 \
   --ha-tau 384 \
   --ha-hill-n 4 \
-  --ha-collagen-maturation-tau 48 \
-  --ha-collagen-km 1.0 \
   --boundary-mode periodic \
   --media-interval 48 \
   --random-move --move-prob 0.27 --max-moves 1 \
@@ -72,113 +93,116 @@ python3 main.py \
   --alp-plot-hours 240 \
   --collagen-plot-hours 336 \
   --mineral-plot-hours 672 \
-  --no-hourly-exports
+  --no-hourly-exports \
+  --runtime
 ```
 
-## Model summary
-
-- Time step: `1 h`
-- Domain: `w x h` lattice, periodic or clamped boundaries
-- Cell states: `0 empty`, `1 preOB`, `2 OB`, `3 apoptotic`
-- Update order each hour: movement, proliferation, commitment, apoptosis, field deposition
-- Field outputs: cumulative ALP, collagen, HAp
-- Collagen osteogenic term: AA pulse/decay with Michaelis-Menten gating
-- HAp term: post-commitment Hill activation with `--ha-tau` and `--ha-hill-n`, multiplied by a matured-collagen gate with `--ha-collagen-maturation-tau` and `--ha-collagen-km`
-
-## Important CLI groups
-
-Core:
-
-- `--hours`
-- `--cells`
-- `--seed-mode`
-- `--seed`
-- `--w`, `--h`
-- `--boundary-mode`
-- `--media-interval`
-
-Movement and division:
-
-- `--random-move`, `--no-random-move`
-- `--move-prob`
-- `--max-moves`
-- `--proliferation`, `--no-proliferation`
-- `--min-div-hours`, `--max-div-hours`
-- `--ob-div-prob`
-
-Commitment and death:
-
-- `--osteogenic-commitment`, `--no-osteogenic-commitment`
-- `--osteo-induction-day`
-- `--commit-delay`
-- `--commit-k`
-- `--commit-k-growth`
-- `--apoptosis`, `--no-apoptosis`
-- `--apoptosis-prob`
-
-Field dynamics:
-
-- `--alp-rb`, `--alp-ro`
-- `--collagen-rb`, `--collagen-ro`
-- `--collagen-aa-km`
-- `--aa0`, `--aa-half-life`
-- `--dex-conc`, `--mk4-conc`
-- `--ha-model`
-- `--ha-ro`
-- `--ha-tau`
-- `--ha-hill-n`
-- `--ha-collagen-maturation-tau`
-- `--ha-collagen-km`
-
-Outputs:
-
-- `--out`
-- `--spatial-every`
-- `--hourly-exports`, `--no-hourly-exports`
-- `--snapshots`, `--no-snapshots`
-- `--csv`
-- `--xlsx`, `--no-xlsx`
-- `--unique-id`, `--no-unique-id`
-
-## Outputs
-
-Main run products include:
-
-- `run.json`
-- `timeseries.xlsx` or `timeseries.csv`
-- summary figures in the output root
-- PDF copies in `figures_pdf/`
-- spatial overlays in `spatial_cells/` and `collagen_ha/`
-- raw grids in `grids/` when snapshots are enabled
-
-Current summary figures include:
-
-- cell counts and daily events
-- normalized ALP, collagen, and HAp accumulation
-- nodule count
-- cell motility summary
-- absolute field totals
-- ascorbate schedule
-- ascorbate-gated collagen activation
-- cell cycle summary
-
-## Sanity checks
-
-Run:
+### Basal run
 
 ```bash
-python3 sanity_check1.py
+python3 main.py \
+  --hours 672 \
+  --cells 72 \
+  --seed-mode random \
+  --seed 12345 \
+  --w 33 --h 33 \
+  --nodules 40n \
+  --dex-conc 0 \
+  --mk4-conc 0 \
+  --alp-rb 0.001 \
+  --alp-ro 0.002 \
+  --alp-a-d 0.08 \
+  --alp-b-d 0.08 \
+  --alp-a-k 0.06 \
+  --alp-b-k 0.06 \
+  --collagen-rb 0.001 \
+  --collagen-ro 0.002 \
+  --collagen-a-d 0.08 \
+  --collagen-b-d 0.08 \
+  --collagen-a-k 0.06 \
+  --collagen-b-k 0.06 \
+  --ha-model minimal \
+  --ha-ro 0.075 \
+  --ha-a-d 0.08 \
+  --ha-b-d 0.08 \
+  --ha-a-k 0.06 \
+  --ha-b-k 0.06 \
+  --ha-tau 384 \
+  --ha-hill-n 4 \
+  --boundary-mode periodic \
+  --media-interval 48 \
+  --random-move --move-prob 0.27 --max-moves 1 \
+  --proliferation --ob-div-prob 0.0 \
+  --apoptosis --apoptosis-prob 0.00042 \
+  --no-osteogenic-commitment \
+  --osteo-induction-day 3 \
+  --commit-delay 48 \
+  --commit-k 0.08 \
+  --commit-k-growth 0.0008 \
+  --aa0 0.0 \
+  --aa-half-life 6 \
+  --collagen-aa-km 1.0 \
+  --min-div-hours 38 --max-div-hours 52 \
+  --secretion \
+  --spatial-every 1 \
+  --out main_out \
+  --alp-plot-hours 240 \
+  --collagen-plot-hours 336 \
+  --mineral-plot-hours 672 \
+  --no-hourly-exports \
+  --runtime
 ```
 
-This writes scenario folders under `out/sanity_check1/` and generates a markdown report with:
+The two commands above provide a simple starting pair: one with osteogenic commitment and AA support, and one without osteogenic commitment and with `aa0=0`.
 
-- final-state metrics for each toggle run
-- control-vs-perturbation contrasts
-- monotonicity checks for cumulative fields
-- structural checks for counts and nodule history
+## What the model produces
 
-## Notes
+Typical outputs include:
 
-- `--datafit` remains available as a legacy path, but the default workflow uses direct field-law parameters from the CLI.
-- OB apoptosis is intentionally disabled in the current implementation.
-- Internal variable names still use `ha` in some files, but user-facing text and plots refer to `HAp`.
+- `run.json`
+- `timeseries.xlsx` and optional CSV output
+- summary figures in PNG and PDF
+- daily spatial cell maps
+- collagen/mineral overlays
+- raw grid snapshots when enabled
+
+The default figure set covers cell counts, daily and cumulative events, motility, field totals, nodules, ascorbate scheduling, and mineral accumulation.
+
+## Analysis folders
+
+### `endpointaad/`
+
+This folder contains scripts for experimental endpoint analysis. It includes analysis code for ALP, ARS, DAPI, and overlay workflows, together with image data used in those pipelines.
+
+### `parameterfit/`
+
+This folder contains parameter estimation scripts for:
+
+- ALP rates
+- collagen and AA-linked collagen rates
+- mineral or ARS-linked rates
+- dexamethasone modulation
+- MK-4 modulation
+
+Supporting metadata tables and condition maps are stored under `parameterfit/metadata/`.
+
+### `sanity/`
+
+This folder contains model sanity checks and helper scripts for extracting figures from those runs. The sanity checks are useful after changing transition rules, rates, or output logic.
+
+Run a check with:
+
+```bash
+python3 sanity/sanity_check1.py
+```
+
+## Notes for a clean GitHub repository
+
+- Keep generated outputs such as `main_out/` out of commits unless they are intentionally being shared.
+- Treat `endpointaad/` as the home for endpoint analysis code and raw analysis assets.
+- Treat `parameterfit/` as the source of fitted parameters, not as runtime output.
+- Use `result_report.md` for the current reference run description rather than burying run details in commit messages.
+
+## License
+
+Add a project license before making the repository public.
