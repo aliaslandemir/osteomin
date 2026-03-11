@@ -11,7 +11,7 @@ from scipy.sparse.csgraph import connected_components
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
-from matplotlib.colors import to_rgb, PowerNorm
+from matplotlib.colors import to_rgb, PowerNorm, LinearSegmentedColormap
 from .agent import CellState
 from .modulatoreff import plot_drug_modulation_summary
 
@@ -20,19 +20,20 @@ __all__ = [
     "detect_nodules",
     "export_spatial_for_day",
     "export_spatial_hourly",
+    "export_alp_field_snapshot",
     "export_overlay_collagen_ha",
     "export_overlay_collagen_ha_from_npy",
     "export_collagen_ha_snapshot",
 ]
 
 COLORS = {
-    "preob": "#2b6cb0",
-    "ob": "#c05621",
-    "dead_preob": "#d69e2e",
-    "dead_ob": "#b83280",
+    "preob": "#1d4e89",
+    "ob": "#b45309",
+    "dead_preob": "#dc2626",
+    "dead_ob": "#9d174d",
     "text": "#111827",
-    "bg": "#ffffff",
-    "grid": "#d9dee7",
+    "bg": "#f8fafc",
+    "grid": "#d6dee8",
     "muted": "#64748b",
     "ink": "#1f2937",
 }
@@ -47,7 +48,20 @@ PLOT_STYLE = {
     "major_tick_width": 0.85,
 }
 
-FIGURE_SIZE_SPATIAL = (8, 7)
+FIGURE_SIZE_MAP = (8.0, 7.0)
+MAP_AX_POS = [0.11, 0.10, 0.78, 0.75]
+COLLAGEN_CMAP = LinearSegmentedColormap.from_list(
+    "collagen_professional",
+    ["#f7fcf5", "#c7e9c0", "#74c476", "#238b45", "#00441b"],
+)
+HAP_CMAP = LinearSegmentedColormap.from_list(
+    "hap_professional",
+    ["#fef1e8", "#fdc9a8", "#f08a4b", "#d95f0e", "#8c2d04"],
+)
+ALP_CMAP = LinearSegmentedColormap.from_list(
+    "alp_professional",
+    ["#fff5f0", "#fcbba1", "#fb6a4a", "#cb181d", "#67000d"],
+)
 
 plt.rcParams.update(
     {
@@ -89,6 +103,27 @@ def _set_white(ax):
     )
     ax.grid(axis="y", alpha=PLOT_STYLE["grid_alpha"], linestyle="-", linewidth=0.8, color=COLORS["grid"])
     ax.grid(axis="x", alpha=0.0)
+
+
+def _set_map_header(
+    fig: plt.Figure,
+    title: str,
+    subtitle: str | None = None,
+    *,
+    title_y: float = 0.985,
+    subtitle_y: float = 0.955,
+) -> None:
+    fig.suptitle(title, fontsize=12, y=title_y)
+    if subtitle:
+        fig.text(
+            0.5,
+            subtitle_y,
+            subtitle,
+            ha="center",
+            va="center",
+            fontsize=10,
+            color=COLORS["text"],
+        )
 
 
 def _style_timecourse(ax: plt.Axes, days: np.ndarray, ylabel: str, title: str, *, legend_loc: str = "upper left") -> None:
@@ -380,24 +415,6 @@ def _plot_cumulative_components(
         lw=PLOT_STYLE["line_width"],
         color="#f97316",
     )
-    ax.plot(
-        days_plot,
-        _normalize_cumulative(total_vals, denom),
-        label="Total",
-        lw=PLOT_STYLE["line_width"] + 0.3,
-        ls="--",
-        color="#111827",
-    )
-    if total_vals.size:
-        ax.plot(
-            days_plot[-1],
-            _normalize_cumulative(total_vals[-1], denom),
-            marker="o",
-            markersize=6,
-            markerfacecolor="#111827",
-            markeredgecolor="#111827",
-            linestyle="None",
-        )
     if days_plot.size:
         ax.set_xlim(days_plot[0], days_plot[-1])
         ticks = list(ax.get_xticks())
@@ -740,16 +757,19 @@ def _render_spatial_image(
     n_da = int(deaths_preob_mask.sum())
     n_do = int(deaths_ob_mask.sum())
 
-    fig, ax = plt.subplots(figsize=FIGURE_SIZE_SPATIAL)
+    fig, ax = plt.subplots(figsize=FIGURE_SIZE_MAP)
     ax.imshow(canvas, origin="lower", interpolation="nearest")
     ax.set_xticks([])
     ax.set_yticks([])
-    ax.set_title(
-        f"{title_label}  |  Total {n_preob + n_ob} live  |  "
-        f"preOB: {n_preob}, osteo: {n_ob}, dead today: {n_da + n_do}, dead cum: {dead_total_cum}",
-        loc="center",
-        fontsize=12,
-        fontweight="bold",
+    _set_map_header(
+        fig,
+        f"{title_label} — spatial cells",
+        (
+            f"Live: {n_preob + n_ob} | preOB: {n_preob} | OB: {n_ob} | "
+            f"Dead today: {n_da + n_do} | Dead cum: {dead_total_cum}"
+        ),
+        title_y=0.976,
+        subtitle_y=0.928,
     )
     legend_elems = [
         Patch(facecolor=COLORS["preob"], label=f"preOB ({n_preob})"),
@@ -763,7 +783,7 @@ def _render_spatial_image(
     legend.get_frame().set_edgecolor("black")
     legend.get_frame().set_linewidth(0.6)
     ax.set_aspect("equal")
-    fig.subplots_adjust(top=0.88, right=0.95, left=0.05, bottom=0.04)
+    fig.subplots_adjust(top=0.90, right=0.94, left=0.06, bottom=0.05)
     img_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(img_path, dpi=300)
     plt.close(fig)
@@ -833,20 +853,21 @@ def _render_collagen_ha_overlay(
     nodule_centers: list[tuple[float, float]] | None = None,
     global_vmax_col: float | None = None,
     global_vmax_ha: float | None = None,
+    state_grid: np.ndarray | None = None,
 ) -> None:
     img_path.parent.mkdir(parents=True, exist_ok=True)
 
     if not col.any() and not ha.any():
-        fig = plt.figure(figsize=(6, 6))
-        ax = fig.add_axes([0.14, 0.12, 0.72, 0.74])
+        fig = plt.figure(figsize=FIGURE_SIZE_MAP)
+        ax = fig.add_axes(MAP_AX_POS)
         _set_white(ax)
         ax.text(
             0.5, 0.5, "No collagen or HAp yet", ha="center", va="center", fontsize=14
         )
         ax.set_xticks([])
         ax.set_yticks([])
-        ax.set_title(f"{title_label} — No collagen/HAp", fontsize=12, pad=10)
-        fig.savefig(img_path, dpi=300, bbox_inches="tight")
+        _set_map_header(fig, f"{title_label} — collagen/HAp overlay", "No collagen or HAp yet")
+        fig.savefig(img_path, dpi=300)
         plt.close(fig)
         return
 
@@ -862,37 +883,38 @@ def _render_collagen_ha_overlay(
     else:
         vmax_ha = max(_p99(ha), 1e-9)
 
-    col_norm = PowerNorm(gamma=0.7, vmin=0.0, vmax=vmax_col)
+    col_norm = PowerNorm(gamma=0.62, vmin=0.0, vmax=vmax_col)
     ha_norm = PowerNorm(gamma=0.7, vmin=0.0, vmax=vmax_ha)
     col_scaled = col_norm(col)
     ha_scaled = ha_norm(ha)
 
-    fig = plt.figure(figsize=FIGURE_SIZE_SPATIAL)
-    ax = fig.add_axes([0.14, 0.12, 0.72, 0.74])
+    fig = plt.figure(figsize=FIGURE_SIZE_MAP)
+    ax = fig.add_axes(MAP_AX_POS)
     _set_white(ax)
     im_col = ax.imshow(
         col,
         origin="lower",
         interpolation="nearest",
-        cmap="Greens",
+        cmap=COLLAGEN_CMAP,
         norm=col_norm,
     )
-    if np.any(ha > 0.0):
-        ys_h, xs_h = np.where(ha > 0.0)
+    ha_mask = ha > 0.0
+    if state_grid is not None:
+        ob_mask = np.asarray(state_grid == CellState.OSTEOBLAST, dtype=bool)
+        ha_mask = ha_mask & ob_mask & (col > 0.0)
+    if np.any(ha_mask):
+        ys_h, xs_h = np.where(ha_mask)
         hvals = ha_scaled[ys_h, xs_h]
-        sizes = 10.0 + 26.0 * np.power(hvals, 0.55)
-        rgba = np.zeros((len(xs_h), 4), dtype=float)
-        rgba[:, 0] = 0.69
-        rgba[:, 1] = 0.07
-        rgba[:, 2] = 0.45
-        rgba[:, 3] = 0.12 + 0.38 * np.power(hvals, 0.75)
+        sizes = 6.0 + 64.0 * np.power(hvals, 1.55)
+        rgba = HAP_CMAP(0.24 + 0.68 * hvals)
+        rgba[:, 3] = 0.20 + 0.48 * np.power(hvals, 1.15)
         ax.scatter(
             xs_h,
             ys_h,
             s=sizes,
-            marker="s",
+            marker="o",
             c=rgba,
-            edgecolors="#f472b6",
+            edgecolors="#3d2a5a",
             linewidths=0.15,
             zorder=4,
         )
@@ -930,34 +952,67 @@ def _render_collagen_ha_overlay(
         stats_bits.append(f"Dead: {dead_today}")
     if nodule_count is not None:
         stats_bits.append(f"Nodules: {nodule_count}")
-    fig.suptitle(
-        f"{title_label} — collagen map with HAp square markers",
-        fontsize=12,
-        y=0.97,
+    _set_map_header(
+        fig,
+        f"{title_label} — collagen/HAp overlay",
+        " | ".join(stats_bits) if stats_bits else None,
+        title_y=0.976,
+        subtitle_y=0.928,
     )
-    if stats_bits:
-        ax.text(
-            0.5,
-            1.05,
-            " | ".join(stats_bits),
-            transform=ax.transAxes,
-            ha="center",
-            va="bottom",
-            fontsize=10,
-            color=COLORS["text"],
-        )
 
-    sm_col = plt.cm.ScalarMappable(norm=col_norm, cmap="Greens")
-    sm_ha = plt.cm.ScalarMappable(norm=ha_norm, cmap="PuRd")
-    cbar_col = fig.colorbar(im_col, ax=ax, fraction=0.032, pad=0.02, location="left")
+    sm_col = plt.cm.ScalarMappable(norm=col_norm, cmap=COLLAGEN_CMAP)
+    sm_ha = plt.cm.ScalarMappable(norm=ha_norm, cmap=HAP_CMAP)
+    cbar_col = fig.colorbar(im_col, ax=ax, fraction=0.038, pad=0.02, location="left")
     cbar_col.set_label("Collagen-I (a.u.)", fontsize=9)
     cbar_col.ax.tick_params(labelsize=8, colors="black")
 
-    cbar_ha = fig.colorbar(sm_ha, ax=ax, fraction=0.032, pad=0.02, location="right")
+    cbar_ha = fig.colorbar(sm_ha, ax=ax, fraction=0.038, pad=0.02, location="right")
     cbar_ha.set_label("Hydroxyapatite (a.u.)", fontsize=9)
     cbar_ha.ax.tick_params(labelsize=8, colors="black")
 
-    fig.savefig(img_path, dpi=300, bbox_inches="tight")
+    fig.savefig(img_path, dpi=300)
+    plt.close(fig)
+
+
+def export_alp_field_snapshot(
+    img_path: str | Path,
+    title_label: str,
+    alp: np.ndarray,
+    *,
+    global_vmax_alp: float | None = None,
+) -> None:
+    img_path = Path(img_path)
+    img_path.parent.mkdir(parents=True, exist_ok=True)
+    if alp.size == 0:
+        return
+    bg = float(np.nanmin(alp)) if alp.size else 0.0
+    alp_disp = np.maximum(0.0, alp - bg)
+    vmax = (
+        max(float(global_vmax_alp) - bg, 1e-9)
+        if global_vmax_alp is not None
+        else max(float(np.nanpercentile(alp_disp, 99)), 1e-9)
+    )
+    norm = PowerNorm(gamma=0.50, vmin=0.0, vmax=vmax)
+    fig = plt.figure(figsize=FIGURE_SIZE_MAP)
+    ax = fig.add_axes(MAP_AX_POS)
+    _set_white(ax)
+    im = ax.imshow(
+        alp_disp,
+        origin="lower",
+        interpolation="nearest",
+        cmap=ALP_CMAP,
+        norm=norm,
+    )
+    ax.set_xticks([])
+    ax.set_yticks([])
+    _set_map_header(
+        fig,
+        f"{title_label} — ALP field",
+    )
+    cbar = fig.colorbar(im, ax=ax, fraction=0.038, pad=0.02, location="right")
+    cbar.set_label("ALP above background (a.u.)", fontsize=9)
+    cbar.ax.tick_params(labelsize=8, colors="black")
+    fig.savefig(img_path, dpi=300)
     plt.close(fig)
 
 
@@ -974,6 +1029,7 @@ def export_overlay_collagen_ha(
     nodule_centers: list[tuple[float, float]] | None = None,
     global_vmax_col: float | None = None,
     global_vmax_ha: float | None = None,
+    state_grid: np.ndarray | None = None,
 ) -> None:
     _render_collagen_ha_overlay(
         Path(img_path),
@@ -987,6 +1043,7 @@ def export_overlay_collagen_ha(
         nodule_centers=nodule_centers,
         global_vmax_col=global_vmax_col,
         global_vmax_ha=global_vmax_ha,
+        state_grid=state_grid,
     )
 
 
@@ -1028,6 +1085,7 @@ def export_collagen_ha_snapshot(
         nodule_centers=nodule_centers,
         global_vmax_col=global_vmax_col,
         global_vmax_ha=global_vmax_ha,
+        state_grid=state_grid,
     )
 
 
@@ -1077,4 +1135,5 @@ def export_overlay_collagen_ha_from_npy(
         nodule_centers=nodule_centers,
         global_vmax_col=global_vmax_col,
         global_vmax_ha=global_vmax_ha,
+        state_grid=state_grid if state_path.exists() else None,
     )

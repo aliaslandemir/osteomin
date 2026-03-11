@@ -176,6 +176,7 @@ class OsteoModel:
             np.save(self.grids_dir / f"deaths_day_000.npy",  deaths_mask)
             np.save(self.grids_dir / f"deaths_preob_day_000.npy", deaths_preob_mask)
             np.save(self.grids_dir / f"deaths_ob_day_000.npy",     deaths_ob_mask)
+            np.save(self.grids_dir / f"alp_day_000.npy",      self.field.alp.astype(np.float32))
             np.save(self.grids_dir / f"collagen_day_000.npy", self.field.collagen.astype(np.float32))
             np.save(self.grids_dir / f"ha_day_000.npy",       self.field.ha.astype(np.float32))
 
@@ -286,6 +287,10 @@ class OsteoModel:
                 np.save(
                     self.grids_dir / f"deaths_ob_day_{day_index:03d}.npy",
                     deaths_ob_mask.astype(np.uint8),
+                )
+                np.save(
+                    self.grids_dir / f"alp_day_{day_index:03d}.npy",
+                    self.field.alp.astype(np.float32),
                 )
                 np.save(
                     self.grids_dir / f"collagen_day_{day_index:03d}.npy",

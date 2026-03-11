@@ -54,6 +54,7 @@ python main.py \
   --collagen-plot-hours 336 \
   --mineral-plot-hours 672 \
   --no-hourly-exports \
+  --alp-snapshopts \
   --runtime
 
 
@@ -77,7 +78,7 @@ import numpy as np
 from src.model import OsteoModel
 from src.config import FieldConfig, ABMConfig
 from src.time_utils import HOURS_PER_DAY
-from src.viz import plot_summary, export_overlay_collagen_ha
+from src.viz import plot_summary, export_overlay_collagen_ha, export_alp_field_snapshot
 
 
 def _global_field_max(grids_dir: Path, field_prefix: str, days: Iterable[int]) -> float:
@@ -102,6 +103,36 @@ def _grid_seed_coords(w: int, h: int, spacing: int) -> list[tuple[int, int]]:
         for x in range(0, w, spacing):
             coords.append((x, y))
     return coords
+
+
+def _export_alp_snapshots(cond_outdir: Path, model: OsteoModel, total_days: int) -> None:
+    alp_dir = cond_outdir / "alp_snapshots"
+    all_days = range(total_days)
+    alp_vmax = _global_field_max(model.grids_dir, "alp", all_days)
+    exported = 0
+    for day in all_days:
+        alp_path = model.grids_dir / f"alp_day_{day:03d}.npy"
+        if not alp_path.exists():
+            continue
+        alp = np.load(alp_path)
+        export_alp_field_snapshot(
+            alp_dir / f"alp_day_{day:03d}.pdf",
+            f"Day {day:02d}",
+            alp,
+            global_vmax_alp=alp_vmax,
+        )
+        exported += 1
+
+    if exported == 0:
+        fallback_day = max(0, total_days - 1)
+        export_alp_field_snapshot(
+            alp_dir / f"alp_day_{fallback_day:03d}.pdf",
+            f"Day {fallback_day:02d}",
+            model.field.alp.copy(),
+            global_vmax_alp=(
+                float(np.nanmax(model.field.alp)) if model.field.alp.size else 1.0
+            ),
+        )
 
 
 def parse_args() -> argparse.Namespace:
@@ -272,7 +303,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--ha-h0",
         type=float,
-        default=2.34150837894469,
+        default=0.0,
         help="initial mineral field baseline H0 applied at simulation start",
     )
     p.add_argument(
@@ -569,6 +600,11 @@ def parse_args() -> argparse.Namespace:
     )
     p.set_defaults(hourly_exports=False)
     p.add_argument(
+        "--alp-snapshopts",
+        action="store_true",
+        help="create ALP field PDFs in out/alp_snapshots",
+    )
+    p.add_argument(
         "--runtime",
         action="store_true",
         help="print low-overhead runtime progress during the simulation",
@@ -770,6 +806,8 @@ def main() -> None:
             collagen_plot_hours=args.collagen_plot_hours,
             mineral_plot_hours=args.mineral_plot_hours,
         )
+        if args.alp_snapshopts:
+            _export_alp_snapshots(cond_outdir, model, model.days)
 
         total_days = model.days
         overlay_days = sorted({d for d in model.spatial_days if 0 <= d < total_days})
@@ -793,6 +831,7 @@ def main() -> None:
             for day in overlay_days:
                 col = np.load(model.grids_dir / f"collagen_day_{day:03d}.npy")
                 ha = np.load(model.grids_dir / f"ha_day_{day:03d}.npy")
+                state = np.load(model.grids_dir / f"state_day_{day:03d}.npy")
 
                 n_preob = n_ob = dead_today = nodule_count = None
                 nodule_centers = None
@@ -839,6 +878,7 @@ def main() -> None:
                     nodule_centers=nodule_centers,
                     global_vmax_col=collagen_vmax,
                     global_vmax_ha=ha_vmax,
+                    state_grid=state,
                 )
 
         print("[OsteoMin]")
