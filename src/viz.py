@@ -11,7 +11,7 @@ from scipy.sparse.csgraph import connected_components
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
-from matplotlib.colors import to_rgb, PowerNorm, LinearSegmentedColormap
+from matplotlib.colors import to_rgb, PowerNorm
 from .agent import CellState
 from .modulatoreff import plot_drug_modulation_summary
 
@@ -27,12 +27,12 @@ __all__ = [
 ]
 
 COLORS = {
-    "preob": "#1d4e89",
-    "ob": "#b45309",
-    "dead_preob": "#dc2626",
-    "dead_ob": "#9d174d",
+    "preob": "#4C78A8",
+    "ob": "#F2A541",
+    "dead_preob": "#E45756",
+    "dead_ob": "#B279A2",
     "text": "#111827",
-    "bg": "#f8fafc",
+    "bg": "#ffffff",
     "grid": "#d6dee8",
     "muted": "#64748b",
     "ink": "#1f2937",
@@ -48,20 +48,13 @@ PLOT_STYLE = {
     "major_tick_width": 0.85,
 }
 
-FIGURE_SIZE_MAP = (8.0, 7.0)
-MAP_AX_POS = [0.11, 0.10, 0.78, 0.75]
-COLLAGEN_CMAP = LinearSegmentedColormap.from_list(
-    "collagen_professional",
-    ["#f7fcf5", "#c7e9c0", "#74c476", "#238b45", "#00441b"],
-)
-HAP_CMAP = LinearSegmentedColormap.from_list(
-    "hap_professional",
-    ["#fef1e8", "#fdc9a8", "#f08a4b", "#d95f0e", "#8c2d04"],
-)
-ALP_CMAP = LinearSegmentedColormap.from_list(
-    "alp_professional",
-    ["#fff5f0", "#fcbba1", "#fb6a4a", "#cb181d", "#67000d"],
-)
+FIGURE_SIZE_MAP = (10.6, 9.2)
+MAP_AX_POS = [0.125, 0.045, 0.75, 0.895]
+CBAR_LEFT_POS = [0.055, 0.105, 0.022, 0.79]
+CBAR_RIGHT_POS = [0.915, 0.105, 0.022, 0.79]
+COLLAGEN_CMAP = matplotlib.colormaps["Greens"]
+HAP_CMAP = matplotlib.colormaps["Purples"]
+ALP_CMAP = matplotlib.colormaps["Reds"]
 
 plt.rcParams.update(
     {
@@ -90,7 +83,7 @@ plt.rcParams.update(
 
 
 def _set_white(ax):
-    ax.set_facecolor(COLORS["bg"])
+    ax.set_facecolor("white")
     for spine in ax.spines.values():
         spine.set_color(COLORS["ink"])
         spine.set_linewidth(PLOT_STYLE["spine_width"])
@@ -171,6 +164,18 @@ def _save_figure(fig: plt.Figure, outdir: Path, basename: str) -> None:
     pdf_path = pdf_dir / f"{basename}.pdf"
     fig.savefig(png_path, dpi=300, bbox_inches="tight")
     fig.savefig(pdf_path, dpi=300, bbox_inches="tight")
+
+
+def _save_snapshot_figure(fig: plt.Figure, img_path: Path) -> None:
+    fig.savefig(
+        img_path,
+        dpi=300,
+        bbox_inches="tight",
+        pad_inches=0.005,
+        facecolor="white",
+        edgecolor="white",
+        transparent=False,
+    )
 
 
 def detect_nodules(
@@ -757,7 +762,8 @@ def _render_spatial_image(
     n_da = int(deaths_preob_mask.sum())
     n_do = int(deaths_ob_mask.sum())
 
-    fig, ax = plt.subplots(figsize=FIGURE_SIZE_MAP)
+    fig = plt.figure(figsize=FIGURE_SIZE_MAP)
+    ax = fig.add_axes(MAP_AX_POS)
     ax.imshow(canvas, origin="lower", interpolation="nearest")
     ax.set_xticks([])
     ax.set_yticks([])
@@ -769,7 +775,7 @@ def _render_spatial_image(
             f"Dead today: {n_da + n_do} | Dead cum: {dead_total_cum}"
         ),
         title_y=0.976,
-        subtitle_y=0.928,
+        subtitle_y=0.942,
     )
     legend_elems = [
         Patch(facecolor=COLORS["preob"], label=f"preOB ({n_preob})"),
@@ -783,9 +789,8 @@ def _render_spatial_image(
     legend.get_frame().set_edgecolor("black")
     legend.get_frame().set_linewidth(0.6)
     ax.set_aspect("equal")
-    fig.subplots_adjust(top=0.90, right=0.94, left=0.06, bottom=0.05)
     img_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(img_path, dpi=300)
+    _save_snapshot_figure(fig, img_path)
     plt.close(fig)
 
 
@@ -867,7 +872,7 @@ def _render_collagen_ha_overlay(
         ax.set_xticks([])
         ax.set_yticks([])
         _set_map_header(fig, f"{title_label} — collagen/HAp overlay", "No collagen or HAp yet")
-        fig.savefig(img_path, dpi=300)
+        _save_snapshot_figure(fig, img_path)
         plt.close(fig)
         return
 
@@ -957,20 +962,24 @@ def _render_collagen_ha_overlay(
         f"{title_label} — collagen/HAp overlay",
         " | ".join(stats_bits) if stats_bits else None,
         title_y=0.976,
-        subtitle_y=0.928,
+        subtitle_y=0.942,
     )
 
     sm_col = plt.cm.ScalarMappable(norm=col_norm, cmap=COLLAGEN_CMAP)
     sm_ha = plt.cm.ScalarMappable(norm=ha_norm, cmap=HAP_CMAP)
-    cbar_col = fig.colorbar(im_col, ax=ax, fraction=0.038, pad=0.02, location="left")
+    cax_col = fig.add_axes(CBAR_LEFT_POS)
+    cbar_col = fig.colorbar(im_col, cax=cax_col)
+    cbar_col.ax.yaxis.set_label_position("left")
+    cbar_col.ax.yaxis.set_ticks_position("left")
     cbar_col.set_label("Collagen-I (a.u.)", fontsize=9)
     cbar_col.ax.tick_params(labelsize=8, colors="black")
 
-    cbar_ha = fig.colorbar(sm_ha, ax=ax, fraction=0.038, pad=0.02, location="right")
+    cax_ha = fig.add_axes(CBAR_RIGHT_POS)
+    cbar_ha = fig.colorbar(sm_ha, cax=cax_ha)
     cbar_ha.set_label("Hydroxyapatite (a.u.)", fontsize=9)
     cbar_ha.ax.tick_params(labelsize=8, colors="black")
 
-    fig.savefig(img_path, dpi=300)
+    _save_snapshot_figure(fig, img_path)
     plt.close(fig)
 
 
@@ -1009,10 +1018,11 @@ def export_alp_field_snapshot(
         fig,
         f"{title_label} — ALP field",
     )
-    cbar = fig.colorbar(im, ax=ax, fraction=0.038, pad=0.02, location="right")
+    cax = fig.add_axes(CBAR_RIGHT_POS)
+    cbar = fig.colorbar(im, cax=cax)
     cbar.set_label("ALP above background (a.u.)", fontsize=9)
     cbar.ax.tick_params(labelsize=8, colors="black")
-    fig.savefig(img_path, dpi=300)
+    _save_snapshot_figure(fig, img_path)
     plt.close(fig)
 
 
