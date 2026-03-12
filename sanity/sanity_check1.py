@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import random
 import shlex
 import subprocess
 import sys
@@ -57,6 +56,8 @@ BASE_ARGS = [
     "72",
     "--seed-mode",
     "random",
+    "--seed",
+    "12345",
     "--w",
     "33",
     "--h",
@@ -71,14 +72,38 @@ BASE_ARGS = [
     "0.001",
     "--alp-ro",
     "0.002",
+    "--alp-a-d",
+    "0.08",
+    "--alp-b-d",
+    "0.08",
+    "--alp-a-k",
+    "0.06",
+    "--alp-b-k",
+    "0.06",
     "--collagen-rb",
     "0.001",
     "--collagen-ro",
     "0.002",
+    "--collagen-a-d",
+    "0.08",
+    "--collagen-b-d",
+    "0.08",
+    "--collagen-a-k",
+    "0.06",
+    "--collagen-b-k",
+    "0.06",
     "--ha-model",
     "minimal",
     "--ha-ro",
     "0.075",
+    "--ha-a-d",
+    "0.08",
+    "--ha-b-d",
+    "0.08",
+    "--ha-a-k",
+    "0.06",
+    "--ha-b-k",
+    "0.06",
     "--ha-tau",
     "384",
     "--ha-hill-n",
@@ -123,7 +148,7 @@ BASE_ARGS = [
     "52",
     "--secretion",
     "--spatial-every",
-    "1",
+    "0",
     "--alp-plot-hours",
     "240",
     "--collagen-plot-hours",
@@ -132,7 +157,10 @@ BASE_ARGS = [
     "672",
     "--csv",
     "--no-xlsx",
+    "--no-unique-id",
+    "--no-snapshots",
     "--no-hourly-exports",
+    "--runtime",
 ]
 
 MONOTONE_COLUMNS = [
@@ -198,8 +226,7 @@ def run_command(args: list[str]) -> tuple[bool, str | None]:
 
 def build_command(toggle_args: Iterable[str], out_dir: Path) -> tuple[list[str], str]:
     cmd = [sys.executable, *BASE_ARGS]
-    seed = str(random.randint(1, 999_999))
-    cmd += ["--seed", seed]
+    seed = "12345"
     cmd += list(toggle_args)
     cmd += ["--out", str(out_dir)]
     return cmd, seed
@@ -288,7 +315,7 @@ def write_report(
         "",
         "## Command template",
         "",
-        f"`{base_cmd} --seed <random> --out <dir>`",
+        f"`{base_cmd} --out <dir>`",
         "",
         "## Run status",
         "",

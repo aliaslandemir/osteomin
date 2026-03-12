@@ -137,10 +137,25 @@ BASE_ARGS = [
 ]
 
 PARAMETERS: list[dict[str, Any]] = [
-    {"name": "alp_ro", "flag": "--alp-ro", "bounds": [0.0005, 0.0040], "baseline": 0.0020, "label": "ALP osteogenic rate"},
-    {"name": "collagen_ro", "flag": "--collagen-ro", "bounds": [0.0005, 0.0040], "baseline": 0.0020, "label": "Collagen osteogenic rate"},
+    {"name": "alp_rb", "flag": "--alp-rb", "bounds": [0.0003, 0.0030], "baseline": 0.0010, "label": "ALP basal rate"},
+    {"name": "alp_ro", "flag": "--alp-ro", "bounds": [0.0005, 0.0060], "baseline": 0.0020, "label": "ALP osteogenic rate"},
+    {"name": "alp_a_d", "flag": "--alp-a-d", "bounds": [0.0, 0.30], "baseline": 0.08, "label": "ALP Dex response height"},
+    {"name": "alp_b_d", "flag": "--alp-b-d", "bounds": [0.0, 0.30], "baseline": 0.08, "label": "ALP Dex response curvature"},
+    {"name": "alp_a_k", "flag": "--alp-a-k", "bounds": [0.0, 0.30], "baseline": 0.06, "label": "ALP MK-4 response height"},
+    {"name": "alp_b_k", "flag": "--alp-b-k", "bounds": [0.0, 0.30], "baseline": 0.06, "label": "ALP MK-4 response curvature"},
+    {"name": "collagen_rb", "flag": "--collagen-rb", "bounds": [0.0003, 0.0030], "baseline": 0.0010, "label": "Collagen basal rate"},
+    {"name": "collagen_ro", "flag": "--collagen-ro", "bounds": [0.0005, 0.0060], "baseline": 0.0020, "label": "Collagen osteogenic rate"},
+    {"name": "collagen_a_d", "flag": "--collagen-a-d", "bounds": [0.0, 0.30], "baseline": 0.08, "label": "Collagen Dex response height"},
+    {"name": "collagen_b_d", "flag": "--collagen-b-d", "bounds": [0.0, 0.30], "baseline": 0.08, "label": "Collagen Dex response curvature"},
+    {"name": "collagen_a_k", "flag": "--collagen-a-k", "bounds": [0.0, 0.30], "baseline": 0.06, "label": "Collagen MK-4 response height"},
+    {"name": "collagen_b_k", "flag": "--collagen-b-k", "bounds": [0.0, 0.30], "baseline": 0.06, "label": "Collagen MK-4 response curvature"},
     {"name": "ha_ro", "flag": "--ha-ro", "bounds": [0.02, 0.16], "baseline": 0.0750, "label": "HAp osteogenic rate"},
+    {"name": "ha_a_d", "flag": "--ha-a-d", "bounds": [0.0, 0.30], "baseline": 0.08, "label": "HAp Dex response height"},
+    {"name": "ha_b_d", "flag": "--ha-b-d", "bounds": [0.0, 0.30], "baseline": 0.08, "label": "HAp Dex response curvature"},
+    {"name": "ha_a_k", "flag": "--ha-a-k", "bounds": [0.0, 0.30], "baseline": 0.06, "label": "HAp MK-4 response height"},
+    {"name": "ha_b_k", "flag": "--ha-b-k", "bounds": [0.0, 0.30], "baseline": 0.06, "label": "HAp MK-4 response curvature"},
     {"name": "ha_tau", "flag": "--ha-tau", "bounds": [192.0, 576.0], "baseline": 384.0, "label": "HAp Hill tau"},
+    {"name": "ha_hill_n", "flag": "--ha-hill-n", "bounds": [2.0, 8.0], "baseline": 4.0, "label": "HAp Hill exponent"},
     {"name": "commit_k", "flag": "--commit-k", "bounds": [0.02, 0.16], "baseline": 0.08, "label": "Commitment k"},
     {"name": "commit_k_growth", "flag": "--commit-k-growth", "bounds": [0.0, 0.0020], "baseline": 0.0008, "label": "Commitment k growth"},
     {"name": "apoptosis_prob", "flag": "--apoptosis-prob", "bounds": [0.0001, 0.0012], "baseline": 0.00042, "label": "Apoptosis probability"},
@@ -191,7 +206,7 @@ plt.rcParams.update(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Global sensitivity analysis (Sobol) for OsteoMin endpoints.",
+        description="Sobol sensitivity analysis for OsteoMin endpoints.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("--out", type=Path, default=BASE_OUT, help="output root directory")
@@ -487,7 +502,7 @@ def plot_sampling_coverage(sample_df: pd.DataFrame, out_fig: Path) -> None:
     ax.set_yticks(range(len(PARAMETERS)))
     ax.set_yticklabels([spec["name"] for spec in PARAMETERS])
     ax.set_xlabel("sampled parameter value")
-    ax.set_title("Figure 1. Sobol sample coverage for varied parameters")
+    ax.set_title("Sobol sample coverage")
     style_axes(ax, "x", 0.3)
     save_figure(fig, out_fig, "figure_1_sampling_coverage")
 
@@ -543,7 +558,7 @@ def plot_s2_heatmaps(raw_sobol: dict[str, dict[str, Any]], out_fig: Path) -> Non
         ax.tick_params(length=0)
     cbar = fig.colorbar(im, ax=axes.ravel().tolist(), shrink=0.85, pad=0.02)
     cbar.set_label("S2 interaction effect")
-    fig.suptitle("Figure 4. Second-order Sobol interaction matrices", fontsize=14.0, fontweight="semibold")
+    fig.suptitle("Second-order Sobol interaction matrices", fontsize=14.0, fontweight="semibold")
     save_figure(fig, out_fig, "figure_4_sobol_s2_heatmaps")
 
 
@@ -569,9 +584,9 @@ def plot_endpoint_effects(endpoint_df: pd.DataFrame, sobol_df: pd.DataFrame, out
             ax.plot(x_smooth, y_smooth, color=COLORS["ink"], lw=1.8, alpha=0.95)
         ax.set_xlabel(top_param)
         ax.set_ylabel(ep)
-        ax.set_title(f"{endpoint_title(ep)}\n(top driver: {top_param})")
+        ax.set_title(f"{endpoint_title(ep)}\n(top parameter: {top_param})")
         style_axes(ax, "both", 0.32)
-    fig.suptitle("Figure 5. Endpoint response against top Sobol driver", fontsize=14.0, fontweight="semibold")
+    fig.suptitle("Endpoint response versus top Sobol parameter", fontsize=14.0, fontweight="semibold")
     save_figure(fig, out_fig, "figure_5_endpoint_driver_effects")
 
 
@@ -589,14 +604,14 @@ def export_plots(
         fig_dir,
         col="S1",
         stem="figure_2_sobol_first_order",
-        title="Figure 2. First-order Sobol indices (S1)",
+        title="First-order Sobol indices (S1)",
     )
     plot_s1_st(
         sobol_df,
         fig_dir,
         col="ST",
         stem="figure_3_sobol_total_order",
-        title="Figure 3. Total-order Sobol indices (ST)",
+        title="Total-order Sobol indices (ST)",
     )
     plot_s2_heatmaps(raw_sobol, fig_dir)
     plot_endpoint_effects(endpoint_df, sobol_df, fig_dir)
@@ -619,6 +634,10 @@ def main() -> None:
     else:
         samples = generate_samples(problem, args.samples, args.second_order, args.sobol_seed)
         sample_df = write_samples(samples, args.out)
+    d = len(PARAMETERS)
+    expected_runs = args.samples * ((2 * d + 2) if args.second_order else (d + 2))
+    print(f"[sanity_check6] parameters: {d}")
+    print(f"[sanity_check6] expected runs: {expected_runs} (N={args.samples}, second_order={args.second_order})")
 
     endpoint_df = run_or_load_results(args, samples, args.out)
     if args.dry_run:
