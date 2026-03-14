@@ -79,10 +79,9 @@ python main.py \
   --proliferation --ob-div-prob 0.0 \
   --apoptosis --apoptosis-prob 0.00042 \
   --osteogenic-commitment \
-  --osteo-induction-day 3 \
-  --commit-delay 48 \
-  --commit-k 0.08 \
-  --commit-k-growth 0.0008 \
+  --osteo-induction-hours 72 \
+  --commit-delay 72 \
+  --commit-k 0.0125 \
   --aa0 1.0 \
   --aa-half-life 6 \
   --collagen-aa-km 1.0 \
@@ -135,10 +134,9 @@ python main.py \
   --proliferation --ob-div-prob 0.0 \
   --apoptosis --apoptosis-prob 0.00042 \
   --no-osteogenic-commitment \
-  --osteo-induction-day 3 \
-  --commit-delay 48 \
-  --commit-k 0.08 \
-  --commit-k-growth 0.0008 \
+  --osteo-induction-hours 72 \
+  --commit-delay 72 \
+  --commit-k 0.0125 \
   --aa0 0.0 \
   --aa-half-life 6 \
   --collagen-aa-km 1.0 \
@@ -202,4 +200,3 @@ python3 sanity/sanity_check1.py
 - Treat `endpointaad/` as the home for endpoint analysis code and raw analysis assets.
 - Treat `parameterfit/` as the source of fitted parameters, not as runtime output.
 - Use `result_report.md` for the current reference run description rather than burying run details in commit messages.
-

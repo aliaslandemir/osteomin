@@ -10,7 +10,21 @@ python main.py \
   --seed-mode random \
   --seed 12345 \
   --w 33 --h 33 \
+  --boundary-mode periodic \
+  --media-interval 48 \
+  --random-move --move-prob 0.27 --max-moves 1 \
+  --proliferation --ob-div-prob 0.0 \
+  --min-div-hours 38 --max-div-hours 52 \
+  --apoptosis --apoptosis-prob 0.0010 --apoptosis-osteo 0.0 \
+  --osteogenic-commitment \
+  --osteo-induction-hours 72 \
+  --commit-delay 48 \
+  --commit-k 0.0125 \
   --nodules 40n \
+  --secretion \
+  --aa0 1.0 \
+  --aa-half-life 6 \
+  --collagen-aa-km 1.0 \
   --dex-conc 0 \
   --mk4-conc 0 \
   --alp-rb 0.001 \
@@ -33,21 +47,6 @@ python main.py \
   --ha-b-k 0.06 \
   --ha-tau 384 \
   --ha-hill-n 4 \
-  --boundary-mode periodic \
-  --media-interval 48 \
-  --random-move --move-prob 0.27 --max-moves 1 \
-  --proliferation --ob-div-prob 0.0 \
-  --apoptosis --apoptosis-prob 0.00042 \
-  --osteogenic-commitment \
-  --osteo-induction-day 3 \
-  --commit-delay 48 \
-  --commit-k 0.08 \
-  --commit-k-growth 0.0008 \
-  --aa0 1.0 \
-  --aa-half-life 6 \
-  --collagen-aa-km 1.0 \
-  --min-div-hours 38 --max-div-hours 52 \
-  --secretion \
   --spatial-every 1 \
   --out main_out \
   --alp-plot-hours 240 \
@@ -430,41 +429,28 @@ def parse_args() -> argparse.Namespace:
     p.set_defaults(commitment=True)
 
     p.add_argument(
-        "--commit-growth",
-        type=float,
-        default=0.01 / (24 * 24),
-        help="legacy per-hour increase in commitment probability (used only when --commit-k and --commit-k-growth are both 0)",
-    )
-    p.add_argument(
-        "--commit-base",
-        type=float,
-        default=default_abm.base_commit_prob,
-        help="legacy base per-hour commitment probability (used only when --commit-k and --commit-k-growth are both 0)",
-    )
-
-    p.add_argument(
         "--commit-delay",
         type=int,
         default=48,
         help="hours after osteogenic induction before preOB cells can start committing (default 2 days)",
     )
     p.add_argument(
+        "--osteo-induction-hours",
+        type=int,
+        default=72,
+        help="hour of osteogenic induction (default 72 h)",
+    )
+    p.add_argument(
         "--osteo-induction-day",
         type=float,
-        default=3.0,
-        help="day of osteogenic induction (baseline day 3 -> 72 hours)",
+        default=None,
+        help=argparse.SUPPRESS,
     )
     p.add_argument(
         "--commit-k",
         type=float,
-        default=0.06,
-        help="commitment hazard rate k in day^-1 after induction+delay gate",
-    )
-    p.add_argument(
-        "--commit-k-growth",
-        type=float,
-        default=0.0,
-        help="hourly increase of commitment hazard k (day^-1 per hour) after induction+delay gate",
+        default=0.0125,
+        help="commitment hazard rate k in h^-1 after induction+delay gate",
     )
 
     p.add_argument(
@@ -481,16 +467,16 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--apoptosis-prob",
         type=float,
-        default=0.01 / 24,
-        help="per-cell apoptosis probability each hour (legacy 0.01/day)",
+        default=1e-3,
+        help="per-cell preOB apoptosis probability each hour",
     )
 
     p.add_argument(
         "--apoptosis-osteo",
         dest="ob_apoptosis_prob",
         type=float,
-        default=0.001 / 24,
-        help="legacy argument (ignored): osteoblast apoptosis is disabled",
+        default=0.0,
+        help="per-cell OB apoptosis probability each hour",
     )
 
     p.add_argument(
@@ -532,7 +518,7 @@ def parse_args() -> argparse.Namespace:
         "--nodules",
         type=str,
         choices=["4n", "8n", "24n", "40n", "60n", "84n", "112n", "144n"],
-        default="8n",
+        default="40n",
         help="nodule connectivity rule: 4n (Manhattan r=1), 8n (Moore r=1), 24n (Moore r=2), 40n (Manhattan r=4), 60n (Manhattan r=5), 84n (Manhattan r=6), 112n (Manhattan r=7), 144n (Manhattan r=8)",
     )
     p.add_argument(
@@ -665,9 +651,12 @@ def main() -> None:
     args.apoptosis_prob = max(0.0, min(1.0, args.apoptosis_prob))
     args.ob_apoptosis_prob = max(0.0, min(1.0, args.ob_apoptosis_prob))
     args.commit_delay = max(0, args.commit_delay)
-    args.osteo_induction_day = max(0.0, float(args.osteo_induction_day))
+    args.osteo_induction_hours = max(0, int(args.osteo_induction_hours))
+    if args.osteo_induction_day is not None:
+        args.osteo_induction_hours = max(
+            0, int(round(float(args.osteo_induction_day) * HOURS_PER_DAY))
+        )
     args.commit_k = max(0.0, float(args.commit_k))
-    args.commit_k_growth = max(0.0, float(args.commit_k_growth))
     if args.dex_conc != 0.0 and not (1.0 <= float(args.dex_conc) <= 100.0):
         raise SystemExit(
             f"Dex concentration {args.dex_conc:g} nM is outside the supported non-toxic range of 1 to 100 nM"
@@ -680,7 +669,7 @@ def main() -> None:
         raise SystemExit(
             "legacy --datafit execution is disabled; OsteoMin now uses equation-based dynamics only"
         )
-    induction_hours = int(round(args.osteo_induction_day * HOURS_PER_DAY))
+    induction_hours = int(args.osteo_induction_hours)
     abm_cfg = ABMConfig(
         width=args.w,
         height=args.h,
@@ -696,12 +685,9 @@ def main() -> None:
         apoptosis_prob=args.apoptosis_prob,
         ob_apoptosis_prob=args.ob_apoptosis_prob,
         proliferation_chance=args.proliferation_chance,
-        base_commit_prob=args.commit_base,
-        commit_prob_growth=args.commit_growth,
         osteo_induction_hours=induction_hours,
         commit_delay=args.commit_delay,
-        commit_k_day=args.commit_k,
-        commit_k_growth_per_hour=args.commit_k_growth,
+        commit_k_hourly=args.commit_k,
         min_div_hours=max(1, int(args.min_div_hours)),
         max_div_hours=max(int(args.min_div_hours), int(args.max_div_hours)),
     )

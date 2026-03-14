@@ -57,17 +57,15 @@ class ABMManager:
         self._move_prob_hourly = min(1.0, max(0.0, float(self.cfg.move_prob)))
         self._max_moves_per_step = max(0, int(self.cfg.max_moves_per_hour))
         self._apoptosis_prob_preob = min(1.0, max(0.0, float(self.cfg.apoptosis_prob)))
-        self._apoptosis_prob_ob = 0.0
+        self._apoptosis_prob_ob = min(
+            1.0, max(0.0, float(self.cfg.ob_apoptosis_prob))
+        )
         self._proliferation_chance_hourly = min(
             1.0, max(0.0, float(self.cfg.proliferation_chance))
         )
-        self._commit_growth_per_hour = max(0.0, float(self.cfg.commit_prob_growth))
         self._osteo_induction_hours = max(0, int(self.cfg.osteo_induction_hours))
         self._commit_delay_hours = max(0, int(self.cfg.commit_delay))
-        self._commit_k_day = max(0.0, float(self.cfg.commit_k_day))
-        self._commit_k_growth_per_hour = max(
-            0.0, float(self.cfg.commit_k_growth_per_hour)
-        )
+        self._commit_k_hourly = max(0.0, float(self.cfg.commit_k_hourly))
         self._commit_activation_hour = (
             self._osteo_induction_hours + self._commit_delay_hours
         )
@@ -155,17 +153,9 @@ class ABMManager:
             self.field.step_hour(hour, n_preob, n_ob)
 
     def _commit_probability(self, hour: int) -> float:
-        elapsed = max(0, int(hour) - self._commit_activation_hour)
-        if self._commit_k_day > 0.0 or self._commit_k_growth_per_hour > 0.0:
-            k_day = self._commit_k_day + elapsed * self._commit_k_growth_per_hour
-            k_day = max(0.0, k_day)
-            return float(min(1.0, max(0.0, 1.0 - math.exp(-k_day / HOURS_PER_DAY))))
-
-        base_prob = max(
-            0.0,
-            float(self.cfg.base_commit_prob + elapsed * self._commit_growth_per_hour),
+        return float(
+            min(1.0, max(0.0, 1.0 - math.exp(-self._commit_k_hourly)))
         )
-        return float(min(1.0, base_prob))
 
     def _neighbors4(self, x: int, y: int):
         offsets = [(-1, 0), (1, 0), (0, -1), (0, 1)]

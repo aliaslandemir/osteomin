@@ -16,13 +16,11 @@ class ABMConfig:
     enable_secretion: bool = True
 
     base_commit_prob: float = 0.0005
-    commit_prob_growth: float = 0.00003
     osteo_induction_hours: int = 72
     commit_delay: int = 48
-    commit_k_day: float = 0.06
-    commit_k_growth_per_hour: float = 0.0
-    apoptosis_prob: float = 0.01 / 24
-    ob_apoptosis_prob: float = 0.001 / 24
+    commit_k_hourly: float = 0.0125
+    apoptosis_prob: float = 1e-3
+    ob_apoptosis_prob: float = 0.0
     min_div_hours: int = 38
     max_div_hours: int = 52
     alp_per_ob: float = 1.2
