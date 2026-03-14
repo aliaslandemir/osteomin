@@ -14,9 +14,9 @@ import numpy as np
 
 
 MK4_DOSE_uM = np.array([0.0, 0.1, 1.0, 10.0], dtype=float)
-ARS_MINERALIZATION = np.array([100.0, 420.0, 555.0, 275.0], dtype=float)
+ARS_MINERALIZATION = np.array([100.0, 420.0, 560.0, 270.0], dtype=float)
 
-CK0_uM = 1.0
+CK0_uM = 0.6
 
 
 def gating_m(c_uM: np.ndarray, a_k: float, b_k: float, c_k0_uM: float = CK0_uM) -> np.ndarray:
@@ -182,20 +182,20 @@ def save_outputs(
     import matplotlib.pyplot as plt
     from matplotlib.lines import Line2D
 
-    c_mk4 = "#1f78b4"
+    c_mk4 = "#d95f02"
     fig = plt.figure(figsize=(7.8, 4.8))
     ax = fig.add_subplot(1, 1, 1)
     fig.patch.set_facecolor("white")
     ax.set_facecolor("white")
 
-    ax.plot(c_dense_pos, y_dense_pos, color=c_mk4, lw=2.5)
+    ax.plot(c_dense_pos, y_dense_pos, color=c_mk4, lw=2.4)
     positive_mask = MK4_DOSE_uM > 0.0
     if np.any(positive_mask):
         ax.scatter(
             MK4_DOSE_uM[positive_mask],
             ARS_MINERALIZATION[positive_mask],
-            marker="s",
-            s=56,
+            marker="o",
+            s=54,
             color=c_mk4,
             edgecolor="white",
             linewidth=0.8,
@@ -206,8 +206,8 @@ def save_outputs(
     ax.scatter(
         [control_x],
         [ARS_MINERALIZATION[0]],
-        marker="s",
-        s=56,
+        marker="o",
+        s=54,
         color=c_mk4,
         edgecolor="white",
         linewidth=0.8,
@@ -226,7 +226,7 @@ def save_outputs(
 
     ax.set_xlabel("MK-4 concentration (uM, log scale)")
     ax.set_ylabel("Mineralization (% of control)")
-    ax.set_title("MK-4 Dose-Response Fit (ARS)", fontsize=11, pad=8)
+    ax.set_title("MK-4 Dose-Response Fit", fontsize=11, pad=8)
     ax.tick_params(labelsize=9, top=False, labeltop=False)
     ax.xaxis.set_ticks_position("bottom")
     ax.grid(True, which="major", color="#b0b0b0", alpha=0.28, linewidth=0.75)
@@ -251,10 +251,10 @@ def save_outputs(
     )
     ax.text(
         0.98,
-        0.98,
+        0.08,
         txt,
         transform=ax.transAxes,
-        va="top",
+        va="bottom",
         ha="right",
         fontsize=8.6,
         family="monospace",
@@ -262,13 +262,13 @@ def save_outputs(
     )
 
     legend_handles = [
-        Line2D([0], [0], color=c_mk4, lw=2.5, label="MK-4 fit"),
+        Line2D([0], [0], color=c_mk4, lw=2.4, label="MK-4 fit"),
         Line2D(
             [0],
             [0],
             color=c_mk4,
             lw=2.0,
-            marker="s",
+            marker="o",
             markersize=7,
             markerfacecolor=c_mk4,
             markeredgecolor="white",

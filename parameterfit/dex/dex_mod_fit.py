@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Phenomenological Dex dose-response fit for ALP using a symmetric
-log-parabolic model centered at 10 nM.
+log-parabolic model centered at 20 nM.
 """
 
 from __future__ import annotations
@@ -14,12 +14,11 @@ from typing import Dict
 import numpy as np
 
 
-# Approximate demo points with biphasic Dex response.
-# Replace ALP_DAY5_DEX with your measured values if needed.
-DEX_DOSE_nM = np.array([0.0, 1.0, 10.0, 100.0], dtype=float)
-ALP_DAY5_DEX = np.array([0.8, 1.2, 3.6, 3.1], dtype=float)
 
-CD0_nM = 10.0
+DEX_DOSE_nM = np.array([0.0, 1.0, 10.0, 100.0], dtype=float)
+ALP_DAY5_DEX = np.array([0.8, 1.2, 3.6, 3.2], dtype=float)
+
+CD0_nM = 20.0
 
 def dex_modulation_mP(
     c_dex_nM: np.ndarray, a_d: float, b_d: float, c_d0_nM: float = CD0_nM
@@ -184,20 +183,20 @@ def save_outputs(
     import matplotlib.pyplot as plt
     from matplotlib.lines import Line2D
 
-    c_dex = "#1f78b4"
+    c_dex = "#d95f02"
     fig = plt.figure(figsize=(7.8, 4.8))
     ax = fig.add_subplot(1, 1, 1)
     fig.patch.set_facecolor("white")
     ax.set_facecolor("white")
 
-    ax.plot(c_dense_pos, y_dense_pos, color=c_dex, lw=2.5)
+    ax.plot(c_dense_pos, y_dense_pos, color=c_dex, lw=2.4)
     positive_mask = DEX_DOSE_nM > 0.0
     if np.any(positive_mask):
         ax.scatter(
             DEX_DOSE_nM[positive_mask],
             ALP_DAY5_DEX[positive_mask],
-            marker="s",
-            s=56,
+            marker="o",
+            s=54,
             color=c_dex,
             edgecolor="white",
             linewidth=0.8,
@@ -208,8 +207,8 @@ def save_outputs(
     ax.scatter(
         [control_x],
         [ALP_DAY5_DEX[0]],
-        marker="s",
-        s=56,
+        marker="o",
+        s=54,
         color=c_dex,
         edgecolor="white",
         linewidth=0.8,
@@ -269,13 +268,13 @@ def save_outputs(
     )
 
     legend_handles = [
-        Line2D([0], [0], color=c_dex, lw=2.5, label="Dex fit"),
+        Line2D([0], [0], color=c_dex, lw=2.4, label="Dex fit"),
         Line2D(
             [0],
             [0],
             color=c_dex,
             lw=2.0,
-            marker="s",
+            marker="o",
             markersize=7,
             markerfacecolor=c_dex,
             markeredgecolor="white",

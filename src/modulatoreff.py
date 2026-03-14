@@ -23,11 +23,11 @@ def log_concentration_offset(conc: float, ref_conc: float) -> float:
 def drug_response_summary(field_cfg: object) -> dict[str, float | str]:
     x_d = log_concentration_offset(
         float(getattr(field_cfg, "dex_conc", 0.0)),
-        max(1e-12, float(getattr(field_cfg, "dex_ref_conc", 10.0))),
+        max(1e-12, float(getattr(field_cfg, "dex_ref_conc", 20.0))),
     )
     x_k = log_concentration_offset(
         float(getattr(field_cfg, "mk4_conc", 0.0)),
-        max(1e-12, float(getattr(field_cfg, "mk4_ref_conc", 1.0))),
+        max(1e-12, float(getattr(field_cfg, "mk4_ref_conc", 0.6))),
     )
 
     i_d = 1.0 if float(getattr(field_cfg, "dex_conc", 0.0)) > 0.0 else 0.0
@@ -54,8 +54,8 @@ def drug_response_summary(field_cfg: object) -> dict[str, float | str]:
     return {
         "dex_conc_nM": float(getattr(field_cfg, "dex_conc", 0.0)),
         "mk4_conc_uM": float(getattr(field_cfg, "mk4_conc", 0.0)),
-        "dex_ref_nM": float(getattr(field_cfg, "dex_ref_conc", 10.0)),
-        "mk4_ref_uM": float(getattr(field_cfg, "mk4_ref_conc", 1.0)),
+        "dex_ref_nM": float(getattr(field_cfg, "dex_ref_conc", 20.0)),
+        "mk4_ref_uM": float(getattr(field_cfg, "mk4_ref_conc", 0.6)),
         "x_D": float(x_d),
         "x_D_sq": float(x_d_sq),
         "x_K": float(x_k),

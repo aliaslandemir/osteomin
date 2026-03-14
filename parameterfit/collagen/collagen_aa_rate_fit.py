@@ -1,14 +1,5 @@
 #!/usr/bin/env python3
-"""
-
-
-Collagen AA-gated rate fit.
-
-
-Addison2015ECMMineralization
-
-
-"""
+"""Collagen rate fit."""
 
 from __future__ import annotations
 
@@ -23,26 +14,10 @@ import numpy as np
 
 T_DAYS = np.array([1, 2, 4, 6, 8, 10, 12], dtype=float)
 
-C_CONTROL = np.array([
-    0.15,  # day 1
-    0.20,  # day 2
-    0.40,  # day 4
-    0.60,  # day 6
-    0.70,  # day 8
-    0.90,  # day 10
-    0.90,  # day 12
-], dtype=float)
+C_CONTROL = np.array([0.15, 0.20, 0.40, 0.60, 0.70, 0.85, 0.80], dtype=float)
 
 
-C_AA = np.array([
-    0.15,  # day 1
-    0.20,  # day 2
-    1.20,  # day 4
-    2.00,  # day 6 
-    3.80,  # day 8
-    4.30,  # day 10
-    4.60,  # day 12
-], dtype=float)
+C_AA = np.array([0.15, 0.25, 1.40, 2.10, 3.80, 4.10, 4.40], dtype=float)
 
 def k_from_half_life_hours(tau_h: float) -> float:
     return math.log(2.0) / max(tau_h, 1e-12)
@@ -87,8 +62,6 @@ def simulate(
     t_end_h = float(np.max(t_days) * 24.0)
     n_steps = int(np.ceil(t_end_h / dt_h)) + 1
 
-    k_decay = k_from_half_life_hours(tau_a_h)
-
     c_con = c0
     c_ost = c0
 
@@ -104,10 +77,10 @@ def simulate(
 
         c_con += r_b_h * dt_h
 
-        a_t = aa_conc(t_h, t_osteo_h, a0, k_decay, dt_med_h)
-        g_a = gate_mm(a_t, k_a_mm)
+        # Rates are fit without AA gate; gating is applied in OsteoMin runtime.
+        g_a = 1.0
         u = 1.0 if t_h >= t_osteo_h else 0.0
-        c_ost += (r_b_h + u * r_o_h * g_a) * dt_h
+        c_ost += (r_b_h + u * r_o_h) * dt_h
 
         while idx < len(target_hours) and t_h + 1e-9 >= target_hours[idx]:
             con_pred.append(c_con)
@@ -333,10 +306,7 @@ def save_outputs(
         "fit_method": fit["method"],
         "r_basal_per_h": fit["r_b_h"],
         "r_osteo_per_h": fit["r_o_h"],
-        "K_A": k_a_mm,
-        "A0": a0,
-        "tau_A_h": tau_a_h,
-        "dt_med_h": dt_med_h,
+        "note": "Ungated rate fit: AA-gate parameters are not used.",
         "metrics_overall": fit["metrics_overall"],
         "metrics_basal": fit["metrics_basal"],
         "metrics_osteo": fit["metrics_osteo"],
@@ -376,7 +346,7 @@ def save_outputs(
 
     ax.set_xlabel("Time (hours)")
     ax.set_ylabel("Collagen signal (assay units)")
-    ax.set_title("Collagen Activity Fit (AA-gated)", fontsize=11, pad=8)
+    ax.set_title("Collagen Activity Fit", fontsize=11, pad=8)
     ax.xaxis.set_major_locator(MultipleLocator(24.0 * 2.0))
     ax.yaxis.set_major_locator(MultipleLocator(0.5))
     ax.yaxis.set_minor_locator(MultipleLocator(0.25))
@@ -393,7 +363,6 @@ def save_outputs(
     txt = "\n".join([
         f"r_b (AU h^-1)  {fit['r_b_h']:.3g}",
         f"r_o (AU h^-1)  {fit['r_o_h']:.3g}",
-        f"K_A            {k_a_mm:.3g}",
         f"RMSE (AU)      {met['RMSE']:.3g}",
         f"R2             {met['R2']:.3g}",
     ])
@@ -462,14 +431,10 @@ def main() -> None:
         args.dt_day,
     )
 
-    print("=== Collagen hourly fit (AA-gated) ===")
+    print("=== Collagen hourly fit (ungated rates) ===")
     print(f"fit_method      : {fit['method']}")
     print(f"r_basal_C       : {fit['r_b_h']:.6g} assay units/hour")
     print(f"r_osteo_C       : {fit['r_o_h']:.6g} assay units/hour")
-    print(f"K_A             : {args.K_A:.6g}")
-    print(f"A0              : {args.A0:.6g}")
-    print(f"tau_A_h         : {args.tau_A_h:.6g}")
-    print(f"dt_med_h        : {args.dt_med_h:.6g}")
     final_day = T_DAYS[-1]
     final_idx = -1
     met = fit["metrics_overall"]

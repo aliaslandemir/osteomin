@@ -22,31 +22,28 @@ python main.py \
   --commit-k 0.0125 \
   --nodules 40n \
   --secretion \
-  --aa0 1.0 \
-  --aa-half-life 6 \
-  --collagen-aa-km 1.0 \
+  --aa0 50.0 \
+  --aa-half-life 8 \
+  --collagen-aa-km 5.0 \
   --dex-conc 0 \
   --mk4-conc 0 \
-  --alp-rb 0.001 \
-  --alp-ro 0.002 \
-  --alp-a-d 0.08 \
-  --alp-b-d 0.08 \
-  --alp-a-k 0.06 \
-  --alp-b-k 0.06 \
-  --collagen-rb 0.001 \
-  --collagen-ro 0.002 \
-  --collagen-a-d 0.08 \
-  --collagen-b-d 0.08 \
-  --collagen-a-k 0.06 \
-  --collagen-b-k 0.06 \
+  --alp-rb 0.107 \
+  --alp-ro 0.986 \
+  --collagen-rb 0.00355 \
+  --collagen-ro 0.0131 \
+  --ha-ro 0.106 \
+
+
+
+  --drug-a-d 3.79 \
+  --drug-b-d 1.92 \
+  --drug-a-k 4.58 \
+  --drug-b-k 1.98 \
   --ha-model minimal \
-  --ha-ro 0.075 \
-  --ha-a-d 0.08 \
-  --ha-b-d 0.08 \
-  --ha-a-k 0.06 \
-  --ha-b-k 0.06 \
+  
+
   --ha-tau 384 \
-  --ha-hill-n 4 \
+  --ha-hill-n 3 \
   --spatial-every 1 \
   --out main_out \
   --alp-plot-hours 240 \
@@ -179,14 +176,14 @@ def parse_args() -> argparse.Namespace:
         "--dex",
         type=float,
         default=0.0,
-        help="Dex concentration c_D used to compute log10(c_D/c_D0) with c_D0 fixed to 10 nM; c_D<=0 is treated as baseline (x_D=0)",
+        help="Dex concentration c_D used to compute log10(c_D/c_D0) with c_D0 fixed to 20 nM; c_D<=0 is treated as baseline (x_D=0)",
     )
     p.add_argument(
         "--mk4-conc",
         "--mk4",
         type=float,
         default=0.0,
-        help="MK-4 concentration c_K used to compute log10(c_K/c_K0) with c_K0 fixed to 1.0 uM; c_K<=0 is treated as baseline (x_K=0)",
+        help="MK-4 concentration c_K used to compute log10(c_K/c_K0) with c_K0 fixed to 0.6 uM; c_K<=0 is treated as baseline (x_K=0)",
     )
     p.add_argument(
         "--alp-rb",
@@ -207,28 +204,44 @@ def parse_args() -> argparse.Namespace:
         help="initial ALP field baseline P0 applied at simulation start",
     )
     p.add_argument(
+        "--drug-a-d",
         "--alp-a-d",
+        "--collagen-a-d",
+        "--ha-a-d",
+        dest="drug_a_d",
         type=float,
-        default=3.5,
-        help="Dex peaked-response height a_D^P in m_D^P = 1 + I_D (a_D^P - b_D^P x_D^2)",
+        default=3.79,
+        help="shared Dex response height a_D used for ALP, collagen, and HAp",
     )
     p.add_argument(
+        "--drug-b-d",
         "--alp-b-d",
+        "--collagen-b-d",
+        "--ha-b-d",
+        dest="drug_b_d",
         type=float,
-        default=1.8125,
-        help="Dex peaked-response curvature b_D^P in m_D^P = 1 + I_D (a_D^P - b_D^P x_D^2)",
+        default=1.92,
+        help="shared Dex response curvature b_D used for ALP, collagen, and HAp",
     )
     p.add_argument(
+        "--drug-a-k",
         "--alp-a-k",
+        "--collagen-a-k",
+        "--ha-a-k",
+        dest="drug_a_k",
         type=float,
-        default=0.0,
-        help="MK-4 peaked-response height a_K^P in m_K^P = 1 + I_K (a_K^P - b_K^P x_K^2)",
+        default=4.58,
+        help="shared MK-4 response height a_K used for ALP, collagen, and HAp",
     )
     p.add_argument(
+        "--drug-b-k",
         "--alp-b-k",
+        "--collagen-b-k",
+        "--ha-b-k",
+        dest="drug_b_k",
         type=float,
-        default=0.0,
-        help="MK-4 peaked-response curvature b_K^P in m_K^P = 1 + I_K (a_K^P - b_K^P x_K^2)",
+        default=1.98,
+        help="shared MK-4 response curvature b_K used for ALP, collagen, and HAp",
     )
     p.add_argument(
         "--collagen-rb",
@@ -239,32 +252,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--collagen-ro",
         type=float,
-        default=0.016203638699872385,
+        default=0.0130876,
         help="osteogenic collagen rate r_o^C per OB site per hour before AA gating",
-    )
-    p.add_argument(
-        "--collagen-a-d",
-        type=float,
-        default=0.0,
-        help="Dex peaked-response height a_D^C in m_D^C = 1 + I_D (a_D^C - b_D^C x_D^2)",
-    )
-    p.add_argument(
-        "--collagen-b-d",
-        type=float,
-        default=0.0,
-        help="Dex peaked-response curvature b_D^C in m_D^C = 1 + I_D (a_D^C - b_D^C x_D^2)",
-    )
-    p.add_argument(
-        "--collagen-a-k",
-        type=float,
-        default=0.0,
-        help="MK-4 peaked-response height a_K^C in m_K^C = 1 + I_K (a_K^C - b_K^C x_K^2)",
-    )
-    p.add_argument(
-        "--collagen-b-k",
-        type=float,
-        default=0.0,
-        help="MK-4 peaked-response curvature b_K^C in m_K^C = 1 + I_K (a_K^C - b_K^C x_K^2)",
     )
     p.add_argument(
         "--aa0",
@@ -304,30 +293,6 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=0.0,
         help="initial mineral field baseline H0 applied at simulation start",
-    )
-    p.add_argument(
-        "--ha-a-d",
-        type=float,
-        default=0.0,
-        help="Dex peaked-response height a_D^H in m_D^H = 1 + I_D (a_D^H - b_D^H x_D^2)",
-    )
-    p.add_argument(
-        "--ha-b-d",
-        type=float,
-        default=0.0,
-        help="Dex peaked-response curvature b_D^H in m_D^H = 1 + I_D (a_D^H - b_D^H x_D^2)",
-    )
-    p.add_argument(
-        "--ha-a-k",
-        type=float,
-        default=4.55,
-        help="MK-4 peaked-response height a_K^H in m_K^H = 1 + I_K (a_K^H - b_K^H x_K^2)",
-    )
-    p.add_argument(
-        "--ha-b-k",
-        type=float,
-        default=2.075,
-        help="MK-4 peaked-response curvature b_K^H in m_K^H = 1 + I_K (a_K^H - b_K^H x_K^2)",
     )
     p.add_argument(
         "--ha-tau",
@@ -699,31 +664,31 @@ def main() -> None:
         osteo_induction_hours=induction_hours,
         dex_conc=args.dex_conc,
         mk4_conc=args.mk4_conc,
-        dex_ref_conc=10.0,
-        mk4_ref_conc=1.0,
+        dex_ref_conc=20.0,
+        mk4_ref_conc=0.6,
         alp_basal_rate=args.alp_rb,
         alp_osteo_rate=args.alp_ro,
         alp_initial=args.alp_p0,
-        alp_a_d=args.alp_a_d,
-        alp_b_d=args.alp_b_d,
-        alp_a_k=args.alp_a_k,
-        alp_b_k=args.alp_b_k,
+        alp_a_d=args.drug_a_d,
+        alp_b_d=args.drug_b_d,
+        alp_a_k=args.drug_a_k,
+        alp_b_k=args.drug_b_k,
         collagen_basal_rate=args.collagen_rb,
         collagen_osteo_rate=args.collagen_ro,
-        collagen_a_d=args.collagen_a_d,
-        collagen_b_d=args.collagen_b_d,
-        collagen_a_k=args.collagen_a_k,
-        collagen_b_k=args.collagen_b_k,
+        collagen_a_d=args.drug_a_d,
+        collagen_b_d=args.drug_b_d,
+        collagen_a_k=args.drug_a_k,
+        collagen_b_k=args.drug_b_k,
         aa_initial=args.aa0,
         aa_half_life_hours=args.aa_half_life,
         collagen_aa_half_sat=args.collagen_aa_km,
         ha_model=args.ha_model,
         ha_initial=args.ha_h0,
         ha_osteo_rate=args.ha_ro,
-        ha_a_d=args.ha_a_d,
-        ha_b_d=args.ha_b_d,
-        ha_a_k=args.ha_a_k,
-        ha_b_k=args.ha_b_k,
+        ha_a_d=args.drug_a_d,
+        ha_b_d=args.drug_b_d,
+        ha_a_k=args.drug_a_k,
+        ha_b_k=args.drug_b_k,
         ha_tau_hours=args.ha_tau,
         ha_hill_n=args.ha_hill_n,
         ha_t_commit_hours=induction_hours + args.commit_delay,

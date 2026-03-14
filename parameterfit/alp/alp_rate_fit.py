@@ -151,10 +151,7 @@ def save_metrics_json(out_dir: Path, fit: Dict) -> Path:
 
 
 def make_style_plot(out_dir: Path, fit: Dict, *, t_max_day: float, dt_day: float) -> Tuple[Path, Path]:
-    """
-    Single main axes: data + fits (PLOS Comp Bio style)
-    Primary x-axis in hours, with a secondary top axis in days.
-    """
+    """Render fitted curves and observations."""
     out_dir.mkdir(parents=True, exist_ok=True)
 
     import matplotlib.pyplot as plt
