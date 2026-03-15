@@ -27,23 +27,18 @@ python main.py \
   --collagen-aa-km 5.0 \
   --dex-conc 0 \
   --mk4-conc 0 \
-  --alp-rb 0.107 \
-  --alp-ro 0.986 \
+  --alp-rb 0.094 \
+  --alp-ro 0.810 \
   --collagen-rb 0.00355 \
   --collagen-ro 0.0131 \
   --ha-ro 0.106 \
-
-
-
   --drug-a-d 3.79 \
   --drug-b-d 1.92 \
   --drug-a-k 4.58 \
   --drug-b-k 1.98 \
   --ha-model minimal \
-  
-
   --ha-tau 384 \
-  --ha-hill-n 3 \
+  --ha-hill-n 2 \
   --spatial-every 1 \
   --out main_out \
   --alp-plot-hours 240 \

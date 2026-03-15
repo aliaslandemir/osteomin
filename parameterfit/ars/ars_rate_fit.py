@@ -23,7 +23,7 @@ ARS = np.array([
 ], dtype=float)
 
 TAU_H = 384.0
-N_H = 3.0
+N_H = 2.0
 H0_BASELINE = 2.0
 
 

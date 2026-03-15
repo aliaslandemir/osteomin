@@ -39,38 +39,40 @@ def _metrics(y: np.ndarray, yhat: np.ndarray) -> Dict[str, float]:
     return {"SSE": sse, "MAE": mae, "RMSE": rmse, "R2": r2}
 
 
-def fit_day3_single_baseline(
+def fit_single_baseline(
     t_days: np.ndarray,
     con: np.ndarray,
     os_: np.ndarray,
     *,
-    t0_day: float = 3.0,
+    t0_day: float = 0.0,
     nonneg: bool = True,
 ) -> Dict:
     """
-    Closed-form least squares fit for r_b and r_o with a single shared baseline p0 = con(t0).
-    Uses only points with tau>0 for slope fitting.
+    Least-squares fit for p0, r_b and r_o with a single shared baseline at t0_day.
+    This supports t0_day values that are not present in the sampled timepoints.
     """
     t_days = np.asarray(t_days, dtype=float)
     con = np.asarray(con, dtype=float)
     os_ = np.asarray(os_, dtype=float)
 
-    i0 = int(np.argmin(np.abs(t_days - t0_day)))
-    p0 = float(con[i0])
-
     tau_h = 24.0 * (t_days - float(t0_day))
-    mask = tau_h > 0
+    mask = tau_h >= 0
     tau = tau_h[mask]
     if tau.size < 1:
-        raise ValueError("Need at least one timepoint after day 3 to fit slopes.")
+        raise ValueError("Need at least one timepoint at or after t0_day to fit rates.")
 
-    y_con = con[mask] - p0
-    y_os  = os_[mask] - p0
+    # Stacked linear system:
+    # con = p0 + r_b*tau
+    # os  = p0 + r_b*tau + r_o*tau
+    a_con = np.column_stack([np.ones_like(tau), tau, np.zeros_like(tau)])
+    a_os = np.column_stack([np.ones_like(tau), tau, tau])
+    A = np.vstack([a_con, a_os])
+    y = np.concatenate([con[mask], os_[mask]])
+    beta, _, _, _ = np.linalg.lstsq(A, y, rcond=None)
 
-    denom = float(np.dot(tau, tau))
-    r_b = float(np.dot(tau, y_con) / denom) if denom > 0 else 0.0
-    r_tot = float(np.dot(tau, y_os) / denom) if denom > 0 else 0.0
-    r_o = r_tot - r_b
+    p0 = float(beta[0])
+    r_b = float(beta[1])
+    r_o = float(beta[2])
 
     if nonneg:
         r_b = max(0.0, r_b)
@@ -123,7 +125,7 @@ def save_predictions_csv(out_dir: Path, fit: Dict, *, t_max_day: float, dt_day: 
         csv_path,
         mat,
         delimiter=",",
-        header="day,hour,tau_h,alp_con_pred,alp_os_pred,P0_day3,r_basal_per_h,r_osteo_extra_per_h",
+        header="day,hour,tau_h,alp_con_pred,alp_os_pred,P0_at_t0,r_basal_per_h,r_osteo_extra_per_h",
         comments="",
     )
     return csv_path
@@ -134,7 +136,7 @@ def save_metrics_json(out_dir: Path, fit: Dict) -> Path:
     js_path = out_dir / "alp_fit_metrics.json"
     payload = {
         "t0_day": fit["t0_day"],
-        "P0_day3": fit["p0"],
+        "P0_at_t0": fit["p0"],
         "r_basal_per_h": fit["r_b_h"],
         "r_osteo_extra_per_h": fit["r_o_h"],
         "metrics_overall": fit["metrics_overall"],
@@ -271,14 +273,14 @@ def make_style_plot(out_dir: Path, fit: Dict, *, t_max_day: float, dt_day: float
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--t0_day", type=float, default=3.0)
+    ap.add_argument("--t0_day", type=float, default=0.0)
     ap.add_argument("--t_max_day", type=float, default=21.0)
     ap.add_argument("--dt_day", type=float, default=0.1)
     ap.add_argument("--out_dir", type=Path, default=Path(__file__).resolve().parent / "alp_fit")
     ap.add_argument("--allow_negative", action="store_true", help="Allow negative fitted rates (default clamps to >=0).")
     args = ap.parse_args()
 
-    fit = fit_day3_single_baseline(
+    fit = fit_single_baseline(
         T_DAYS, ALP_CON, ALP_OS,
         t0_day=args.t0_day,
         nonneg=(not args.allow_negative),
@@ -290,9 +292,9 @@ def main() -> None:
     png_path, pdf_path = make_style_plot(out_dir, fit, t_max_day=args.t_max_day, dt_day=args.dt_day)
 
     met = fit["metrics_overall"]
-    print("=== ALP fit (day-3 anchored, single baseline) ===")
+    print("=== ALP fit (single baseline at t0_day) ===")
     print(f"t0_day          : {fit['t0_day']:.0f} d")
-    print(f"P0 (day3)       : {fit['p0']:.6g} assay units")
+    print(f"P0 (at t0)      : {fit['p0']:.6g} assay units")
     print(f"r_basal_P       : {fit['r_b_h']:.6g} assay units/hour")
     print(f"r_osteo_extra_P : {fit['r_o_h']:.6g} assay units/hour")
     print(f"SSE             : {met['SSE']:.6g}")
