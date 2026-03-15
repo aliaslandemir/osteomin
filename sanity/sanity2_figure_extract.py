@@ -84,6 +84,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--alp-hours", type=int, default=None, help="hour used for ALP comparison")
     parser.add_argument("--collagen-hours", type=int, default=None, help="hour used for collagen comparison")
     parser.add_argument("--hap-hours", type=int, default=None, help="hour used for HAp comparison")
+    parser.add_argument(
+        "--figure3-nodule-column",
+        choices=["none", "edge", "nn"],
+        default="nn",
+        help="replace Edge or NN geometry column in figure_3 heatmap with nodule count at final timepoint",
+    )
     return parser.parse_args()
 
 
@@ -118,7 +124,10 @@ def add_panel_label(ax: plt.Axes, label: str) -> None:
 
 
 def response_cmap() -> LinearSegmentedColormap:
-    return LinearSegmentedColormap.from_list("plos_cb_div", ["#2b6c8f", "#f7f4ee", "#b44d2a"])
+    return LinearSegmentedColormap.from_list(
+        "plos_cb_div",
+        ["#0072B2", "#f7f7f7", "#D55E00"],
+    )
 
 
 def hap_field_cmap() -> LinearSegmentedColormap:
@@ -503,7 +512,12 @@ def export_simple_heatmap(
     save_figure(fig, out_dir, stem)
 
 
-def export_ecm_overview_heatmap(df: pd.DataFrame, out_dir: Path, assay_hours: dict[str, int]) -> None:
+def export_ecm_overview_heatmap(
+    df: pd.DataFrame,
+    out_dir: Path,
+    assay_hours: dict[str, int],
+    nodule_column_mode: str = "nn",
+) -> None:
     ordered = reorder_rows(df, "final_ha_pct")
     value_cols = [
         "assay_alp_pct",
@@ -543,35 +557,47 @@ def export_ecm_overview_heatmap(df: pd.DataFrame, out_dir: Path, assay_hours: di
 
     geo_cols = ["seed_mean_radius_mean", "seed_edge_fraction_mean", "seed_mean_nearest_neighbor_mean"]
     geo_labels = ["Radius", "Edge", "NN"]
+    if nodule_column_mode in {"edge", "nn"}:
+        replace_idx = 1 if nodule_column_mode == "edge" else 2
+        geo_cols[replace_idx] = "final_nodule_count_mean"
+        geo_labels[replace_idx] = "Nodules"
     geo = ordered[geo_cols].to_numpy(dtype=float)
     geo_scaled = np.zeros_like(geo)
     for i in range(geo.shape[1]):
         col = geo[:, i]
         denom = max(float(np.max(col) - np.min(col)), 1e-12)
         geo_scaled[:, i] = (col - np.min(col)) / denom
-    geo_im = ax_geo.imshow(geo_scaled, aspect="auto", cmap=LinearSegmentedColormap.from_list("geo_grey", ["#f8fafc", "#4b5563"]), vmin=0.0, vmax=1.0)
-    ax_geo.set_xticks(np.arange(len(geo_labels)), geo_labels, rotation=25, ha="right")
+    # Use distinct column hues (Radius/Edge/Nodules) while preserving 0..1 scaling in lightness.
+    column_colors = ["#7c3aed", "#059669", "#dc2626"]
+    if nodule_column_mode == "none":
+        column_colors = ["#7c3aed", "#6b7280", "#2563eb"]
+    rgba = np.ones((geo_scaled.shape[0], geo_scaled.shape[1], 4), dtype=float)
+    for j in range(geo_scaled.shape[1]):
+        base = np.array(matplotlib.colors.to_rgb(column_colors[j]), dtype=float)
+        vals = np.clip(geo_scaled[:, j], 0.0, 1.0)
+        for i, v in enumerate(vals):
+            rgb = (1.0 - v) * np.ones(3, dtype=float) + v * base
+            rgba[i, j, :3] = rgb
+            rgba[i, j, 3] = 1.0
+    geo_im = ax_geo.imshow(rgba, aspect="auto", vmin=0.0, vmax=1.0)
+    ax_geo.set_xticks(np.arange(len(geo_labels)), geo_labels, rotation=18, ha="center")
+    ax_geo.tick_params(axis="x", pad=8)
     ax_geo.tick_params(axis="y", labelleft=False, length=0)
     for spine in ax_geo.spines.values():
         spine.set_visible(False)
     for i in range(geo.shape[0]):
         for j in range(geo.shape[1]):
-            ax_geo.text(j, i, f"{geo[i, j]:.2f}", ha="center", va="center", fontsize=7.0, color=COLORS["ink"])
+            if geo_labels[j] == "Nodules":
+                val_txt = f"{geo[i, j]:.1f}"
+            else:
+                val_txt = f"{geo[i, j]:.2f}"
+            ax_geo.text(j, i, val_txt, ha="center", va="center", fontsize=7.0, color=COLORS["ink"])
 
     fig.suptitle("ECM response overview heatmap", fontsize=15, fontweight="semibold", y=0.955)
     cbar = fig.colorbar(im, ax=ax_main, fraction=0.025, pad=0.015)
     cbar.set_label("% difference vs C01")
-    geo_cbar = fig.colorbar(
-        ScalarMappable(
-            norm=Normalize(vmin=0.0, vmax=1.0),
-            cmap=LinearSegmentedColormap.from_list("geo_grey", ["#f8fafc", "#4b5563"]),
-        ),
-        ax=ax_geo,
-        fraction=0.06,
-        pad=0.035,
-    )
-    geo_cbar.set_label("Scaled geometry")
-    fig.subplots_adjust(top=0.88, right=0.95)
+    # Geometry colorbar removed because columns use distinct hues; numeric values are shown in-cell.
+    fig.subplots_adjust(top=0.88, right=0.95, bottom=0.13)
     save_figure(fig, out_dir, "figure_3_ecm_overview_heatmap")
 
 
@@ -813,14 +839,13 @@ def _spatial_signature(ha: np.ndarray, state: np.ndarray) -> np.ndarray:
     return signature
 
 
-def _render_state_thumb(ax: plt.Axes, ha: np.ndarray, state: np.ndarray, vmax: float, title: str | None = None) -> None:
-    yy_pre, xx_pre = np.where(state == 1)
-    yy_ob, xx_ob = np.where(state == 2)
-    ax.imshow(ha, origin="upper", cmap=hap_field_cmap(), vmin=0.0, vmax=vmax)
-    if xx_pre.size:
-        ax.scatter(xx_pre, yy_pre, s=5.5, c="#8be9fd", edgecolors="none", alpha=0.95)
-    if xx_ob.size:
-        ax.scatter(xx_ob, yy_ob, s=6.5, c="#fff1a8", edgecolors="none", alpha=0.98)
+def _render_state_thumb(
+    ax: plt.Axes,
+    ha: np.ndarray,
+    vmax: float,
+    title: str | None = None,
+) -> None:
+    ax.imshow(ha, origin="upper", cmap="viridis", vmin=0.0, vmax=vmax)
     ax.set_xticks([])
     ax.set_yticks([])
     ax.set_aspect("equal")
@@ -830,20 +855,22 @@ def _render_state_thumb(ax: plt.Axes, ha: np.ndarray, state: np.ndarray, vmax: f
         ax.set_title(title, loc="left", fontsize=8.2, pad=2.5)
 
 
-def export_spatial_gallery(df: pd.DataFrame, out_dir: Path, assay_hours: dict[str, int]) -> None:
+def export_spatial_gallery(
+    df: pd.DataFrame,
+    out_dir: Path,
+    *,
+    target_day: int,
+    title: str,
+    stem: str,
+) -> None:
     ordered = df.sort_values(["assay_ha_pct", "condition_index"], ascending=[False, True]).reset_index(drop=True)
     labels = ordered["condition_label"].tolist()
-    target_day = max(0, int(round(float(assay_hours["ha"]) / 24.0)))
-    states: list[np.ndarray] = []
     has: list[np.ndarray] = []
     for _, row in ordered.iterrows():
         rep_dir = Path(str(row["representative_out_dir"]))
         ha_path = _find_grid(rep_dir, "ha", target_day)
-        state_path = _find_grid(rep_dir, "state", target_day)
         ha = np.load(ha_path).astype(float)
-        state = np.load(state_path).astype(float)
         has.append(ha)
-        states.append(state)
     vmax_ha = max(max(float(np.max(ha)) for ha in has), 1e-9)
 
     n_conditions = len(labels)
@@ -852,11 +879,11 @@ def export_spatial_gallery(df: pd.DataFrame, out_dir: Path, assay_hours: dict[st
     fig = plt.figure(figsize=(16.6, 8.8))
     gallery_gs = gridspec.GridSpec(nrows, ncols, figure=fig, wspace=0.03, hspace=0.12)
 
-    for idx, (ha, state, label) in enumerate(zip(has, states, labels)):
+    for idx, (ha, label) in enumerate(zip(has, labels)):
         r = idx // ncols
         c = idx % ncols
         gax = fig.add_subplot(gallery_gs[r, c])
-        _render_state_thumb(gax, ha, state, vmax_ha, title=label)
+        _render_state_thumb(gax, ha, vmax_ha, title=label)
         if int(ordered.iloc[idx]["condition_index"]) == 1:
             for spine in gax.spines.values():
                 spine.set_visible(True)
@@ -868,9 +895,9 @@ def export_spatial_gallery(df: pd.DataFrame, out_dir: Path, assay_hours: dict[st
         gax = fig.add_subplot(gallery_gs[r, c])
         gax.axis("off")
 
-    fig.suptitle(f"Supplementary Figure S1. Final spatial-state gallery at HAp {assay_hours['ha']} h", fontsize=17, fontweight="semibold", y=0.985)
+    fig.suptitle(title, fontsize=17, fontweight="semibold", y=0.985)
     fig.subplots_adjust(top=0.92, right=0.985, left=0.03, bottom=0.035)
-    save_figure(fig, out_dir, "supplementary_figure_s1_spatial_gallery")
+    save_figure(fig, out_dir, stem)
 
 
 def main() -> None:
@@ -888,10 +915,21 @@ def main() -> None:
     summary = prep_summary(condition_summary)
     export_assay_triptych(summary, stats_df, out_dir, assay_hours)
     export_hap_collagen_map(summary, out_dir, assay_hours)
-    export_ecm_overview_heatmap(summary, out_dir, assay_hours)
+    export_ecm_overview_heatmap(
+        summary,
+        out_dir,
+        assay_hours,
+        nodule_column_mode=args.figure3_nodule_column,
+    )
     export_ecm_fingerprint(summary, replicate_df, out_dir, assay_hours)
     export_geometry_heatmap(summary, out_dir)
-    export_spatial_gallery(summary, out_dir, assay_hours)
+    export_spatial_gallery(
+        summary,
+        out_dir,
+        target_day=max(0, int(round(float(assay_hours["ha"]) / 24.0))),
+        title=f"Spatial HAp Heatmap Gallery ({assay_hours['ha']} h)",
+        stem="supplementary_figure_s1_spatial_gallery",
+    )
     print(f"Wrote figures to {out_dir}")
 
 

@@ -96,7 +96,7 @@ def style_axes(ax: plt.Axes, grid_axis: str | None = "y") -> None:
 
 
 def response_cmap() -> LinearSegmentedColormap:
-    return LinearSegmentedColormap.from_list("dose_div", ["#2b6c8f", "#f8f5ef", "#b44d2a"])
+    return matplotlib.colormaps["RdBu_r"]
 
 
 def sequential_cmap(name: str, base: str) -> LinearSegmentedColormap:
@@ -361,32 +361,60 @@ def export_overview_heatmap(df: pd.DataFrame, out_dir: Path, assay_hours: dict[s
         ("assay_alp_pct_vs_control", f"ALP {assay_hours['alp']} h"),
         ("assay_collagen_pct_vs_control", f"Collagen {assay_hours['collagen']} h"),
         ("assay_ha_pct_vs_control", f"HAp {assay_hours['ha']} h"),
-        ("final_live_pct_vs_control", "Final live"),
     ]
     ordered = df.sort_values(["mk4_conc_uM", "dex_conc_nM"]).reset_index(drop=True)
     values = ordered[[m[0] for m in metrics]].to_numpy(dtype=float)
-    vmax = max(1.0, float(np.max(np.abs(values))))
+    finite_vals = values[np.isfinite(values)]
+    vmin = float(np.min(finite_vals)) if finite_vals.size else 0.0
+    # Robust upper bound keeps tones calm when a few conditions are very large.
+    vmax = float(np.nanpercentile(finite_vals, 92.0)) if finite_vals.size else 1.0
+    vmax = max(vmax, float(np.max(finite_vals)) * 0.55 if finite_vals.size else 1.0)
+    if vmax <= vmin:
+        vmax = vmin + 1.0
 
-    fig, ax = plt.subplots(figsize=(8.8, 8.4))
+    calm_cmap = LinearSegmentedColormap.from_list(
+        "calm_blue",
+        ["#f9fbfd", "#edf4f8", "#ddeaf3", "#c7dceb", "#abc7de", "#86abc8"],
+    )
+    norm = Normalize(vmin=vmin, vmax=vmax)
+
+    fig, ax = plt.subplots(figsize=(9.4, 8.6))
     im = ax.imshow(
         values,
         aspect="auto",
-        cmap=response_cmap(),
-        norm=TwoSlopeNorm(vmin=-vmax, vcenter=0.0, vmax=vmax),
+        cmap=calm_cmap,
+        norm=norm,
     )
-    ax.set_xticks(np.arange(len(metrics)), [m[1] for m in metrics], rotation=25, ha="right")
+    ax.set_xticks(np.arange(len(metrics)), [m[1] for m in metrics], rotation=15, ha="right")
     row_labels = [
         f"C{int(row.condition_index):02d} | D={row.dex_conc_nM:.4g} nM | K={row.mk4_conc_uM:.4g} uM"
         for row in ordered.itertuples()
     ]
     ax.set_yticks(np.arange(len(row_labels)), row_labels)
     ax.tick_params(axis="y", length=0)
+    ax.tick_params(axis="x", pad=8)
+    # Subtle cell boundaries improve scanning in dense matrices.
+    ax.set_xticks(np.arange(-0.5, values.shape[1], 1), minor=True)
+    ax.set_yticks(np.arange(-0.5, values.shape[0], 1), minor=True)
+    ax.grid(which="minor", color="#ffffff", linewidth=0.9, alpha=0.75)
+    ax.tick_params(which="minor", bottom=False, left=False)
     for i in range(values.shape[0]):
         for j in range(values.shape[1]):
-            ax.text(j, i, f"{values[i, j]:+.1f}", ha="center", va="center", fontsize=7.6, color=COLORS["ink"])
+            val = values[i, j]
+            ax.text(
+                j,
+                i,
+                f"{val:.1f}",
+                ha="center",
+                va="center",
+                fontsize=7.9,
+                color=COLORS["ink"],
+            )
     ax.set_title("Dose overview heatmap", pad=12)
     cbar = fig.colorbar(im, ax=ax, fraction=0.032, pad=0.025)
     cbar.set_label("% difference vs control")
+    cbar.ax.tick_params(labelsize=8.5)
+    fig.subplots_adjust(left=0.22, right=0.93, bottom=0.16, top=0.90)
     save_figure(fig, out_dir, "figure_3_ecm_overview_heatmap")
 
 
