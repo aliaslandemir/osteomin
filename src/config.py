@@ -44,12 +44,16 @@ class FieldConfig:
     alp_basal_rate: float = 0.0
     alp_osteo_rate: float = 0.0
     alp_initial: float = 0.0
+    alp_dex_ref_conc: float = 20.0
+    alp_mk4_ref_conc: float = 0.6
     alp_a_d: float = 0.0
     alp_b_d: float = 0.0
     alp_a_k: float = 0.0
     alp_b_k: float = 0.0
     collagen_basal_rate: float = 0.0
     collagen_osteo_rate: float = 0.0
+    collagen_dex_ref_conc: float = 20.0
+    collagen_mk4_ref_conc: float = 8.0
     collagen_a_d: float = 0.0
     collagen_b_d: float = 0.0
     collagen_a_k: float = 0.0
@@ -60,6 +64,8 @@ class FieldConfig:
     ha_model: str = "minimal"
     ha_initial: float = 0.0
     ha_osteo_rate: float = 0.0
+    ha_dex_ref_conc: float = 20.0
+    ha_mk4_ref_conc: float = 0.7
     ha_a_d: float = 0.0
     ha_b_d: float = 0.0
     ha_a_k: float = 0.0

@@ -4,51 +4,82 @@
 
 Entry point for OsteoMin.
 
+
 python main.py \
+  --out main_out \
+  --seed 12345 \
+  --runtime \
+  \
   --hours 672 \
   --cells 72 \
-  --seed-mode random \
-  --seed 12345 \
-  --w 33 --h 33 \
+  \
+  --w 33 \
+  --h 33 \
   --boundary-mode periodic \
-  --media-interval 48 \
-  --random-move --move-prob 0.27 --max-moves 1 \
-  --proliferation --ob-div-prob 0.0 \
-  --min-div-hours 38 --max-div-hours 52 \
-  --apoptosis --apoptosis-prob 0.0010 --apoptosis-osteo 0.0 \
-  --osteogenic-commitment \
-  --osteo-induction-hours 72 \
-  --commit-delay 48 \
-  --commit-k 0.0125 \
+  --seed-mode random \
   --nodules 40n \
+  \
+  --media-interval 48 \
   --secretion \
   --aa0 50.0 \
   --aa-half-life 8 \
   --collagen-aa-km 5.0 \
+  \
+  --random-move \
+  --move-prob 0.27 \
+  --max-moves 1 \
+  --proliferation \
+  --ob-div-prob 0.0 \
+  --min-div-hours 38 \
+  --max-div-hours 52 \
+  --apoptosis \
+  --apoptosis-prob 0.0010 \
+  --apoptosis-osteo 0.0 \
+  \
+  --osteogenic-commitment \
+  --osteo-induction-hours 72 \
+  --commit-delay 48 \
+  --commit-k 0.0125 \
+  \
   --dex-conc 0 \
   --mk4-conc 0 \
+  \
   --alp-rb 0.094 \
   --alp-ro 0.810 \
   --collagen-rb 0.00355 \
   --collagen-ro 0.0131 \
   --ha-ro 0.106 \
-  --drug-a-d 3.79 \
-  --drug-b-d 1.92 \
-  --drug-a-k 4.58 \
-  --drug-b-k 1.98 \
+  \
+  --alp-dex-ref 20 \
+  --collagen-dex-ref 60 \
+  --ars-dex-ref 50 \
+  --alp-a-d 3.79 \
+  --alp-b-d 1.92 \
+  --collagen-a-d 2.42 \
+  --collagen-b-d 0.770 \
+  --ha-a-d 1.14 \
+  --ha-b-d 0.365 \
+  \
+  --alp-mk4-ref 0.6 \
+  --collagen-mk4-ref 8 \
+  --ars-mk4-ref 0.7 \
+  --alp-a-k 0.56 \
+  --alp-b-k 0.471 \
+  --collagen-a-k 0.915 \
+  --collagen-b-k 0.167 \
+  --ha-a-k 4.69 \
+  --ha-b-k 2.21 \
+  \
   --ha-model minimal \
   --ha-tau 384 \
   --ha-hill-n 2 \
+  \
   --spatial-every 1 \
-  --out main_out \
   --alp-plot-hours 240 \
   --collagen-plot-hours 336 \
   --mineral-plot-hours 672 \
   --no-hourly-exports \
-  --alp-snapshopts \
-  --runtime
-
-
+  --alp-snapshots
 
 
 
@@ -96,7 +127,9 @@ def _grid_seed_coords(w: int, h: int, spacing: int) -> list[tuple[int, int]]:
     return coords
 
 
-def _export_alp_snapshots(cond_outdir: Path, model: OsteoModel, total_days: int) -> None:
+def _export_alp_snapshots(
+    cond_outdir: Path, model: OsteoModel, total_days: int
+) -> None:
     alp_dir = cond_outdir / "alp_snapshots"
     all_days = range(total_days)
     alp_vmax = _global_field_max(model.grids_dir, "alp", all_days)
@@ -171,14 +204,14 @@ def parse_args() -> argparse.Namespace:
         "--dex",
         type=float,
         default=0.0,
-        help="Dex concentration c_D used to compute log10(c_D/c_D0) with c_D0 fixed to 20 nM; c_D<=0 is treated as baseline (x_D=0)",
+        help="Dex concentration c_D in nM; c_D<=0 is treated as baseline (x_D=0)",
     )
     p.add_argument(
         "--mk4-conc",
         "--mk4",
         type=float,
         default=0.0,
-        help="MK-4 concentration c_K used to compute log10(c_K/c_K0) with c_K0 fixed to 0.6 uM; c_K<=0 is treated as baseline (x_K=0)",
+        help="MK-4 concentration c_K in uM; c_K<=0 is treated as baseline (x_K=0)",
     )
     p.add_argument(
         "--alp-rb",
@@ -199,44 +232,146 @@ def parse_args() -> argparse.Namespace:
         help="initial ALP field baseline P0 applied at simulation start",
     )
     p.add_argument(
+        "--dex-a",
         "--drug-a-d",
-        "--alp-a-d",
-        "--collagen-a-d",
-        "--ha-a-d",
-        dest="drug_a_d",
+        dest="dex_a",
         type=float,
-        default=3.79,
-        help="shared Dex response height a_D used for ALP, collagen, and HAp",
+        default=None,
+        help="deprecated shared Dex response height fallback applied when endpoint-specific a_D values are not set",
     )
     p.add_argument(
+        "--dex-b",
         "--drug-b-d",
-        "--alp-b-d",
-        "--collagen-b-d",
-        "--ha-b-d",
-        dest="drug_b_d",
+        dest="dex_b",
         type=float,
-        default=1.92,
-        help="shared Dex response curvature b_D used for ALP, collagen, and HAp",
+        default=None,
+        help="deprecated shared Dex response curvature fallback applied when endpoint-specific b_D values are not set",
+    )
+    p.add_argument(
+        "--alp-dex-ref",
+        type=float,
+        default=20.0,
+        help="ALP-specific Dex reference concentration c_D0 in nM",
+    )
+    p.add_argument(
+        "--collagen-dex-ref",
+        type=float,
+        default=60.0,
+        help="collagen-specific Dex reference concentration c_D0 in nM",
+    )
+    p.add_argument(
+        "--ha-dex-ref",
+        "--ars-dex-ref",
+        dest="ha_dex_ref",
+        type=float,
+        default=50.0,
+        help="mineral/ARS-specific Dex reference concentration c_D0 in nM",
+    )
+    p.add_argument(
+        "--alp-a-d",
+        type=float,
+        default=None,
+        help="ALP-specific Dex response height a_D",
+    )
+    p.add_argument(
+        "--alp-b-d",
+        type=float,
+        default=None,
+        help="ALP-specific Dex response curvature b_D",
+    )
+    p.add_argument(
+        "--collagen-a-d",
+        type=float,
+        default=None,
+        help="collagen-specific Dex response height a_D",
+    )
+    p.add_argument(
+        "--collagen-b-d",
+        type=float,
+        default=None,
+        help="collagen-specific Dex response curvature b_D",
+    )
+    p.add_argument(
+        "--ha-a-d",
+        type=float,
+        default=None,
+        help="mineral/ARS-specific Dex response height a_D",
+    )
+    p.add_argument(
+        "--ha-b-d",
+        type=float,
+        default=None,
+        help="mineral/ARS-specific Dex response curvature b_D",
     )
     p.add_argument(
         "--drug-a-k",
-        "--alp-a-k",
-        "--collagen-a-k",
-        "--ha-a-k",
         dest="drug_a_k",
         type=float,
-        default=4.58,
-        help="shared MK-4 response height a_K used for ALP, collagen, and HAp",
+        default=None,
+        help="deprecated shared MK-4 response height fallback applied when endpoint-specific a_K values are not set",
     )
     p.add_argument(
         "--drug-b-k",
-        "--alp-b-k",
-        "--collagen-b-k",
-        "--ha-b-k",
         dest="drug_b_k",
         type=float,
-        default=1.98,
-        help="shared MK-4 response curvature b_K used for ALP, collagen, and HAp",
+        default=None,
+        help="deprecated shared MK-4 response curvature fallback applied when endpoint-specific b_K values are not set",
+    )
+    p.add_argument(
+        "--alp-mk4-ref",
+        type=float,
+        default=0.6,
+        help="ALP-specific MK-4 reference concentration c_K0 in uM",
+    )
+    p.add_argument(
+        "--collagen-mk4-ref",
+        type=float,
+        default=8.0,
+        help="collagen-specific MK-4 reference concentration c_K0 in uM",
+    )
+    p.add_argument(
+        "--ha-mk4-ref",
+        "--ars-mk4-ref",
+        dest="ha_mk4_ref",
+        type=float,
+        default=0.7,
+        help="mineral/ARS-specific MK-4 reference concentration c_K0 in uM",
+    )
+    p.add_argument(
+        "--alp-a-k",
+        type=float,
+        default=None,
+        help="ALP-specific MK-4 response height a_K",
+    )
+    p.add_argument(
+        "--alp-b-k",
+        type=float,
+        default=None,
+        help="ALP-specific MK-4 response curvature b_K",
+    )
+    p.add_argument(
+        "--collagen-a-k",
+        type=float,
+        default=None,
+        help="collagen-specific MK-4 response height a_K",
+    )
+    p.add_argument(
+        "--collagen-b-k",
+        type=float,
+        default=None,
+        help="collagen-specific MK-4 response curvature b_K",
+    )
+    p.add_argument(
+        "--ha-a-k",
+        type=float,
+        default=None,
+        help="mineral/ARS-specific MK-4 response height a_K",
+    )
+    p.add_argument(
+        "--ha-b-k",
+        type=float,
+        default=None,
+        help="mineral/ARS-specific MK-4 response curvature b_K",
     )
     p.add_argument(
         "--collagen-rb",
@@ -546,7 +681,9 @@ def parse_args() -> argparse.Namespace:
     )
     p.set_defaults(hourly_exports=False)
     p.add_argument(
+        "--alp-snapshots",
         "--alp-snapshopts",
+        dest="alp_snapshots",
         action="store_true",
         help="create ALP field PDFs in out/alp_snapshots",
     )
@@ -604,6 +741,67 @@ def main() -> None:
     args = parse_args()
     outdir = Path(args.out)
     outdir.mkdir(parents=True, exist_ok=True)
+
+    alp_a_d = (
+        float(args.alp_a_d)
+        if args.alp_a_d is not None
+        else float(args.dex_a) if args.dex_a is not None else 3.79
+    )
+    alp_b_d = (
+        float(args.alp_b_d)
+        if args.alp_b_d is not None
+        else float(args.dex_b) if args.dex_b is not None else 1.92
+    )
+    collagen_a_d = (
+        float(args.collagen_a_d)
+        if args.collagen_a_d is not None
+        else float(args.dex_a) if args.dex_a is not None else 2.42
+    )
+    collagen_b_d = (
+        float(args.collagen_b_d)
+        if args.collagen_b_d is not None
+        else float(args.dex_b) if args.dex_b is not None else 0.770
+    )
+    ha_a_d = (
+        float(args.ha_a_d)
+        if args.ha_a_d is not None
+        else float(args.dex_a) if args.dex_a is not None else 1.14
+    )
+    ha_b_d = (
+        float(args.ha_b_d)
+        if args.ha_b_d is not None
+        else float(args.dex_b) if args.dex_b is not None else 0.365
+    )
+    alp_a_k = (
+        float(args.alp_a_k)
+        if args.alp_a_k is not None
+        else float(args.drug_a_k) if args.drug_a_k is not None else 0.56
+    )
+    alp_b_k = (
+        float(args.alp_b_k)
+        if args.alp_b_k is not None
+        else float(args.drug_b_k) if args.drug_b_k is not None else 0.471
+    )
+    collagen_a_k = (
+        float(args.collagen_a_k)
+        if args.collagen_a_k is not None
+        else float(args.drug_a_k) if args.drug_a_k is not None else 0.915
+    )
+    collagen_b_k = (
+        float(args.collagen_b_k)
+        if args.collagen_b_k is not None
+        else float(args.drug_b_k) if args.drug_b_k is not None else 0.167
+    )
+    ha_a_k = (
+        float(args.ha_a_k)
+        if args.ha_a_k is not None
+        else float(args.drug_a_k) if args.drug_a_k is not None else 4.69
+    )
+    ha_b_k = (
+        float(args.ha_b_k)
+        if args.ha_b_k is not None
+        else float(args.drug_b_k) if args.drug_b_k is not None else 2.21
+    )
 
     args.move_prob = max(0.0, min(1.0, args.move_prob))
     args.ob_div_prob = max(0.0, min(1.0, args.ob_div_prob))
@@ -664,26 +862,32 @@ def main() -> None:
         alp_basal_rate=args.alp_rb,
         alp_osteo_rate=args.alp_ro,
         alp_initial=args.alp_p0,
-        alp_a_d=args.drug_a_d,
-        alp_b_d=args.drug_b_d,
-        alp_a_k=args.drug_a_k,
-        alp_b_k=args.drug_b_k,
+        alp_dex_ref_conc=args.alp_dex_ref,
+        alp_mk4_ref_conc=args.alp_mk4_ref,
+        alp_a_d=alp_a_d,
+        alp_b_d=alp_b_d,
+        alp_a_k=alp_a_k,
+        alp_b_k=alp_b_k,
         collagen_basal_rate=args.collagen_rb,
         collagen_osteo_rate=args.collagen_ro,
-        collagen_a_d=args.drug_a_d,
-        collagen_b_d=args.drug_b_d,
-        collagen_a_k=args.drug_a_k,
-        collagen_b_k=args.drug_b_k,
+        collagen_dex_ref_conc=args.collagen_dex_ref,
+        collagen_mk4_ref_conc=args.collagen_mk4_ref,
+        collagen_a_d=collagen_a_d,
+        collagen_b_d=collagen_b_d,
+        collagen_a_k=collagen_a_k,
+        collagen_b_k=collagen_b_k,
         aa_initial=args.aa0,
         aa_half_life_hours=args.aa_half_life,
         collagen_aa_half_sat=args.collagen_aa_km,
         ha_model=args.ha_model,
         ha_initial=args.ha_h0,
         ha_osteo_rate=args.ha_ro,
-        ha_a_d=args.drug_a_d,
-        ha_b_d=args.drug_b_d,
-        ha_a_k=args.drug_a_k,
-        ha_b_k=args.drug_b_k,
+        ha_dex_ref_conc=args.ha_dex_ref,
+        ha_mk4_ref_conc=args.ha_mk4_ref,
+        ha_a_d=ha_a_d,
+        ha_b_d=ha_b_d,
+        ha_a_k=ha_a_k,
+        ha_b_k=ha_b_k,
         ha_tau_hours=args.ha_tau,
         ha_hill_n=args.ha_hill_n,
         ha_t_commit_hours=induction_hours + args.commit_delay,
@@ -752,7 +956,7 @@ def main() -> None:
             collagen_plot_hours=args.collagen_plot_hours,
             mineral_plot_hours=args.mineral_plot_hours,
         )
-        if args.alp_snapshopts:
+        if args.alp_snapshots:
             _export_alp_snapshots(cond_outdir, model, model.days)
 
         total_days = model.days

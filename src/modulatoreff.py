@@ -21,25 +21,49 @@ def log_concentration_offset(conc: float, ref_conc: float) -> float:
 
 
 def drug_response_summary(field_cfg: object) -> dict[str, float | str]:
-    x_d = log_concentration_offset(
-        float(getattr(field_cfg, "dex_conc", 0.0)),
-        max(1e-12, float(getattr(field_cfg, "dex_ref_conc", 20.0))),
+    dex_conc = float(getattr(field_cfg, "dex_conc", 0.0))
+    mk4_conc = float(getattr(field_cfg, "mk4_conc", 0.0))
+    alp_dex_ref = max(1e-12, float(getattr(field_cfg, "alp_dex_ref_conc", getattr(field_cfg, "dex_ref_conc", 20.0))))
+    collagen_dex_ref = max(
+        1e-12,
+        float(getattr(field_cfg, "collagen_dex_ref_conc", getattr(field_cfg, "dex_ref_conc", 20.0))),
     )
-    x_k = log_concentration_offset(
-        float(getattr(field_cfg, "mk4_conc", 0.0)),
-        max(1e-12, float(getattr(field_cfg, "mk4_ref_conc", 0.6))),
+    ha_dex_ref = max(1e-12, float(getattr(field_cfg, "ha_dex_ref_conc", getattr(field_cfg, "dex_ref_conc", 20.0))))
+    alp_mk4_ref = max(
+        1e-12,
+        float(getattr(field_cfg, "alp_mk4_ref_conc", getattr(field_cfg, "mk4_ref_conc", 0.6))),
+    )
+    collagen_mk4_ref = max(
+        1e-12,
+        float(getattr(field_cfg, "collagen_mk4_ref_conc", getattr(field_cfg, "mk4_ref_conc", 8.0))),
+    )
+    ha_mk4_ref = max(
+        1e-12,
+        float(getattr(field_cfg, "ha_mk4_ref_conc", getattr(field_cfg, "mk4_ref_conc", 0.7))),
     )
 
-    i_d = 1.0 if float(getattr(field_cfg, "dex_conc", 0.0)) > 0.0 else 0.0
-    i_k = 1.0 if float(getattr(field_cfg, "mk4_conc", 0.0)) > 0.0 else 0.0
-    x_d_sq = x_d * x_d
-    x_k_sq = x_k * x_k
+    i_d = 1.0 if dex_conc > 0.0 else 0.0
+    i_k = 1.0 if mk4_conc > 0.0 else 0.0
 
     def _factors(prefix: str) -> tuple[float, float, float]:
+        dex_ref = {
+            "alp": alp_dex_ref,
+            "collagen": collagen_dex_ref,
+            "ha": ha_dex_ref,
+        }[prefix]
+        mk4_ref = {
+            "alp": alp_mk4_ref,
+            "collagen": collagen_mk4_ref,
+            "ha": ha_mk4_ref,
+        }[prefix]
         a_d = float(getattr(field_cfg, f"{prefix}_a_d", 0.0))
         b_d = float(getattr(field_cfg, f"{prefix}_b_d", 0.0))
         a_k = float(getattr(field_cfg, f"{prefix}_a_k", 0.0))
         b_k = float(getattr(field_cfg, f"{prefix}_b_k", 0.0))
+        x_d = log_concentration_offset(dex_conc, dex_ref)
+        x_k = log_concentration_offset(mk4_conc, mk4_ref)
+        x_d_sq = x_d * x_d
+        x_k_sq = x_k * x_k
         m_d = max(0.0, 1.0 + i_d * (a_d - b_d * x_d_sq))
         m_k = max(0.0, 1.0 + i_k * (a_k - b_k * x_k_sq))
         return m_d, m_k, m_d * m_k
@@ -50,19 +74,27 @@ def drug_response_summary(field_cfg: object) -> dict[str, float | str]:
     alp_m_d, alp_m_k, alp_m = _factors("alp")
     collagen_m_d, collagen_m_k, collagen_m = _factors("collagen")
     ha_m_d, ha_m_k, ha_m = _factors("ha")
+    alp_x_d = log_concentration_offset(dex_conc, alp_dex_ref)
+    collagen_x_d = log_concentration_offset(dex_conc, collagen_dex_ref)
+    ha_x_d = log_concentration_offset(dex_conc, ha_dex_ref)
+    alp_x_k = log_concentration_offset(mk4_conc, alp_mk4_ref)
+    collagen_x_k = log_concentration_offset(mk4_conc, collagen_mk4_ref)
+    ha_x_k = log_concentration_offset(mk4_conc, ha_mk4_ref)
 
     return {
-        "dex_conc_nM": float(getattr(field_cfg, "dex_conc", 0.0)),
-        "mk4_conc_uM": float(getattr(field_cfg, "mk4_conc", 0.0)),
+        "dex_conc_nM": dex_conc,
+        "mk4_conc_uM": mk4_conc,
         "dex_ref_nM": float(getattr(field_cfg, "dex_ref_conc", 20.0)),
         "mk4_ref_uM": float(getattr(field_cfg, "mk4_ref_conc", 0.6)),
-        "x_D": float(x_d),
-        "x_D_sq": float(x_d_sq),
-        "x_K": float(x_k),
-        "x_K_sq": float(x_k_sq),
         "I_D": float(i_d),
         "I_K": float(i_k),
         "alp_base": alp_base,
+        "alp_dex_ref_nM": alp_dex_ref,
+        "alp_x_D": float(alp_x_d),
+        "alp_x_D_sq": float(alp_x_d * alp_x_d),
+        "alp_mk4_ref_uM": alp_mk4_ref,
+        "alp_x_K": float(alp_x_k),
+        "alp_x_K_sq": float(alp_x_k * alp_x_k),
         "alp_a_d": float(getattr(field_cfg, "alp_a_d", 0.0)),
         "alp_b_d": float(getattr(field_cfg, "alp_b_d", 0.0)),
         "alp_a_k": float(getattr(field_cfg, "alp_a_k", 0.0)),
@@ -72,6 +104,12 @@ def drug_response_summary(field_cfg: object) -> dict[str, float | str]:
         "alp_m_total": float(alp_m),
         "alp_effective": float(max(0.0, alp_base * alp_m)),
         "collagen_base": collagen_base,
+        "collagen_dex_ref_nM": collagen_dex_ref,
+        "collagen_x_D": float(collagen_x_d),
+        "collagen_x_D_sq": float(collagen_x_d * collagen_x_d),
+        "collagen_mk4_ref_uM": collagen_mk4_ref,
+        "collagen_x_K": float(collagen_x_k),
+        "collagen_x_K_sq": float(collagen_x_k * collagen_x_k),
         "collagen_a_d": float(getattr(field_cfg, "collagen_a_d", 0.0)),
         "collagen_b_d": float(getattr(field_cfg, "collagen_b_d", 0.0)),
         "collagen_a_k": float(getattr(field_cfg, "collagen_a_k", 0.0)),
@@ -81,6 +119,12 @@ def drug_response_summary(field_cfg: object) -> dict[str, float | str]:
         "collagen_m_total": float(collagen_m),
         "collagen_effective_pre_aa": float(max(0.0, collagen_base * collagen_m)),
         "ha_base": ha_base,
+        "ha_dex_ref_nM": ha_dex_ref,
+        "ha_x_D": float(ha_x_d),
+        "ha_x_D_sq": float(ha_x_d * ha_x_d),
+        "ha_mk4_ref_uM": ha_mk4_ref,
+        "ha_x_K": float(ha_x_k),
+        "ha_x_K_sq": float(ha_x_k * ha_x_k),
         "ha_a_d": float(getattr(field_cfg, "ha_a_d", 0.0)),
         "ha_b_d": float(getattr(field_cfg, "ha_b_d", 0.0)),
         "ha_a_k": float(getattr(field_cfg, "ha_a_k", 0.0)),
@@ -102,12 +146,16 @@ def print_drug_response_summary(field_cfg: object) -> None:
     summary = drug_response_summary(field_cfg)
     print("[drug-response]")
     print(
-        f"Dex: c_D={summary['dex_conc_nM']:.6g} nM, c_D0={summary['dex_ref_nM']:.6g} nM, "
-        f"x_D=log10(c_D/c_D0)={summary['x_D']:.6g}, x_D^2={summary['x_D_sq']:.6g}"
+        f"Dex: c_D={summary['dex_conc_nM']:.6g} nM; "
+        f"ALP c_D0={summary['alp_dex_ref_nM']:.6g}, x_D={summary['alp_x_D']:.6g}; "
+        f"Collagen c_D0={summary['collagen_dex_ref_nM']:.6g}, x_D={summary['collagen_x_D']:.6g}; "
+        f"HAp c_D0={summary['ha_dex_ref_nM']:.6g}, x_D={summary['ha_x_D']:.6g}"
     )
     print(
-        f"MK-4: c_K={summary['mk4_conc_uM']:.6g} uM, c_K0={summary['mk4_ref_uM']:.6g} uM, "
-        f"x_K=log10(c_K/c_K0)={summary['x_K']:.6g}, x_K^2={summary['x_K_sq']:.6g}"
+        f"MK-4: c_K={summary['mk4_conc_uM']:.6g} uM; "
+        f"ALP c_K0={summary['alp_mk4_ref_uM']:.6g}, x_K={summary['alp_x_K']:.6g}; "
+        f"Collagen c_K0={summary['collagen_mk4_ref_uM']:.6g}, x_K={summary['collagen_x_K']:.6g}; "
+        f"HAp c_K0={summary['ha_mk4_ref_uM']:.6g}, x_K={summary['ha_x_K']:.6g}"
     )
     print(
         f"ALP osteogenic term: {summary['alp_base']:.6g} * "

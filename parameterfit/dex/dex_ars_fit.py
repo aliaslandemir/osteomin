@@ -1,8 +1,7 @@
-
 #!/usr/bin/env python3
 """
-Phenomenological Dex dose-response fit for ALP using a symmetric
-log-parabolic model centered at 20 nM.
+Phenomenological Dex dose-response fit for ARS using a symmetric
+log-parabolic model centered at 50 nM.
 """
 
 from __future__ import annotations
@@ -15,10 +14,12 @@ from typing import Dict
 import numpy as np
 
 
-DEX_DOSE_nM = np.array([0.0, 10.0, 100.0], dtype=float)
-ARS_REL = np.array([1.0, 2.0, 2.21], dtype=float)
+DEX_DOSE_nM = np.array([0.0, 1.0, 10.0, 100.0], dtype=float)
+# The 1 nM point is linearly interpolated between the measured 0 and 10 nM values.
+ARS_REL = np.array([3.5, 3.82, 6.7, 7.5], dtype=float)
 
-CD0_nM = 10.0
+CD0_nM = 50.0
+
 
 def dex_modulation_mP(
     c_dex_nM: np.ndarray, a_d: float, b_d: float, c_d0_nM: float = CD0_nM
@@ -118,13 +119,17 @@ def save_outputs(
 
     positive_doses = DEX_DOSE_nM[DEX_DOSE_nM > 0.0]
     if positive_doses.size:
-        default_positive_start = max(float(np.min(positive_doses)), np.nextafter(0.0, 1.0))
+        default_positive_start = max(
+            float(np.min(positive_doses)), np.nextafter(0.0, 1.0)
+        )
     else:
         default_positive_start = np.nextafter(0.0, 1.0)
     positive_start = c_min_nM if c_min_nM > 0.0 else default_positive_start
     positive_start = max(positive_start, np.nextafter(0.0, 1.0))
 
-    c_dense_pos = np.logspace(np.log10(positive_start), np.log10(c_max_nM), int(n_dense))
+    c_dense_pos = np.logspace(
+        np.log10(positive_start), np.log10(c_max_nM), int(n_dense)
+    )
     include_zero = c_min_nM <= 0.0
     if include_zero:
         c_dense_csv = np.concatenate(([0.0], c_dense_pos))
@@ -158,8 +163,8 @@ def save_outputs(
         mat,
         delimiter=",",
         header=(
-            "dex_nM,log10_dex_over_cD0,dex_multiplier_pred,alp_pred,"
-            "cD0_nM,alp_control_y0,aD,bD"
+            "dex_nM,log10_dex_over_cD0,dex_multiplier_pred,ars_pred,"
+            "cD0_nM,ars_control_y0,aD,bD"
         ),
         comments="",
     )
@@ -168,7 +173,7 @@ def save_outputs(
     payload = {
         "fit_method": fit["method"],
         "cD0_nM": CD0_nM,
-        "alp_control_y0": fit["y0"],
+        "ars_control_y0": fit["y0"],
         "aD": fit["a_d"],
         "bD": fit["b_d"],
         "metrics_overall": fit["metrics_overall"],
@@ -226,8 +231,8 @@ def save_outputs(
     ax.set_ylim(max(0.0, y_min - y_pad), y_max + y_pad)
 
     ax.set_xlabel("Dex concentration (nM, log scale)")
-    ax.set_ylabel("ALP activity (nmol/min/μg protein)")
-    ax.set_title("Dex Dose-Response Fit", fontsize=11, pad=8)
+    ax.set_ylabel("ARS relative signal")
+    ax.set_title("Dex Dose-Response Fit for ARS", fontsize=11, pad=8)
     ax.tick_params(labelsize=9, top=False, labeltop=False)
     ax.xaxis.set_ticks_position("bottom")
     ax.grid(True, which="major", color="#b0b0b0", alpha=0.28, linewidth=0.75)
@@ -243,7 +248,7 @@ def save_outputs(
     txt = "\n".join(
         [
             f"cD0 (nM)       {CD0_nM:.3g}",
-            f"ALP control    {fit['y0']:.3g}",
+            f"ARS control    {fit['y0']:.3g}",
             f"aD             {fit['a_d']:.3g}",
             f"bD             {fit['b_d']:.3g}",
             f"RMSE           {met['RMSE']:.3g}",
@@ -279,7 +284,7 @@ def save_outputs(
             markerfacecolor=c_dex,
             markeredgecolor="white",
             markeredgewidth=0.8,
-            label="ALP day-5 data",
+            label="ARS data",
         ),
     ]
     ax.legend(
@@ -304,10 +309,10 @@ def save_outputs(
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--c_min_nM", type=float, default=0.0)
-    ap.add_argument("--c_max_nM", type=float, default=100.0)
+    ap.add_argument("--c_max_nM", type=float, default=200.0)
     ap.add_argument("--n_dense", type=int, default=400)
     ap.add_argument(
-        "--out_dir", type=Path, default=Path(__file__).resolve().parent / "dex_fit"
+        "--out_dir", type=Path, default=Path(__file__).resolve().parent / "dex_ars_fit"
     )
     args = ap.parse_args()
 
@@ -330,17 +335,17 @@ def main() -> None:
     )
 
     met = fit["metrics_dosed"]
-    print("=== Dex dose-response fit (ALP day 5) ===")
+    print("=== Dex dose-response fit (ARS) ===")
     print(f"fit_method      : {fit['method']}")
     print(f"cD0_nM          : {CD0_nM:.6g}")
-    print(f"alp_control_y0  : {fit['y0']:.6g} U/g")
+    print(f"ars_control_y0  : {fit['y0']:.6g}")
     print(f"aD              : {fit['a_d']:.6g}")
     print(f"bD              : {fit['b_d']:.6g}")
     print(f"SSE             : {met['SSE']:.6g}")
     print(f"RMSE            : {met['RMSE']:.6g}")
     print(f"R2              : {met['R2']:.6g}")
 
-    print("dose_nM | alp_obs | alp_pred | multiplier")
+    print("dose_nM | ars_obs | ars_pred | multiplier")
     for c, y, yhat in zip(DEX_DOSE_nM, ARS_REL, fit["yhat_all"]):
         m = yhat / fit["y0"] if fit["y0"] > 0 else float("nan")
         print(f"{c:7.4g} | {y:7.4g} | {yhat:8.4g} | {m:9.4g}")

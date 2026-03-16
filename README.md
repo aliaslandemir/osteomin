@@ -55,20 +55,19 @@ python main.py \
   --mk4-conc 0 \
   --alp-rb 0.001 \
   --alp-ro 0.002 \
-  --alp-a-d 0.08 \
-  --alp-b-d 0.08 \
+  --dex-a 0.08 \
+  --dex-b 0.08 \
+  --alp-dex-ref 20 \
   --alp-a-k 0.06 \
   --alp-b-k 0.06 \
   --collagen-rb 0.001 \
   --collagen-ro 0.002 \
-  --collagen-a-d 0.08 \
-  --collagen-b-d 0.08 \
+  --collagen-dex-ref 90 \
   --collagen-a-k 0.06 \
   --collagen-b-k 0.06 \
   --ha-model minimal \
   --ha-ro 0.075 \
-  --ha-a-d 0.08 \
-  --ha-b-d 0.08 \
+  --ars-dex-ref 50 \
   --ha-a-k 0.06 \
   --ha-b-k 0.06 \
   --ha-tau 384 \
@@ -110,20 +109,19 @@ python main.py \
   --mk4-conc 0 \
   --alp-rb 0.001 \
   --alp-ro 0.002 \
-  --alp-a-d 0.08 \
-  --alp-b-d 0.08 \
+  --dex-a 0.08 \
+  --dex-b 0.08 \
+  --alp-dex-ref 20 \
   --alp-a-k 0.06 \
   --alp-b-k 0.06 \
   --collagen-rb 0.001 \
   --collagen-ro 0.002 \
-  --collagen-a-d 0.08 \
-  --collagen-b-d 0.08 \
+  --collagen-dex-ref 90 \
   --collagen-a-k 0.06 \
   --collagen-b-k 0.06 \
   --ha-model minimal \
   --ha-ro 0.075 \
-  --ha-a-d 0.08 \
-  --ha-b-d 0.08 \
+  --ars-dex-ref 50 \
   --ha-a-k 0.06 \
   --ha-b-k 0.06 \
   --ha-tau 384 \
