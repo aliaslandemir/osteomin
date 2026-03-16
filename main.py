@@ -74,7 +74,7 @@ python main.py \
   --ha-tau 384 \
   --ha-hill-n 2 \
   \
-  --spatial-every 1 \
+  --spatial-every 24 \
   --alp-plot-hours 240 \
   --collagen-plot-hours 336 \
   --mineral-plot-hours 672 \
@@ -619,8 +619,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--spatial-every",
         type=int,
-        default=1,
-        help="export spatial PNG every N days (0 = off)",
+        default=24,
+        help="export spatial PNG every N hours (0 = off)",
     )
     p.add_argument(
         "--spatial-days",
@@ -962,10 +962,15 @@ def main() -> None:
         total_days = model.days
         overlay_days = sorted({d for d in model.spatial_days if 0 <= d < total_days})
         if args.spatial_every > 0:
+            overlay_interval_days = {
+                (hour - 1) // HOURS_PER_DAY + 1
+                for hour in range(args.spatial_every, total_hours + 1, args.spatial_every)
+            }
             overlay_days = sorted(
                 {
                     *overlay_days,
-                    *{day for day in range(0, total_days, args.spatial_every)},
+                    0,
+                    *{day for day in overlay_interval_days if 0 <= day < total_days},
                 }
             )
         if not args.snapshots:

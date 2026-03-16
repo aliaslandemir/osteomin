@@ -34,7 +34,7 @@ class StepResult:
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="Run sanity_check1..6 sequentially.",
+        description="Run sanity_check1..6 sequentially using the current OsteoMin defaults.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument(

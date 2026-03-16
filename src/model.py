@@ -144,7 +144,7 @@ class OsteoModel:
             "abm_cfg": __import__("dataclasses").asdict(abm_cfg),
             "field_cfg": __import__("dataclasses").asdict(field_cfg),
             "drug_response": drug_response_summary(field_cfg),
-            "spatial_every": self.spatial_every,
+            "spatial_every_hours": self.spatial_every,
             "spatial_days": sorted(list(self.spatial_days)),
             "snapshots_enabled": self.snapshots_enabled,
             "show_runtime": self.show_runtime,
@@ -161,10 +161,10 @@ class OsteoModel:
         coords = [sites[i] for i in idx]
         self.abm.seed_from_coords(coords, day0=0)
 
-    def _should_export_spatial(self, day: int) -> bool:
+    def _should_export_spatial(self, day: int, hour: int) -> bool:
         if day in self.spatial_days:
             return True
-        if self.spatial_every > 0 and (day % self.spatial_every) == 0:
+        if self.spatial_every > 0 and (hour % self.spatial_every) == 0:
             return True
         return False
 
@@ -188,7 +188,7 @@ class OsteoModel:
 
         self._append_row(0, state_grid=state)
         dead_total_cum = 0
-        if self._should_export_spatial(0):
+        if self._should_export_spatial(0, 0):
             export_spatial_for_day(
                 self.outdir,
                 0,
@@ -317,7 +317,7 @@ class OsteoModel:
 
             dead_total_cum += daily_dead_total
 
-            if self._should_export_spatial(day_index):
+            if self._should_export_spatial(day_index, hour):
                 export_spatial_for_day(
                     self.outdir,
                     day_index,
