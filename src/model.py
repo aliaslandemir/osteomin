@@ -2,7 +2,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 import json
+import os
+import platform
+import socket
 import time
+from datetime import datetime, timezone
 import numpy as np
 import pandas as pd
 
@@ -136,7 +140,7 @@ class OsteoModel:
         base_days.add(self.days - 1)
         self.spatial_days = {d for d in base_days if 0 <= d < self.days}
 
-        meta = {
+        self._run_meta = {
             "total_hours": self.total_hours,
             "hours_per_day": self.hours_per_day,
             "days": self.days,
@@ -151,8 +155,48 @@ class OsteoModel:
             "runtime_every_days": self.runtime_every_days,
             "nodule_connectivity": self.nodule_connectivity,
             "nodule_boundary_mode": self.nodule_boundary_mode,
+            "runtime_environment": {
+                "hostname": socket.gethostname(),
+                "platform": platform.platform(),
+                "system": platform.system(),
+                "release": platform.release(),
+                "machine": platform.machine(),
+                "processor": platform.processor(),
+                "python_version": platform.python_version(),
+                "logical_cpu_count": os.cpu_count(),
+            },
+            "model_size": {
+                "grid_width": int(self.abm.width),
+                "grid_height": int(self.abm.height),
+                "grid_sites": int(self.abm.width * self.abm.height),
+                "initial_cell_count": int(len(self.abm.cells)),
+            },
+            "timing": {
+                "started_utc": datetime.now(timezone.utc).isoformat(),
+            },
         }
-        (self.outdir / "run.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+        self._write_run_meta()
+
+    def _write_run_meta(self) -> None:
+        (self.outdir / "run.json").write_text(
+            json.dumps(self._run_meta, indent=2), encoding="utf-8"
+        )
+
+    def _performance_summary(self, elapsed_seconds: float) -> Dict[str, Any]:
+        elapsed_seconds = max(float(elapsed_seconds), 1e-12)
+        wall_hours = elapsed_seconds / 3600.0
+        sim_hours = float(self.total_hours)
+        sim_days = sim_hours / float(self.hours_per_day)
+        return {
+            "wallclock_seconds": elapsed_seconds,
+            "wallclock_minutes": elapsed_seconds / 60.0,
+            "wallclock_hours": wall_hours,
+            "simulated_hours": sim_hours,
+            "simulated_days": sim_days,
+            "simulated_hours_per_wallclock_second": sim_hours / elapsed_seconds,
+            "simulated_hours_per_wallclock_hour": sim_hours / wall_hours,
+            "simulated_days_per_wallclock_hour": sim_days / wall_hours,
+        }
 
     def seed_random(self, n: int, w: int, h: int) -> None:
         sites = [(x, y) for y in range(h) for x in range(w)]
@@ -199,6 +243,12 @@ class OsteoModel:
             )
 
         if self.total_hours == 0:
+            elapsed = time.perf_counter() - t0
+            self._run_meta["timing"]["finished_utc"] = datetime.now(
+                timezone.utc
+            ).isoformat()
+            self._run_meta["performance"] = self._performance_summary(elapsed)
+            self._write_run_meta()
             return pd.DataFrame(self._rows)
 
         final_dens: np.ndarray | None = None
@@ -343,6 +393,13 @@ class OsteoModel:
         if self.show_runtime:
             elapsed = time.perf_counter() - t0
             print(f"[runtime] finished in {elapsed:.2f}s")
+
+        elapsed = time.perf_counter() - t0
+        self._run_meta["timing"]["finished_utc"] = datetime.now(
+            timezone.utc
+        ).isoformat()
+        self._run_meta["performance"] = self._performance_summary(elapsed)
+        self._write_run_meta()
 
         return pd.DataFrame(self._rows)
     

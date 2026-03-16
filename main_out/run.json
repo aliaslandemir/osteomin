@@ -125,7 +125,7 @@
     "ha_effective_pre_gates": 0.106,
     "notes": "Collagen effective rate is shown before AA gating; HAp effective rate is shown before Hill-time and matured-collagen gates. Drug effects scale the osteogenic rate multiplicatively as r_o * m_D(c_D) * m_K(c_K), where each m term is a peaked quadratic response in log-dose and clipped to stay non-negative."
   },
-  "spatial_every": 1,
+  "spatial_every_hours": 24,
   "spatial_days": [
     28
   ],
@@ -133,5 +133,35 @@
   "show_runtime": true,
   "runtime_every_days": 1,
   "nodule_connectivity": "40n",
-  "nodule_boundary_mode": "periodic"
+  "nodule_boundary_mode": "periodic",
+  "runtime_environment": {
+    "hostname": "homie",
+    "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+    "system": "Linux",
+    "release": "6.6.87.2-microsoft-standard-WSL2",
+    "machine": "x86_64",
+    "processor": "x86_64",
+    "python_version": "3.12.3",
+    "logical_cpu_count": 16
+  },
+  "model_size": {
+    "grid_width": 33,
+    "grid_height": 33,
+    "grid_sites": 1089,
+    "initial_cell_count": 0
+  },
+  "timing": {
+    "started_utc": "2026-03-16T23:13:21.970092+00:00",
+    "finished_utc": "2026-03-16T23:13:43.682373+00:00"
+  },
+  "performance": {
+    "wallclock_seconds": 22.364621419001196,
+    "wallclock_minutes": 0.3727436903166866,
+    "wallclock_hours": 0.006212394838611444,
+    "simulated_hours": 672.0,
+    "simulated_days": 28.0,
+    "simulated_hours_per_wallclock_second": 30.047456981724824,
+    "simulated_hours_per_wallclock_hour": 108170.84513420936,
+    "simulated_days_per_wallclock_hour": 4507.118547258723
+  }
 }

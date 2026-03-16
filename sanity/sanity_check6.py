@@ -217,7 +217,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--out", type=Path, default=BASE_OUT, help="output root directory")
     parser.add_argument("--python", type=str, default=sys.executable, help="Python interpreter for main.py")
-    parser.add_argument("--samples", type=int, default=8, help="Sobol base sample size N (total runs ~= N*(2D+2))")
+    parser.add_argument("--samples", type=int, default=64, help="Sobol base sample size N (total runs ~= N*(2D+2))")
     parser.add_argument("--base-seed", type=int, default=12345, help="base random seed for model runs")
     parser.add_argument("--sobol-seed", type=int, default=24680, help="Sobol sampler seed")
     parser.add_argument("--overwrite", action="store_true", help="rerun simulations even if existing outputs are present")

@@ -855,6 +855,37 @@ def _render_state_thumb(
         ax.set_title(title, loc="left", fontsize=8.2, pad=2.5)
 
 
+def _render_initial_state_thumb(
+    ax: plt.Axes,
+    state: np.ndarray,
+    title: str | None = None,
+) -> None:
+    ys, xs = np.nonzero(state > 0)
+    h, w = state.shape
+    ax.set_facecolor("#f3f7fc")
+    if xs.size:
+        ax.scatter(
+            xs,
+            ys,
+            s=22.0,
+            c="#1d67c9",
+            edgecolors="#eef5ff",
+            linewidths=0.45,
+            alpha=1.0,
+        )
+    ax.set_xlim(-0.5, w - 0.5)
+    ax.set_ylim(h - 0.5, -0.5)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_aspect("equal")
+    for spine in ax.spines.values():
+        spine.set_visible(True)
+        spine.set_linewidth(0.8)
+        spine.set_edgecolor("#e2e8f0")
+    if title:
+        ax.set_title(title, loc="left", fontsize=9.6, pad=4.0)
+
+
 def export_spatial_gallery(
     df: pd.DataFrame,
     out_dir: Path,
@@ -862,41 +893,52 @@ def export_spatial_gallery(
     target_day: int,
     title: str,
     stem: str,
+    mode: str = "final",
 ) -> None:
     ordered = df.sort_values(["assay_ha_pct", "condition_index"], ascending=[False, True]).reset_index(drop=True)
     labels = ordered["condition_label"].tolist()
     has: list[np.ndarray] = []
+    states: list[np.ndarray] = []
     for _, row in ordered.iterrows():
         rep_dir = Path(str(row["representative_out_dir"]))
-        ha_path = _find_grid(rep_dir, "ha", target_day)
-        ha = np.load(ha_path).astype(float)
-        has.append(ha)
-    vmax_ha = max(max(float(np.max(ha)) for ha in has), 1e-9)
+        if mode == "initial":
+            state_path = _find_grid(rep_dir, "state", 0)
+            state = np.load(state_path)
+            states.append(state)
+        else:
+            ha_path = _find_grid(rep_dir, "ha", target_day)
+            ha = np.load(ha_path).astype(float)
+            has.append(ha)
+    vmax_ha = max((max(float(np.max(ha)) for ha in has) if has else 0.0), 1e-9)
 
     n_conditions = len(labels)
     ncols = 5
     nrows = int(np.ceil(n_conditions / ncols))
-    fig = plt.figure(figsize=(16.6, 8.8))
-    gallery_gs = gridspec.GridSpec(nrows, ncols, figure=fig, wspace=0.03, hspace=0.12)
+    fig_h = 3.25 * nrows
+    fig = plt.figure(figsize=(18.8, fig_h))
+    gallery_gs = gridspec.GridSpec(nrows, ncols, figure=fig, wspace=0.12, hspace=0.18)
 
-    for idx, (ha, label) in enumerate(zip(has, labels)):
+    for idx, label in enumerate(labels):
         r = idx // ncols
         c = idx % ncols
         gax = fig.add_subplot(gallery_gs[r, c])
-        _render_state_thumb(gax, ha, vmax_ha, title=label)
+        if mode == "initial":
+            _render_initial_state_thumb(gax, states[idx], title=label)
+        else:
+            _render_state_thumb(gax, has[idx], vmax_ha, title=label)
         if int(ordered.iloc[idx]["condition_index"]) == 1:
             for spine in gax.spines.values():
                 spine.set_visible(True)
-                spine.set_linewidth(1.4)
-                spine.set_edgecolor(COLORS["control"])
+                spine.set_linewidth(1.8)
+                spine.set_edgecolor("#2563eb")
     for idx in range(n_conditions, nrows * ncols):
         r = idx // ncols
         c = idx % ncols
         gax = fig.add_subplot(gallery_gs[r, c])
         gax.axis("off")
 
-    fig.suptitle(title, fontsize=17, fontweight="semibold", y=0.985)
-    fig.subplots_adjust(top=0.92, right=0.985, left=0.03, bottom=0.035)
+    fig.suptitle(title, fontsize=18, fontweight="semibold", y=0.992)
+    fig.subplots_adjust(top=0.94, right=0.99, left=0.025, bottom=0.03)
     save_figure(fig, out_dir, stem)
 
 
@@ -926,9 +968,18 @@ def main() -> None:
     export_spatial_gallery(
         summary,
         out_dir,
+        target_day=0,
+        title="Spatial Seed Initialization Gallery",
+        stem="supplementary_figure_s1_spatial_gallery_initial",
+        mode="initial",
+    )
+    export_spatial_gallery(
+        summary,
+        out_dir,
         target_day=max(0, int(round(float(assay_hours["ha"]) / 24.0))),
         title=f"Spatial HAp Heatmap Gallery ({assay_hours['ha']} h)",
         stem="supplementary_figure_s1_spatial_gallery",
+        mode="final",
     )
     print(f"Wrote figures to {out_dir}")
 
