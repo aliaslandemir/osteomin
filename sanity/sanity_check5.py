@@ -17,11 +17,15 @@ BASE_OUT = SCRIPT_DIR / "out" / "sanity_check5"
 DEFAULT_REPLICATES = 5
 BASE_SEED = 12345
 TOTAL_HOURS = 672
-ALP_DAY = 10
-COLLAGEN_DAY = 14
-ARS_DAY = 28
+HOURS_PER_DAY = 24
+ALP_HOURS = 240
+COLLAGEN_HOURS = 336
+ARS_HOURS = 672
+ALP_DAY = ALP_HOURS // HOURS_PER_DAY
+COLLAGEN_DAY = COLLAGEN_HOURS // HOURS_PER_DAY
+ARS_DAY = ARS_HOURS // HOURS_PER_DAY
 AA_BASAL_M_M = 0.0
-AA_OSTEO_M_M = 1.0
+AA_OSTEO_M_M = 50.0
 BGP_OSTEO_M_M = 10.0
 
 BASE_ARGS = [
@@ -127,8 +131,8 @@ BASE_ARGS = [
     "--ha-hill-n",
     "2",
     "--spatial-every",
-    "24",
-    "--snapshots",
+    "0",
+    "--no-snapshots",
     "--alp-plot-hours",
     "240",
     "--collagen-plot-hours",
@@ -180,7 +184,9 @@ def parse_args() -> argparse.Namespace:
         description="Run the 8-condition sanity suite with 5 replicate simulations per condition.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("--out", type=Path, default=BASE_OUT, help="output root directory")
+    parser.add_argument(
+        "--out", type=Path, default=BASE_OUT, help="output root directory"
+    )
     parser.add_argument(
         "--python",
         type=str,
@@ -232,7 +238,9 @@ def build_condition_specs(out_root: Path) -> list[ConditionSpec]:
         ("C8", "AA+beta-GP+D_0_K_H", AA_OSTEO_M_M, BGP_OSTEO_M_M, 0.0, 10.0, True),
     ]
     specs: list[ConditionSpec] = []
-    for index, (code, label, aa_mM, bgp_mM, dex_nM, mk4_uM, osteogenic) in enumerate(definitions, start=1):
+    for index, (code, label, aa_mM, bgp_mM, dex_nM, mk4_uM, osteogenic) in enumerate(
+        definitions, start=1
+    ):
         specs.append(
             ConditionSpec(
                 index=index,
@@ -268,7 +276,11 @@ def validate_condition_specs(specs: list[ConditionSpec]) -> None:
 
 
 def commitment_flag(spec: ConditionSpec) -> list[str]:
-    return ["--osteogenic-commitment"] if spec.osteogenic_commitment else ["--no-osteogenic-commitment"]
+    return (
+        ["--osteogenic-commitment"]
+        if spec.osteogenic_commitment
+        else ["--no-osteogenic-commitment"]
+    )
 
 
 def build_command(
@@ -391,7 +403,9 @@ def extract_endpoint_row(spec: ConditionSpec, result: RunResult) -> dict:
         for row in reader:
             rows_by_day[int(float(row["day"]))] = row
 
-    missing_days = [day for day in (ALP_DAY, COLLAGEN_DAY, ARS_DAY) if day not in rows_by_day]
+    missing_days = [
+        day for day in (ALP_DAY, COLLAGEN_DAY, ARS_DAY) if day not in rows_by_day
+    ]
     if missing_days:
         raise ValueError(f"missing day rows {missing_days} in {timeseries_path}")
 
@@ -401,8 +415,12 @@ def extract_endpoint_row(spec: ConditionSpec, result: RunResult) -> dict:
 
     spatial_dir = run_out_dir / "spatial_cells"
     collagen_ha_dir = run_out_dir / "collagen_ha"
-    spatial_exports = len(list(spatial_dir.glob("*.png"))) if spatial_dir.exists() else 0
-    collagen_ha_exports = len(list(collagen_ha_dir.glob("*.pdf"))) if collagen_ha_dir.exists() else 0
+    spatial_exports = (
+        len(list(spatial_dir.glob("*.png"))) if spatial_dir.exists() else 0
+    )
+    collagen_ha_exports = (
+        len(list(collagen_ha_dir.glob("*.pdf"))) if collagen_ha_dir.exists() else 0
+    )
 
     return {
         "condition_index": spec.index,
@@ -416,12 +434,12 @@ def extract_endpoint_row(spec: ConditionSpec, result: RunResult) -> dict:
         "mk4_uM": spec.mk4_uM,
         "osteogenic_commitment": spec.osteogenic_commitment,
         "run_out_dir": str(run_out_dir),
-        "alp_240h": float(alp_row["alp_total"]),
-        "collagen_336h": float(collagen_row["collagen_total"]),
-        "ars_672h": float(ars_row["ha_total"]),
-        "n_total_672h": float(ars_row["n_total"]),
-        "n_preob_672h": float(ars_row["n_preob"]),
-        "n_osteoblast_672h": float(ars_row["n_osteoblast"]),
+        f"alp_{ALP_HOURS}h": float(alp_row["alp_total"]),
+        f"collagen_{COLLAGEN_HOURS}h": float(collagen_row["collagen_total"]),
+        f"ars_{ARS_HOURS}h": float(ars_row["ha_total"]),
+        f"n_total_{ARS_HOURS}h": float(ars_row["n_total"]),
+        f"n_preob_{ARS_HOURS}h": float(ars_row["n_preob"]),
+        f"n_osteoblast_{ARS_HOURS}h": float(ars_row["n_osteoblast"]),
         "spatial_cells_dir": str(spatial_dir),
         "collagen_ha_dir": str(collagen_ha_dir),
         "spatial_cells_exports": spatial_exports,
@@ -449,7 +467,9 @@ def write_manifest(out_root: Path, specs: list[ConditionSpec]) -> None:
     with (out_root / "condition_manifest.json").open("w", encoding="utf-8") as fh:
         json.dump(rows, fh, indent=2)
 
-    with (out_root / "condition_manifest.csv").open("w", newline="", encoding="utf-8") as fh:
+    with (out_root / "condition_manifest.csv").open(
+        "w", newline="", encoding="utf-8"
+    ) as fh:
         writer = csv.DictWriter(
             fh,
             fieldnames=[
@@ -504,7 +524,9 @@ def write_endpoint_tables(out_root: Path, endpoint_rows: list[dict]) -> None:
         key=lambda row: (int(row["condition_index"]), int(row["replicate_index"])),
     )
 
-    with (out_root / "replicate_endpoints.csv").open("w", newline="", encoding="utf-8") as fh:
+    with (out_root / "replicate_endpoints.csv").open(
+        "w", newline="", encoding="utf-8"
+    ) as fh:
         writer = csv.DictWriter(fh, fieldnames=list(endpoint_rows[0].keys()))
         writer.writeheader()
         writer.writerows(endpoint_rows)
@@ -525,16 +547,17 @@ def write_endpoint_tables(out_root: Path, endpoint_rows: list[dict]) -> None:
 
     summary_rows: list[dict] = []
     for key, rows in sorted(grouped.items(), key=lambda item: int(item[0][0])):
+
         def mean(values: list[float]) -> float:
             return statistics.fmean(values)
 
         def sd(values: list[float]) -> float:
             return statistics.stdev(values) if len(values) > 1 else 0.0
 
-        alp_vals = [float(row["alp_240h"]) for row in rows]
-        collagen_vals = [float(row["collagen_336h"]) for row in rows]
-        ars_vals = [float(row["ars_672h"]) for row in rows]
-        total_vals = [float(row["n_total_672h"]) for row in rows]
+        alp_vals = [float(row[f"alp_{ALP_HOURS}h"]) for row in rows]
+        collagen_vals = [float(row[f"collagen_{COLLAGEN_HOURS}h"]) for row in rows]
+        ars_vals = [float(row[f"ars_{ARS_HOURS}h"]) for row in rows]
+        total_vals = [float(row[f"n_total_{ARS_HOURS}h"]) for row in rows]
         spatial_vals = [float(row["spatial_cells_exports"]) for row in rows]
         collagen_ha_vals = [float(row["collagen_ha_exports"]) for row in rows]
 
@@ -548,21 +571,23 @@ def write_endpoint_tables(out_root: Path, endpoint_rows: list[dict]) -> None:
                 "dex_nM": key[5],
                 "mk4_uM": key[6],
                 "osteogenic_commitment": key[7],
-                "alp_240h_mean": mean(alp_vals),
-                "alp_240h_sd": sd(alp_vals),
-                "collagen_336h_mean": mean(collagen_vals),
-                "collagen_336h_sd": sd(collagen_vals),
-                "ars_672h_mean": mean(ars_vals),
-                "ars_672h_sd": sd(ars_vals),
-                "n_total_672h_mean": mean(total_vals),
-                "n_total_672h_sd": sd(total_vals),
+                f"alp_{ALP_HOURS}h_mean": mean(alp_vals),
+                f"alp_{ALP_HOURS}h_sd": sd(alp_vals),
+                f"collagen_{COLLAGEN_HOURS}h_mean": mean(collagen_vals),
+                f"collagen_{COLLAGEN_HOURS}h_sd": sd(collagen_vals),
+                f"ars_{ARS_HOURS}h_mean": mean(ars_vals),
+                f"ars_{ARS_HOURS}h_sd": sd(ars_vals),
+                f"n_total_{ARS_HOURS}h_mean": mean(total_vals),
+                f"n_total_{ARS_HOURS}h_sd": sd(total_vals),
                 "spatial_cells_exports_mean": mean(spatial_vals),
                 "collagen_ha_exports_mean": mean(collagen_ha_vals),
                 "n_replicates": len(rows),
             }
         )
 
-    with (out_root / "condition_endpoint_summary.csv").open("w", newline="", encoding="utf-8") as fh:
+    with (out_root / "condition_endpoint_summary.csv").open(
+        "w", newline="", encoding="utf-8"
+    ) as fh:
         writer = csv.DictWriter(fh, fieldnames=list(summary_rows[0].keys()))
         writer.writeheader()
         writer.writerows(summary_rows)
@@ -611,14 +636,25 @@ def main() -> None:
         print("[sanity_check5] dry run complete; no endpoint tables generated")
         return
 
-    endpoint_rows = [extract_endpoint_row(spec, result) for spec in specs for result in results if result.code == spec.code]
+    endpoint_rows = [
+        extract_endpoint_row(spec, result)
+        for spec in specs
+        for result in results
+        if result.code == spec.code
+    ]
     write_endpoint_tables(args.out, endpoint_rows)
 
-    print(f"[sanity_check5] completed {len(specs)} conditions x {args.replicates} replicates")
+    print(
+        f"[sanity_check5] completed {len(specs)} conditions x {args.replicates} replicates"
+    )
     print(f"[sanity_check5] manifest: {args.out / 'condition_manifest.csv'}")
     print(f"[sanity_check5] run summary: {args.out / 'run_summary.csv'}")
-    print(f"[sanity_check5] replicate endpoints: {args.out / 'replicate_endpoints.csv'}")
-    print(f"[sanity_check5] condition summary: {args.out / 'condition_endpoint_summary.csv'}")
+    print(
+        f"[sanity_check5] replicate endpoints: {args.out / 'replicate_endpoints.csv'}"
+    )
+    print(
+        f"[sanity_check5] condition summary: {args.out / 'condition_endpoint_summary.csv'}"
+    )
 
 
 if __name__ == "__main__":

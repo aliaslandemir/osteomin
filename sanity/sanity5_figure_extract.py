@@ -35,19 +35,19 @@ CONDITION_LABELS = {
 ASSAY_SPECS = {
     "alp": {
         "sim_col": "alp_240h",
-        "exp_file": "alp_raw_ALP_means.txt",
-        "exp_col": "Mean",
-        "exp_group_col": "Condition",
+        "exp_file": "alp/alp_raw_alp_metrics_raw.csv",
+        "exp_col": "ALP_mU_mL",
+        "exp_group_col": "condition",
         "title": "ALP",
         "sim_endpoint": "240 h ALP total",
-        "exp_endpoint": "experimental ALP mean",
+        "exp_endpoint": "experimental ALP_mU_mL",
         "profile_ylabel_full": "ALP activity (a.u.)",
         "color": "#D55E00",
         "marker": "o",
     },
     "collagen": {
         "sim_col": "collagen_336h",
-        "exp_file": "collagen_raw_metrics_RAW.csv",
+        "exp_file": "col/collagen_raw_metrics_RAW.csv",
         "exp_col": "M1_field",
         "exp_group_col": "condition",
         "title": "Collagen",
@@ -59,7 +59,7 @@ ASSAY_SPECS = {
     },
     "ars": {
         "sim_col": "ars_672h",
-        "exp_file": "ars_ratio1_ars_metrics_absolute.csv",
+        "exp_file": "ars/ars_ratio1_ars_metrics_absolute.csv",
         "exp_col": "fraction_percent",
         "exp_group_col": "cond",
         "title": "ARS",
@@ -163,7 +163,9 @@ def save_figure(fig: plt.Figure, out_dir: Path, stem: str) -> None:
     plt.close(fig)
 
 
-def style_axes(ax: plt.Axes, grid_axis: str | None = "y", grid_alpha: float = 0.45) -> None:
+def style_axes(
+    ax: plt.Axes, grid_axis: str | None = "y", grid_alpha: float = 0.45
+) -> None:
     ax.set_facecolor("white")
     ax.tick_params(direction="out", length=4.5, width=0.8)
     if grid_axis:
@@ -227,7 +229,9 @@ def bootstrap_corr_ci(
     return float(np.percentile(samples, 2.5)), float(np.percentile(samples, 97.5))
 
 
-def compute_metrics(df: pd.DataFrame, *, n_boot: int, seed: int) -> dict[str, float | int]:
+def compute_metrics(
+    df: pd.DataFrame, *, n_boot: int, seed: int
+) -> dict[str, float | int]:
     sim_raw, exp_raw = raw_values(df)
     spearman_val = float(spearmanr(sim_raw, exp_raw).statistic)
     pearson_val = float(pearsonr(sim_raw, exp_raw).statistic)
@@ -250,7 +254,11 @@ def compute_metrics(df: pd.DataFrame, *, n_boot: int, seed: int) -> dict[str, fl
         "mae": mae_val,
         "n_conditions": int(len(df)),
         "sim_n": int(df["sim_n"].iloc[0]),
-        "exp_n": int(df["exp_n"].min()) if int(df["exp_n"].min()) == int(df["exp_n"].max()) else -1,
+        "exp_n": (
+            int(df["exp_n"].min())
+            if int(df["exp_n"].min()) == int(df["exp_n"].max())
+            else -1
+        ),
         "exp_n_min": int(df["exp_n"].min()),
         "exp_n_max": int(df["exp_n"].max()),
     }
@@ -260,12 +268,18 @@ def load_simulation(input_dir: Path) -> pd.DataFrame:
     candidates = [
         input_dir / "simulation" / "condition_endpoint_summary.csv",
         input_dir / "condition_endpoint_summary.csv",
-        PROJECT_ROOT / "out" / "sanity_check5" / "simulation" / "condition_endpoint_summary.csv",
+        PROJECT_ROOT
+        / "out"
+        / "sanity_check5"
+        / "simulation"
+        / "condition_endpoint_summary.csv",
         PROJECT_ROOT / "out" / "sanity_check5" / "condition_endpoint_summary.csv",
     ]
     path = next((p for p in candidates if p.exists()), None)
     if path is None:
-        raise SystemExit(f"missing simulation summary: tried {', '.join(str(p) for p in candidates)}")
+        raise SystemExit(
+            f"missing simulation summary: tried {', '.join(str(p) for p in candidates)}"
+        )
     df = pd.read_csv(path)
     df["condition_code"] = df["condition_code"].astype(str)
     return df
@@ -274,11 +288,14 @@ def load_simulation(input_dir: Path) -> pd.DataFrame:
 def resolve_experimental_dir(input_dir: Path) -> Path:
     candidates = [
         input_dir / "experimental",
+        PROJECT_ROOT / "endpointaad" / "experimentresults",
         PROJECT_ROOT / "out" / "sanity_check5" / "experimental",
     ]
     path = next((p for p in candidates if p.exists()), None)
     if path is None:
-        raise SystemExit(f"missing experimental folder: tried {', '.join(str(p) for p in candidates)}")
+        raise SystemExit(
+            f"missing experimental folder: tried {', '.join(str(p) for p in candidates)}"
+        )
     return path
 
 
@@ -289,14 +306,19 @@ def load_experimental_assay(exp_dir: Path, assay: str) -> pd.DataFrame:
         raise SystemExit(f"missing experimental file: {path}")
 
     if assay == "alp":
-        raw = pd.read_csv(path, sep="\t")
-        out = pd.DataFrame(
-            {
-                "condition_code": raw["Condition"].astype(str),
-                "exp_mean": raw["Mean"].astype(float),
-                "exp_sd": raw["SD"].astype(float),
-                "exp_n": raw["N"].astype(int),
-            }
+        raw = pd.read_csv(path)
+        out = (
+            raw.groupby(spec["exp_group_col"], as_index=False)[spec["exp_col"]]
+            .agg(["mean", "std", "count"])
+            .reset_index()
+            .rename(
+                columns={
+                    spec["exp_group_col"]: "condition_code",
+                    "mean": "exp_mean",
+                    "std": "exp_sd",
+                    "count": "exp_n",
+                }
+            )
         )
     else:
         raw = pd.read_csv(path)
@@ -328,7 +350,14 @@ def build_assay_frame(
     spec = ASSAY_SPECS[assay]
 
     merged = (
-        sim[["condition_code", "n_replicates", f"{spec['sim_col']}_mean", f"{spec['sim_col']}_sd"]]
+        sim[
+            [
+                "condition_code",
+                "n_replicates",
+                f"{spec['sim_col']}_mean",
+                f"{spec['sim_col']}_sd",
+            ]
+        ]
         .rename(
             columns={
                 "n_replicates": "sim_n",
@@ -339,7 +368,9 @@ def build_assay_frame(
         .merge(exp, on="condition_code", how="inner")
         .copy()
     )
-    merged["condition"] = pd.Categorical(merged["condition_code"], categories=CONDITION_ORDER, ordered=True)
+    merged["condition"] = pd.Categorical(
+        merged["condition_code"], categories=CONDITION_ORDER, ordered=True
+    )
     merged = merged.sort_values("condition").reset_index(drop=True)
     merged["condition_label"] = merged["condition_code"].map(CONDITION_LABELS)
     merged["sim_z"] = zscore(merged["sim_mean"])
@@ -356,13 +387,16 @@ def build_assay_frame(
     metrics = compute_metrics(merged, n_boot=bootstrap_samples, seed=seed)
     return merged, metrics
 
+
 def build_all_assays(
     input_dir: Path, bootstrap_samples: int, bootstrap_seed: int
 ) -> tuple[dict[str, pd.DataFrame], pd.DataFrame]:
     assay_frames: dict[str, pd.DataFrame] = {}
     metric_rows: list[dict[str, float | int | str]] = []
     for i, assay in enumerate(("alp", "collagen", "ars")):
-        frame, metrics = build_assay_frame(input_dir, assay, bootstrap_samples, bootstrap_seed + i)
+        frame, metrics = build_assay_frame(
+            input_dir, assay, bootstrap_samples, bootstrap_seed + i
+        )
         assay_frames[assay] = frame
         metric_rows.append(
             {
@@ -375,10 +409,22 @@ def build_all_assays(
     return assay_frames, metrics_df
 
 
-def write_tables(assay_frames: dict[str, pd.DataFrame], metrics_df: pd.DataFrame, out_dir: Path) -> None:
+def write_tables(
+    assay_frames: dict[str, pd.DataFrame], metrics_df: pd.DataFrame, out_dir: Path
+) -> None:
     tidy_rows: list[pd.DataFrame] = []
     for assay, frame in assay_frames.items():
-        tidy = frame[["condition_code", "sim_mean", "sim_sd", "exp_mean", "exp_sd", "sim_z", "exp_z"]].copy()
+        tidy = frame[
+            [
+                "condition_code",
+                "sim_mean",
+                "sim_sd",
+                "exp_mean",
+                "exp_sd",
+                "sim_z",
+                "exp_z",
+            ]
+        ].copy()
         tidy.insert(0, "assay", assay)
         tidy = tidy.rename(columns={"condition_code": "condition"})
         tidy_rows.append(tidy)
@@ -412,7 +458,6 @@ def scatter_label_offsets(points: np.ndarray) -> list[tuple[float, float]]:
                 dy += 0.08 if dy <= 0 else -0.08
         offsets.append((x + dx, y + dy))
     return [(ox - x, oy - y) for (x, y), (ox, oy) in zip(points, offsets)]
-
 
 
 def plot_profile_panel(
@@ -522,7 +567,14 @@ def plot_standardized_panel(
     style_axes(ax, "both", grid_alpha=0.35)
     sim_z, exp_z = standardized_values(frame)
     limit = shared_limit
-    ax.plot([-limit, limit], [-limit, limit], color=COLORS["muted"], lw=1.0, ls=(0, (4, 3)), zorder=1)
+    ax.plot(
+        [-limit, limit],
+        [-limit, limit],
+        color=COLORS["muted"],
+        lw=1.0,
+        ls=(0, (4, 3)),
+        zorder=1,
+    )
     ax.scatter(
         exp_z,
         sim_z,
@@ -582,14 +634,29 @@ def write_captions(out_dir: Path) -> None:
         "Supplementary figure. Raw-unit calibration views for each assay and a pooled standardized comparison across all assay-condition points. "
         "These views are supplementary only. The pooled panel is descriptive and is not the primary basis for any claim because the central analysis is assay-specific trend recovery."
     )
-    (out_dir / "main_figure_caption.txt").write_text(main_caption + "\n", encoding="utf-8")
-    (out_dir / "supplement_figure_caption.txt").write_text(supplement_caption + "\n", encoding="utf-8")
+    (out_dir / "main_figure_caption.txt").write_text(
+        main_caption + "\n", encoding="utf-8"
+    )
+    (out_dir / "supplement_figure_caption.txt").write_text(
+        supplement_caption + "\n", encoding="utf-8"
+    )
 
 
-def export_main_figure(assay_frames: dict[str, pd.DataFrame], metrics_df: pd.DataFrame, out_dir: Path) -> None:
+def export_main_figure(
+    assay_frames: dict[str, pd.DataFrame], metrics_df: pd.DataFrame, out_dir: Path
+) -> None:
     # V1: clean dual-axis raw endpoint profiles (a.u.), condition-wise.
     fig = plt.figure(figsize=(12.8, 4.9))
-    gs = fig.add_gridspec(1, 3, width_ratios=[1.0, 1.0, 1.0], top=0.80, bottom=0.18, left=0.055, right=0.97, wspace=0.60)
+    gs = fig.add_gridspec(
+        1,
+        3,
+        width_ratios=[1.0, 1.0, 1.0],
+        top=0.80,
+        bottom=0.18,
+        left=0.055,
+        right=0.97,
+        wspace=0.60,
+    )
     axes = [fig.add_subplot(gs[0, i]) for i in range(3)]
     for idx, assay in enumerate(("alp", "collagen", "ars")):
         spec = ASSAY_SPECS[assay]
@@ -602,7 +669,9 @@ def export_main_figure(assay_frames: dict[str, pd.DataFrame], metrics_df: pd.Dat
         ax2.spines["top"].set_visible(False)
         ax2.spines["left"].set_visible(False)
         ax2.spines["right"].set_color(COLORS["sim_line"])
-        ax2.tick_params(axis="y", colors=COLORS["sim_line"], length=4.0, width=0.8, labelsize=8.8)
+        ax2.tick_params(
+            axis="y", colors=COLORS["sim_line"], length=4.0, width=0.8, labelsize=8.8
+        )
 
         x = np.arange(len(frame), dtype=float)
         x_exp = x - 0.08
@@ -612,59 +681,178 @@ def export_main_figure(assay_frames: dict[str, pd.DataFrame], metrics_df: pd.Dat
         sim_vals = frame["sim_mean"].to_numpy(dtype=float)
         sim_sd = frame["sim_sd"].to_numpy(dtype=float)
         ax.errorbar(
-            x_exp, exp_vals, yerr=exp_sd, color=spec["color"], marker=spec["marker"], ms=5.1,
-            lw=1.8, capsize=2.0, elinewidth=0.8, markeredgecolor="white", markeredgewidth=0.8, zorder=4
+            x_exp,
+            exp_vals,
+            yerr=exp_sd,
+            color=spec["color"],
+            marker=spec["marker"],
+            ms=5.1,
+            lw=1.8,
+            capsize=2.0,
+            elinewidth=0.8,
+            markeredgecolor="white",
+            markeredgewidth=0.8,
+            zorder=4,
         )
         ax2.errorbar(
-            x_sim, sim_vals, yerr=sim_sd, color=COLORS["sim_line"], marker="D", ms=4.8,
-            lw=1.2, ls=(0, (4, 2)), capsize=1.8, elinewidth=0.7, markerfacecolor="white",
-            markeredgecolor=COLORS["sim_line"], markeredgewidth=0.7, alpha=0.85, zorder=3
+            x_sim,
+            sim_vals,
+            yerr=sim_sd,
+            color=COLORS["sim_line"],
+            marker="D",
+            ms=4.8,
+            lw=1.2,
+            ls=(0, (4, 2)),
+            capsize=1.8,
+            elinewidth=0.7,
+            markerfacecolor="white",
+            markeredgecolor=COLORS["sim_line"],
+            markeredgewidth=0.7,
+            alpha=0.85,
+            zorder=3,
         )
-        ax.text(0.0, 1.13, chr(65 + idx), transform=ax.transAxes, ha="left", va="bottom", fontsize=12.0, fontweight="semibold")
-        ax.text(0.0, 1.04, spec["title"], transform=ax.transAxes, ha="left", va="bottom", fontsize=11.2)
         ax.text(
-            0.98, 1.015, main_panel_metric_text(metrics), transform=ax.transAxes, ha="right", va="top",
-            fontsize=7.3, bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.82, "pad": 1.0}
+            0.0,
+            1.13,
+            chr(65 + idx),
+            transform=ax.transAxes,
+            ha="left",
+            va="bottom",
+            fontsize=12.0,
+            fontweight="semibold",
+        )
+        ax.text(
+            0.0,
+            1.04,
+            spec["title"],
+            transform=ax.transAxes,
+            ha="left",
+            va="bottom",
+            fontsize=11.2,
+        )
+        ax.text(
+            0.98,
+            1.015,
+            main_panel_metric_text(metrics),
+            transform=ax.transAxes,
+            ha="right",
+            va="top",
+            fontsize=7.3,
+            bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.82, "pad": 1.0},
         )
         ax.set_xticks(x, frame["condition_code"])
         ax.set_xlim(-0.5, len(frame) - 0.5)
         ax.set_ylabel(spec["profile_ylabel_full"])
         if idx == 2:
-            ax2.set_ylabel("Simulation endpoint (a.u.)", color=COLORS["sim_line"], fontsize=8.8, labelpad=4)
-        exp_rng = max(float(np.max(exp_vals + exp_sd) - np.min(exp_vals - exp_sd)), 1e-9)
-        sim_rng = max(float(np.max(sim_vals + sim_sd) - np.min(sim_vals - sim_sd)), 1e-9)
-        ax.set_ylim(max(0.0, float(np.min(exp_vals - exp_sd) - 0.08 * exp_rng)), float(np.max(exp_vals + exp_sd) + 0.10 * exp_rng))
-        ax2.set_ylim(max(0.0, float(np.min(sim_vals - sim_sd) - 0.08 * sim_rng)), float(np.max(sim_vals + sim_sd) + 0.10 * sim_rng))
+            ax2.set_ylabel(
+                "Simulation endpoint (a.u.)",
+                color=COLORS["sim_line"],
+                fontsize=8.8,
+                labelpad=4,
+            )
+        exp_rng = max(
+            float(np.max(exp_vals + exp_sd) - np.min(exp_vals - exp_sd)), 1e-9
+        )
+        sim_rng = max(
+            float(np.max(sim_vals + sim_sd) - np.min(sim_vals - sim_sd)), 1e-9
+        )
+        ax.set_ylim(
+            max(0.0, float(np.min(exp_vals - exp_sd) - 0.08 * exp_rng)),
+            float(np.max(exp_vals + exp_sd) + 0.10 * exp_rng),
+        )
+        ax2.set_ylim(
+            max(0.0, float(np.min(sim_vals - sim_sd) - 0.08 * sim_rng)),
+            float(np.max(sim_vals + sim_sd) + 0.10 * sim_rng),
+        )
         ax.yaxis.set_major_locator(MaxNLocator(nbins=5))
         ax2.yaxis.set_major_locator(MaxNLocator(nbins=4))
 
     legend_handles = [
-        Line2D([0], [0], color=COLORS["muted"], marker="o", linestyle="-", linewidth=1.4, markersize=5.5, markerfacecolor=COLORS["muted"], markeredgecolor=COLORS["muted"], label="Experiment"),
-        Line2D([0], [0], color=COLORS["sim_line"], marker="D", linestyle=(0, (4, 2)), linewidth=1.0, markersize=5, markerfacecolor="white", markeredgecolor=COLORS["sim_line"], label="Simulation"),
+        Line2D(
+            [0],
+            [0],
+            color=COLORS["muted"],
+            marker="o",
+            linestyle="-",
+            linewidth=1.4,
+            markersize=5.5,
+            markerfacecolor=COLORS["muted"],
+            markeredgecolor=COLORS["muted"],
+            label="Experiment",
+        ),
+        Line2D(
+            [0],
+            [0],
+            color=COLORS["sim_line"],
+            marker="D",
+            linestyle=(0, (4, 2)),
+            linewidth=1.0,
+            markersize=5,
+            markerfacecolor="white",
+            markeredgecolor=COLORS["sim_line"],
+            label="Simulation",
+        ),
     ]
-    fig.legend(handles=legend_handles, loc="upper center", bbox_to_anchor=(0.52, 0.975), bbox_transform=fig.transFigure, frameon=False, fontsize=9.0, ncol=2)
-    fig.suptitle("Simulation vs Experimental Endpoints Across Conditions (Raw a.u.)", fontsize=12.5, fontweight="semibold", y=0.99)
+    fig.legend(
+        handles=legend_handles,
+        loc="upper center",
+        bbox_to_anchor=(0.52, 0.975),
+        bbox_transform=fig.transFigure,
+        frameon=False,
+        fontsize=9.0,
+        ncol=2,
+    )
+    fig.suptitle(
+        "Simulation vs Experimental Endpoints Across Conditions (Raw a.u.)",
+        fontsize=12.5,
+        fontweight="semibold",
+        y=0.99,
+    )
     save_figure(fig, out_dir, "sanity5_predictive_comparison_main")
 
     # V2: stacked raw profiles (Experiment top row, Simulation bottom row), clearer scale reading.
-    fig2, axes2 = plt.subplots(2, 3, figsize=(12.6, 6.4), sharex="col", constrained_layout=True)
+    fig2, axes2 = plt.subplots(
+        2, 3, figsize=(12.6, 6.4), sharex="col", constrained_layout=True
+    )
     for c, assay in enumerate(("alp", "collagen", "ars")):
         spec = ASSAY_SPECS[assay]
         frame = assay_frames[assay]
         x = np.arange(len(frame), dtype=float)
         ax_top = axes2[0, c]
         style_axes(ax_top, "y", grid_alpha=0.32)
-        ax_top.errorbar(x, frame["exp_mean"].to_numpy(dtype=float), yerr=frame["exp_sd"].to_numpy(dtype=float), color=spec["color"], marker=spec["marker"], lw=1.8, ms=5.0, capsize=2.0)
+        ax_top.errorbar(
+            x,
+            frame["exp_mean"].to_numpy(dtype=float),
+            yerr=frame["exp_sd"].to_numpy(dtype=float),
+            color=spec["color"],
+            marker=spec["marker"],
+            lw=1.8,
+            ms=5.0,
+            capsize=2.0,
+        )
         ax_top.set_title(spec["title"], pad=8, fontsize=11.5)
         ax_top.set_ylabel("Experiment (a.u.)")
         ax_top.set_xticks(x, frame["condition_code"])
         ax_bot = axes2[1, c]
         style_axes(ax_bot, "y", grid_alpha=0.32)
-        ax_bot.errorbar(x, frame["sim_mean"].to_numpy(dtype=float), yerr=frame["sim_sd"].to_numpy(dtype=float), color=COLORS["sim_line"], marker="D", markerfacecolor="white", lw=1.3, ls=(0, (4, 2)), ms=4.8, capsize=1.8)
+        ax_bot.errorbar(
+            x,
+            frame["sim_mean"].to_numpy(dtype=float),
+            yerr=frame["sim_sd"].to_numpy(dtype=float),
+            color=COLORS["sim_line"],
+            marker="D",
+            markerfacecolor="white",
+            lw=1.3,
+            ls=(0, (4, 2)),
+            ms=4.8,
+            capsize=1.8,
+        )
         ax_bot.set_ylabel("Simulation (a.u.)")
         ax_bot.set_xlabel("Condition")
         ax_bot.set_xticks(x, frame["condition_code"])
-    fig2.suptitle("Raw Endpoint Profiles by Assay", fontsize=12.4, fontweight="semibold")
+    fig2.suptitle(
+        "Raw Endpoint Profiles by Assay", fontsize=12.4, fontweight="semibold"
+    )
     save_figure(fig2, out_dir, "sanity5_predictive_comparison_main_v2")
 
     # V3: raw calibration scatter (experiment vs simulation) with uncertainty and identity line.
@@ -684,23 +872,45 @@ def export_main_figure(assay_frames: dict[str, pd.DataFrame], metrics_df: pd.Dat
         lo = max(0.0, lo - pad)
         hi = hi + pad
         ax.plot([lo, hi], [lo, hi], color=COLORS["muted"], lw=1.0, ls=(0, (4, 3)))
-        ax.errorbar(x, y, xerr=xerr, yerr=yerr, fmt=spec["marker"], color=spec["color"], markeredgecolor="white", markeredgewidth=0.8, ms=6.0, elinewidth=0.85, capsize=2.0, lw=0)
+        ax.errorbar(
+            x,
+            y,
+            xerr=xerr,
+            yerr=yerr,
+            fmt=spec["marker"],
+            color=spec["color"],
+            markeredgecolor="white",
+            markeredgewidth=0.8,
+            ms=6.0,
+            elinewidth=0.85,
+            capsize=2.0,
+            lw=0,
+        )
         for _, row in frame.iterrows():
-            ax.text(float(row["exp_mean"]) + 0.01 * (hi - lo), float(row["sim_mean"]), str(row["condition_code"]), fontsize=7.5)
+            ax.text(
+                float(row["exp_mean"]) + 0.01 * (hi - lo),
+                float(row["sim_mean"]),
+                str(row["condition_code"]),
+                fontsize=7.5,
+            )
         ax.set_xlim(lo, hi)
         ax.set_ylim(lo, hi)
         ax.set_title(spec["title"], pad=8, fontsize=11.5)
         ax.set_xlabel("Experimental endpoint (a.u.)")
         if i == 0:
             ax.set_ylabel("Simulation endpoint (a.u.)")
-    fig3.suptitle("Raw Endpoint Calibration by Assay", fontsize=12.4, fontweight="semibold")
+    fig3.suptitle(
+        "Raw Endpoint Calibration by Assay", fontsize=12.4, fontweight="semibold"
+    )
     save_figure(fig3, out_dir, "sanity5_predictive_comparison_main_v3")
 
 
 def export_discrete_condition_figure(
     assay_frames: dict[str, pd.DataFrame], metrics_df: pd.DataFrame, out_dir: Path
 ) -> None:
-    fig, axes = plt.subplots(1, 3, figsize=(12.4, 4.4), sharey=True, constrained_layout=True)
+    fig, axes = plt.subplots(
+        1, 3, figsize=(12.4, 4.4), sharey=True, constrained_layout=True
+    )
     sim_color = "#B2182B"
     for idx, assay in enumerate(("alp", "collagen", "ars")):
         ax = axes[idx]
@@ -786,12 +996,30 @@ def export_discrete_condition_figure(
 
     handles = [
         Line2D(
-            [0], [0], color=ASSAY_SPECS["alp"]["color"], marker="o", lw=1.5, alpha=0.65,
-            ls=(0, (4, 2)), markersize=5.8, markeredgecolor="white", markeredgewidth=0.8, label="Experiment"
+            [0],
+            [0],
+            color="gray",
+            marker="o",
+            lw=1.5,
+            alpha=0.65,
+            ls=(0, (4, 2)),
+            markersize=5.8,
+            markeredgecolor="white",
+            markeredgewidth=0.8,
+            label="Experiment",
         ),
         Line2D(
-            [0], [0], color=sim_color, marker="D", lw=1.8, ls="-", markersize=5.4,
-            markerfacecolor="white", markeredgecolor=sim_color, markeredgewidth=0.9, label="Simulation"
+            [0],
+            [0],
+            color=sim_color,
+            marker="D",
+            lw=1.8,
+            ls="-",
+            markersize=5.4,
+            markerfacecolor="white",
+            markeredgecolor=sim_color,
+            markeredgewidth=0.9,
+            label="Simulation",
         ),
     ]
     fig.legend(
@@ -802,11 +1030,18 @@ def export_discrete_condition_figure(
         frameon=False,
         fontsize=9.0,
     )
-    fig.suptitle("Condition-Wise Endpoint Comparison", fontsize=12.5, fontweight="semibold", y=1.07)
+    fig.suptitle(
+        "Condition-Wise Endpoint Comparison",
+        fontsize=12.5,
+        fontweight="semibold",
+        y=1.07,
+    )
     save_figure(fig, out_dir, "sanity5_discrete_condition_comparison")
 
 
-def export_supplement_figure(assay_frames: dict[str, pd.DataFrame], metrics_df: pd.DataFrame, out_dir: Path) -> None:
+def export_supplement_figure(
+    assay_frames: dict[str, pd.DataFrame], metrics_df: pd.DataFrame, out_dir: Path
+) -> None:
     fig, axes = plt.subplots(2, 2, figsize=(8.4, 7.2))
     for ax in axes.ravel():
         style_axes(ax, "both", grid_alpha=0.35)
@@ -834,8 +1069,12 @@ def export_supplement_figure(assay_frames: dict[str, pd.DataFrame], metrics_df: 
         for _, row in frame.iterrows():
             ex = float(np.log10(max(float(row["exp_mean"]), 0.0) + 1.0))
             sy = float(np.log10(max(float(row["sim_mean"]), 0.0) + 1.0))
-            ax.text(ex + 0.01 * (hi - lo + 1e-9), sy, row["condition_code"], fontsize=7.8)
-        ax.set_title(f"{chr(65 + idx)}  {spec['title']}", loc="left", pad=8, fontsize=11.5)
+            ax.text(
+                ex + 0.01 * (hi - lo + 1e-9), sy, row["condition_code"], fontsize=7.8
+            )
+        ax.set_title(
+            f"{chr(65 + idx)}  {spec['title']}", loc="left", pad=8, fontsize=11.5
+        )
         ax.text(
             0.02,
             0.96,
@@ -857,8 +1096,13 @@ def export_supplement_figure(assay_frames: dict[str, pd.DataFrame], metrics_df: 
         tmp["condition_code"] = frame["condition_code"]
         pooled_rows.append(tmp)
     pooled = pd.concat(pooled_rows, ignore_index=True)
-    limit = max(1.1, float(np.max(np.abs(pooled[["exp_z", "sim_z"]].to_numpy(dtype=float)))) * 1.15)
-    pooled_ax.plot([-limit, limit], [-limit, limit], color=COLORS["muted"], lw=1.0, ls=(0, (4, 3)))
+    limit = max(
+        1.1,
+        float(np.max(np.abs(pooled[["exp_z", "sim_z"]].to_numpy(dtype=float)))) * 1.15,
+    )
+    pooled_ax.plot(
+        [-limit, limit], [-limit, limit], color=COLORS["muted"], lw=1.0, ls=(0, (4, 3))
+    )
     for assay in ("alp", "collagen", "ars"):
         spec = ASSAY_SPECS[assay]
         sub = pooled[pooled["assay"] == assay]
@@ -884,15 +1128,24 @@ def export_supplement_figure(assay_frames: dict[str, pd.DataFrame], metrics_df: 
         fontsize=8.8,
         bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.8, "pad": 1.2},
     )
-    pooled_ax.set_title("D  Pooled standardized comparison", loc="left", pad=8, fontsize=11.5)
+    pooled_ax.set_title(
+        "D  Pooled standardized comparison", loc="left", pad=8, fontsize=11.5
+    )
     pooled_ax.set_xlabel("Experimental standardized response")
     pooled_ax.set_ylabel("Simulation standardized response")
     pooled_ax.set_xlim(-limit, limit)
     pooled_ax.set_ylim(-limit, limit)
     pooled_ax.legend(frameon=False, fontsize=8.8, loc="lower right")
 
-    fig.suptitle("Supplementary Calibration and Pooled Comparison", fontsize=13.5, fontweight="semibold", y=0.985)
-    fig.subplots_adjust(left=0.09, right=0.985, bottom=0.08, top=0.92, wspace=0.30, hspace=0.34)
+    fig.suptitle(
+        "Supplementary Calibration and Pooled Comparison",
+        fontsize=13.5,
+        fontweight="semibold",
+        y=0.985,
+    )
+    fig.subplots_adjust(
+        left=0.09, right=0.985, bottom=0.08, top=0.92, wspace=0.30, hspace=0.34
+    )
     save_figure(fig, out_dir, "sanity5_predictive_comparison_supplement")
 
 

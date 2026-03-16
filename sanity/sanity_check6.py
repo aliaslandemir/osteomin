@@ -105,14 +105,30 @@ BASE_ARGS = [
     "minimal",
     "--ha-ro",
     "0.106",
-    "--drug-a-d",
+    "--alp-a-d",
     "3.79",
-    "--drug-b-d",
+    "--alp-b-d",
     "1.92",
-    "--drug-a-k",
-    "4.58",
-    "--drug-b-k",
-    "1.98",
+    "--collagen-a-d",
+    "2.42",
+    "--collagen-b-d",
+    "0.770",
+    "--ha-a-d",
+    "1.14",
+    "--ha-b-d",
+    "0.365",
+    "--alp-a-k",
+    "0.56",
+    "--alp-b-k",
+    "0.471",
+    "--collagen-a-k",
+    "0.915",
+    "--collagen-b-k",
+    "0.167",
+    "--ha-a-k",
+    "4.69",
+    "--ha-b-k",
+    "2.21",
     "--ha-tau",
     "384",
     "--ha-hill-n",
@@ -138,10 +154,6 @@ PARAMETERS: list[dict[str, Any]] = [
     {"name": "collagen_rb", "flag": "--collagen-rb", "bounds": [0.001, 0.008], "baseline": 0.00355, "label": "Collagen basal rate"},
     {"name": "collagen_ro", "flag": "--collagen-ro", "bounds": [0.005, 0.03], "baseline": 0.0131, "label": "Collagen osteogenic rate"},
     {"name": "ha_ro", "flag": "--ha-ro", "bounds": [0.05, 0.25], "baseline": 0.106, "label": "HAp osteogenic rate"},
-    {"name": "drug_a_d", "flag": "--drug-a-d", "bounds": [1.5, 6.0], "baseline": 3.79, "label": "Dex response height"},
-    {"name": "drug_b_d", "flag": "--drug-b-d", "bounds": [0.6, 3.0], "baseline": 1.92, "label": "Dex response curvature"},
-    {"name": "drug_a_k", "flag": "--drug-a-k", "bounds": [2.0, 8.0], "baseline": 4.58, "label": "MK-4 response height"},
-    {"name": "drug_b_k", "flag": "--drug-b-k", "bounds": [0.6, 3.0], "baseline": 1.98, "label": "MK-4 response curvature"},
     {"name": "ha_tau", "flag": "--ha-tau", "bounds": [192.0, 576.0], "baseline": 384.0, "label": "HAp Hill tau"},
     {"name": "ha_hill_n", "flag": "--ha-hill-n", "bounds": [2.0, 5.0], "baseline": 2.0, "label": "HAp Hill exponent"},
     {"name": "commit_k", "flag": "--commit-k", "bounds": [0.005, 0.03], "baseline": 0.0125, "label": "Commitment k"},
@@ -150,6 +162,13 @@ PARAMETERS: list[dict[str, Any]] = [
     {"name": "aa0", "flag": "--aa0", "bounds": [20.0, 80.0], "baseline": 50.0, "label": "AA initial concentration"},
     {"name": "aa_half_life", "flag": "--aa-half-life", "bounds": [4.0, 16.0], "baseline": 8.0, "label": "AA half-life (h)"},
     {"name": "collagen_aa_km", "flag": "--collagen-aa-km", "bounds": [1.0, 12.0], "baseline": 5.0, "label": "Collagen AA half-sat"},
+    {"name": "commit_delay", "flag": "--commit-delay", "bounds": [0.0, 96.0], "baseline": 48.0, "label": "Commitment delay (h)", "kind": "int"},
+    {"name": "min_div_hours", "flag": "--min-div-hours", "bounds": [24.0, 60.0], "baseline": 38.0, "label": "Minimum division interval (h)", "kind": "int"},
+    {"name": "max_div_hours", "flag": "--max-div-hours", "bounds": [36.0, 84.0], "baseline": 52.0, "label": "Maximum division interval (h)", "kind": "int"},
+    {"name": "proliferation_chance", "flag": "--proliferation-chance", "bounds": [0.5, 1.0], "baseline": 1.0, "label": "Division attempt chance"},
+    {"name": "ob_apoptosis_prob", "flag": "--apoptosis-osteo", "bounds": [0.0, 0.0020], "baseline": 0.0, "label": "OB apoptosis probability"},
+    {"name": "osteo_induction_hours", "flag": "--osteo-induction-hours", "bounds": [24.0, 120.0], "baseline": 72.0, "label": "Osteogenic induction time (h)", "kind": "int"},
+    {"name": "media_interval", "flag": "--media-interval", "bounds": [24.0, 96.0], "baseline": 48.0, "label": "Media interval (h)", "kind": "int"},
 ]
 
 ENDPOINTS = [
@@ -287,9 +306,23 @@ def build_command(
     runtime: bool,
 ) -> list[str]:
     cmd = [python_exe, *BASE_ARGS, "--seed", str(seed), "--out", str(out_dir)]
+    adjusted = dict(sample_values)
+    adjusted["commit_delay"] = max(0, int(round(float(adjusted["commit_delay"]))))
+    adjusted["min_div_hours"] = max(1, int(round(float(adjusted["min_div_hours"]))))
+    adjusted["max_div_hours"] = max(
+        adjusted["min_div_hours"], int(round(float(adjusted["max_div_hours"])))
+    )
+    adjusted["osteo_induction_hours"] = max(
+        0, int(round(float(adjusted["osteo_induction_hours"])))
+    )
+    adjusted["media_interval"] = max(1, int(round(float(adjusted["media_interval"]))))
+
     for spec in PARAMETERS:
-        val = float(sample_values[spec["name"]])
-        cmd.extend([spec["flag"], f"{val:.10g}"])
+        val = adjusted[spec["name"]]
+        if spec.get("kind") == "int":
+            cmd.extend([spec["flag"], str(int(val))])
+        else:
+            cmd.extend([spec["flag"], f"{float(val):.10g}"])
     if runtime:
         cmd.append("--runtime")
     return cmd
