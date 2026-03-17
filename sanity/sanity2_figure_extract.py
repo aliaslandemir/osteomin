@@ -593,7 +593,7 @@ def export_ecm_overview_heatmap(
                 val_txt = f"{geo[i, j]:.2f}"
             ax_geo.text(j, i, val_txt, ha="center", va="center", fontsize=7.0, color=COLORS["ink"])
 
-    fig.suptitle("ECM response overview heatmap", fontsize=15, fontweight="semibold", y=0.955)
+    fig.suptitle("Relative endpoint response heatmap", fontsize=15, fontweight="semibold", y=0.955)
     cbar = fig.colorbar(im, ax=ax_main, fraction=0.025, pad=0.015)
     cbar.set_label("% difference vs C01")
     # Geometry colorbar removed because columns use distinct hues; numeric values are shown in-cell.
