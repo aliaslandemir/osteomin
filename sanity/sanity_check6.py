@@ -1,4 +1,12 @@
 #!/usr/bin/env python3
+
+" recommended run 
+
+"python sanity/sanity_check6.py --samples 1024
+
+
+"
+
 from __future__ import annotations
 
 import argparse
@@ -149,26 +157,26 @@ BASE_ARGS = [
 ]
 
 PARAMETERS: list[dict[str, Any]] = [
-    {"name": "alp_rb", "flag": "--alp-rb", "bounds": [0.05, 0.20], "baseline": 0.094, "label": "ALP basal rate"},
-    {"name": "alp_ro", "flag": "--alp-ro", "bounds": [0.4, 1.6], "baseline": 0.810, "label": "ALP osteogenic rate"},
-    {"name": "collagen_rb", "flag": "--collagen-rb", "bounds": [0.001, 0.008], "baseline": 0.00355, "label": "Collagen basal rate"},
-    {"name": "collagen_ro", "flag": "--collagen-ro", "bounds": [0.005, 0.03], "baseline": 0.0131, "label": "Collagen osteogenic rate"},
-    {"name": "ha_ro", "flag": "--ha-ro", "bounds": [0.05, 0.25], "baseline": 0.106, "label": "HAp osteogenic rate"},
-    {"name": "ha_tau", "flag": "--ha-tau", "bounds": [192.0, 576.0], "baseline": 384.0, "label": "HAp Hill tau"},
-    {"name": "ha_hill_n", "flag": "--ha-hill-n", "bounds": [2.0, 5.0], "baseline": 2.0, "label": "HAp Hill exponent"},
-    {"name": "commit_k", "flag": "--commit-k", "bounds": [0.005, 0.03], "baseline": 0.0125, "label": "Commitment k"},
-    {"name": "apoptosis_prob", "flag": "--apoptosis-prob", "bounds": [0.0002, 0.0020], "baseline": 0.0010, "label": "Apoptosis probability"},
-    {"name": "move_prob", "flag": "--move-prob", "bounds": [0.08, 0.50], "baseline": 0.27, "label": "Random-move probability"},
-    {"name": "aa0", "flag": "--aa0", "bounds": [20.0, 80.0], "baseline": 50.0, "label": "AA initial concentration"},
-    {"name": "aa_half_life", "flag": "--aa-half-life", "bounds": [4.0, 16.0], "baseline": 8.0, "label": "AA half-life (h)"},
-    {"name": "collagen_aa_km", "flag": "--collagen-aa-km", "bounds": [1.0, 12.0], "baseline": 5.0, "label": "Collagen AA half-sat"},
-    {"name": "commit_delay", "flag": "--commit-delay", "bounds": [0.0, 96.0], "baseline": 48.0, "label": "Commitment delay (h)", "kind": "int"},
-    {"name": "min_div_hours", "flag": "--min-div-hours", "bounds": [24.0, 60.0], "baseline": 38.0, "label": "Minimum division interval (h)", "kind": "int"},
-    {"name": "max_div_hours", "flag": "--max-div-hours", "bounds": [36.0, 84.0], "baseline": 52.0, "label": "Maximum division interval (h)", "kind": "int"},
-    {"name": "proliferation_chance", "flag": "--proliferation-chance", "bounds": [0.5, 1.0], "baseline": 1.0, "label": "Division attempt chance"},
-    {"name": "ob_apoptosis_prob", "flag": "--apoptosis-osteo", "bounds": [0.0, 0.0020], "baseline": 0.0, "label": "OB apoptosis probability"},
-    {"name": "osteo_induction_hours", "flag": "--osteo-induction-hours", "bounds": [24.0, 120.0], "baseline": 72.0, "label": "Osteogenic induction time (h)", "kind": "int"},
-    {"name": "media_interval", "flag": "--media-interval", "bounds": [24.0, 96.0], "baseline": 48.0, "label": "Media interval (h)", "kind": "int"},
+    {"name": "alp_rb", "flag": "--alp-rb", "bounds": [0.07, 0.13], "baseline": 0.094, "label": "ALP basal rate"},
+    {"name": "alp_ro", "flag": "--alp-ro", "bounds": [0.60, 1.05], "baseline": 0.810, "label": "ALP osteogenic rate"},
+    {"name": "collagen_rb", "flag": "--collagen-rb", "bounds": [0.0020, 0.0055], "baseline": 0.00355, "label": "Collagen basal rate"},
+    {"name": "collagen_ro", "flag": "--collagen-ro", "bounds": [0.0080, 0.0200], "baseline": 0.0131, "label": "Collagen osteogenic rate"},
+    {"name": "ha_ro", "flag": "--ha-ro", "bounds": [0.075, 0.150], "baseline": 0.106, "label": "HAp osteogenic rate"},
+    {"name": "ha_tau", "flag": "--ha-tau", "bounds": [288.0, 480.0], "baseline": 384.0, "label": "HAp Hill tau"},
+    {"name": "ha_hill_n", "flag": "--ha-hill-n", "bounds": [1.5, 3.5], "baseline": 2.0, "label": "HAp Hill exponent"},
+    {"name": "commit_k", "flag": "--commit-k", "bounds": [0.0075, 0.0200], "baseline": 0.0125, "label": "Commitment k"},
+    {"name": "apoptosis_prob", "flag": "--apoptosis-prob", "bounds": [0.0005, 0.0015], "baseline": 0.0010, "label": "Apoptosis probability"},
+    {"name": "move_prob", "flag": "--move-prob", "bounds": [0.15, 0.40], "baseline": 0.27, "label": "Random-move probability"},
+    {"name": "aa0", "flag": "--aa0", "bounds": [35.0, 65.0], "baseline": 50.0, "label": "AA initial concentration"},
+    {"name": "aa_half_life", "flag": "--aa-half-life", "bounds": [4.0, 12.0], "baseline": 8.0, "label": "AA half-life (h)"},
+    {"name": "collagen_aa_km", "flag": "--collagen-aa-km", "bounds": [2.5, 8.0], "baseline": 5.0, "label": "Collagen AA half-sat"},
+    {"name": "commit_delay", "flag": "--commit-delay", "bounds": [24.0, 72.0], "baseline": 48.0, "label": "Commitment delay (h)", "kind": "int"},
+    {"name": "min_div_hours", "flag": "--min-div-hours", "bounds": [30.0, 46.0], "baseline": 38.0, "label": "Minimum division interval (h)", "kind": "int"},
+    {"name": "div_gap_hours", "flag": None, "bounds": [8.0, 24.0], "baseline": 14.0, "label": "Division interval gap (h)", "kind": "int"},
+    {"name": "proliferation_chance", "flag": "--proliferation-chance", "bounds": [0.75, 1.0], "baseline": 1.0, "label": "Division attempt chance"},
+    {"name": "ob_apoptosis_prob", "flag": "--apoptosis-osteo", "bounds": [0.0, 0.0010], "baseline": 0.0, "label": "OB apoptosis probability"},
+    {"name": "osteo_induction_hours", "flag": "--osteo-induction-hours", "bounds": [48.0, 96.0], "baseline": 72.0, "label": "Osteogenic induction time (h)", "kind": "int"},
+    {"name": "media_interval", "flag": "--media-interval", "bounds": [24.0, 72.0], "baseline": 48.0, "label": "Media interval (h)", "kind": "int"},
 ]
 
 ENDPOINTS = [
@@ -217,18 +225,21 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--out", type=Path, default=BASE_OUT, help="output root directory")
     parser.add_argument("--python", type=str, default=sys.executable, help="Python interpreter for main.py")
-    parser.add_argument("--samples", type=int, default=64, help="Sobol base sample size N (total runs ~= N*(2D+2))")
+    parser.add_argument("--samples", type=int, default=1024, help="Sobol base sample size N (total runs ~= N*(2D+2))")
     parser.add_argument("--base-seed", type=int, default=12345, help="base random seed for model runs")
     parser.add_argument("--sobol-seed", type=int, default=24680, help="Sobol sampler seed")
     parser.add_argument("--overwrite", action="store_true", help="rerun simulations even if existing outputs are present")
     parser.add_argument("--analyze-only", action="store_true", help="skip simulation and analyze existing CSV outputs")
+    parser.add_argument("--convergence", action="store_true", help="run Sobol analyses at N = 128, 256, 512, and 1024")
     parser.add_argument("--dry-run", action="store_true", help="print commands without launching runs")
     parser.add_argument("--runtime", action="store_true", help="pass --runtime to main.py")
-    parser.add_argument("--no-second-order", dest="second_order", action="store_false", help="disable second-order Sobol indices")
-    parser.set_defaults(second_order=True)
+    parser.add_argument("--second-order", action="store_true", help="compute second-order Sobol indices")
+    parser.set_defaults(second_order=False)
     args = parser.parse_args()
     if args.samples <= 0:
         raise SystemExit("--samples must be >= 1")
+    if args.samples & (args.samples - 1) != 0:
+        print("[warn] --samples should preferably be a power of 2 (128, 256, 512, 1024, ...)")
     return args
 
 
@@ -304,28 +315,32 @@ def build_command(
     seed: int,
     out_dir: Path,
     runtime: bool,
-) -> list[str]:
+) -> tuple[list[str], dict[str, float], dict[str, float]]:
     cmd = [python_exe, *BASE_ARGS, "--seed", str(seed), "--out", str(out_dir)]
-    adjusted = dict(sample_values)
-    adjusted["commit_delay"] = max(0, int(round(float(adjusted["commit_delay"]))))
-    adjusted["min_div_hours"] = max(1, int(round(float(adjusted["min_div_hours"]))))
-    adjusted["max_div_hours"] = max(
-        adjusted["min_div_hours"], int(round(float(adjusted["max_div_hours"])))
+    effective_inputs = dict(sample_values)
+    effective_inputs["commit_delay"] = max(0, int(round(float(effective_inputs["commit_delay"]))))
+    effective_inputs["min_div_hours"] = max(1, int(round(float(effective_inputs["min_div_hours"]))))
+    effective_inputs["div_gap_hours"] = max(0, int(round(float(effective_inputs["div_gap_hours"]))))
+    effective_inputs["osteo_induction_hours"] = max(
+        0, int(round(float(effective_inputs["osteo_induction_hours"])))
     )
-    adjusted["osteo_induction_hours"] = max(
-        0, int(round(float(adjusted["osteo_induction_hours"])))
-    )
-    adjusted["media_interval"] = max(1, int(round(float(adjusted["media_interval"]))))
+    effective_inputs["media_interval"] = max(1, int(round(float(effective_inputs["media_interval"]))))
+
+    model_inputs = dict(effective_inputs)
+    model_inputs["max_div_hours"] = int(model_inputs["min_div_hours"] + model_inputs["div_gap_hours"])
 
     for spec in PARAMETERS:
-        val = adjusted[spec["name"]]
+        if spec["flag"] is None:
+            continue
+        val = model_inputs[spec["name"]]
         if spec.get("kind") == "int":
             cmd.extend([spec["flag"], str(int(val))])
         else:
             cmd.extend([spec["flag"], f"{float(val):.10g}"])
+    cmd.extend(["--max-div-hours", str(int(model_inputs["max_div_hours"]))])
     if runtime:
         cmd.append("--runtime")
-    return cmd
+    return cmd, effective_inputs, model_inputs
 
 
 def run_sample(
@@ -340,7 +355,7 @@ def run_sample(
 
     sample_values = {PARAMETERS[i]["name"]: float(row[i]) for i in range(len(PARAMETERS))}
     seed = int(args.base_seed + sample_index)
-    cmd = build_command(args.python, sample_values, seed, run_dir, args.runtime)
+    cmd, effective_inputs, model_inputs = build_command(args.python, sample_values, seed, run_dir, args.runtime)
     command_str = shlex.join(cmd)
 
     if args.dry_run:
@@ -352,7 +367,9 @@ def run_sample(
             "success": True,
             "returncode": 0,
             "command": command_str,
-            **sample_values,
+            **{f"raw_{name}": value for name, value in sample_values.items()},
+            **effective_inputs,
+            "max_div_hours_used": float(model_inputs["max_div_hours"]),
         }
 
     if timeseries_path.exists() and not args.overwrite:
@@ -364,7 +381,9 @@ def run_sample(
             "success": True,
             "returncode": 0,
             "command": command_str,
-            **sample_values,
+            **{f"raw_{name}": value for name, value in sample_values.items()},
+            **effective_inputs,
+            "max_div_hours_used": float(model_inputs["max_div_hours"]),
             **endpoints,
         }
 
@@ -377,7 +396,9 @@ def run_sample(
         "success": bool(success),
         "returncode": int(completed.returncode),
         "command": command_str,
-        **sample_values,
+        **{f"raw_{name}": value for name, value in sample_values.items()},
+        **effective_inputs,
+        "max_div_hours_used": float(model_inputs["max_div_hours"]),
     }
     if success:
         row_out.update(extract_endpoints(timeseries_path))
@@ -397,6 +418,13 @@ def write_samples(samples: np.ndarray, out_dir: Path) -> pd.DataFrame:
     df.insert(0, "sample_index", np.arange(1, len(df) + 1))
     df.to_csv(out_dir / "sample_matrix.csv", index=False)
     return df
+
+
+def write_effective_samples(endpoint_df: pd.DataFrame, out_dir: Path) -> pd.DataFrame:
+    cols = ["sample_index", *[str(spec["name"]) for spec in PARAMETERS], "max_div_hours_used"]
+    effective_df = endpoint_df.loc[:, cols].copy()
+    effective_df.to_csv(out_dir / "effective_sample_matrix.csv", index=False)
+    return effective_df
 
 
 def run_or_load_results(args: argparse.Namespace, samples: np.ndarray, out_dir: Path) -> pd.DataFrame:
@@ -488,6 +516,18 @@ def sobol_analysis(
     return sobol_df, raw
 
 
+def clean_sobol_for_plot(vals: np.ndarray, err: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    vals = np.asarray(vals, dtype=float).copy()
+    err = np.asarray(err, dtype=float).copy()
+
+    vals = np.clip(vals, 0.0, 1.0)
+    lo = np.maximum(0.0, vals - err)
+    hi = np.minimum(1.0, vals + err)
+    err_left = vals - lo
+    err_right = hi - vals
+    return vals, np.vstack([err_left, err_right])
+
+
 def endpoint_color(name: str) -> str:
     for ep in ENDPOINTS:
         if ep["name"] == name:
@@ -521,33 +561,30 @@ def plot_sampling_coverage(sample_df: pd.DataFrame, out_fig: Path) -> None:
 
     ax.set_yticks(range(len(PARAMETERS)))
     ax.set_yticklabels([spec["name"] for spec in PARAMETERS])
-    ax.set_xlabel("sampled parameter value")
-    ax.set_title("Sobol sample coverage")
+    ax.set_xlabel("effective parameter value")
+    ax.set_title("Sobol effective-input coverage")
     style_axes(ax, "x", 0.3)
     save_figure(fig, out_fig, "figure_1_sampling_coverage")
 
 
 def plot_s1_st(sobol_df: pd.DataFrame, out_fig: Path, col: str, stem: str, title: str) -> None:
-    order = (
-        sobol_df.groupby("parameter", as_index=False)["ST"]
-        .mean()
-        .sort_values("ST", ascending=False)["parameter"]
-        .tolist()
-    )
-    fig, axes = plt.subplots(1, len(ENDPOINTS), figsize=(16.5, 5.3), sharey=True)
+    fig, axes = plt.subplots(1, len(ENDPOINTS), figsize=(16.5, 5.3), sharey=False)
     for ax, endpoint in zip(axes, ENDPOINTS):
         ep = endpoint["name"]
-        sub = sobol_df[sobol_df["endpoint"] == ep].set_index("parameter").loc[order].reset_index()
-        vals = sub[col].to_numpy(dtype=float)
-        err = sub[f"{col}_conf"].to_numpy(dtype=float)
+        sub = sobol_df[sobol_df["endpoint"] == ep].sort_values("ST", ascending=False).reset_index(drop=True)
+        order = sub["parameter"].tolist()
+        vals_raw = sub[col].to_numpy(dtype=float)
+        err_raw = sub[f"{col}_conf"].to_numpy(dtype=float)
+        vals, xerr = clean_sobol_for_plot(vals_raw, err_raw)
         ypos = np.arange(len(order))
-        ax.barh(ypos, vals, xerr=err, color=endpoint["color"], alpha=0.9, ecolor="#334155", capsize=2.0)
+        ax.barh(ypos, vals, xerr=xerr, color=endpoint["color"], alpha=0.9, ecolor="#334155", capsize=2.0)
         ax.set_title(endpoint_title(ep))
         ax.set_yticks(ypos)
-        ax.set_yticklabels(order if endpoint == ENDPOINTS[0] else [""] * len(order))
+        ax.set_yticklabels(order)
         ax.invert_yaxis()
         ax.set_xlabel(col)
         ax.axvline(0.0, color="#64748b", lw=1.0)
+        ax.set_xlim(0.0, 1.0)
         style_axes(ax, "x", 0.35)
     fig.suptitle(title, fontsize=14.0, fontweight="semibold")
     save_figure(fig, out_fig, stem)
@@ -633,36 +670,45 @@ def export_plots(
         stem="figure_3_sobol_total_order",
         title="Total-order Sobol indices (ST)",
     )
-    plot_s2_heatmaps(raw_sobol, fig_dir)
+    if any(raw_sobol.get(endpoint["name"], {}).get("S2") is not None for endpoint in ENDPOINTS):
+        plot_s2_heatmaps(raw_sobol, fig_dir)
     plot_endpoint_effects(endpoint_df, sobol_df, fig_dir)
 
 
-def main() -> None:
-    args = parse_args()
-    args.out.mkdir(parents=True, exist_ok=True)
+def expected_runs(n: int, second_order: bool, d: int) -> int:
+    return n * ((2 * d + 2) if second_order else (d + 2))
 
+
+def run_single_analysis(
+    args: argparse.Namespace,
+    out_dir: Path,
+    *,
+    n_samples: int,
+    sobol_seed: int,
+) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, dict[str, Any]]]:
+    out_dir.mkdir(parents=True, exist_ok=True)
     problem = problem_definition()
-    problem_path = args.out / "sobol_problem.json"
+    problem_path = out_dir / "sobol_problem.json"
     problem_path.write_text(json.dumps(problem, indent=2), encoding="utf-8")
 
     if args.analyze_only:
-        sample_path = args.out / "sample_matrix.csv"
+        sample_path = out_dir / "sample_matrix.csv"
         if not sample_path.exists():
             raise SystemExit(f"--analyze-only requested but missing {sample_path}")
         sample_df = pd.read_csv(sample_path)
         samples = sample_df[[spec["name"] for spec in PARAMETERS]].to_numpy(dtype=float)
     else:
-        samples = generate_samples(problem, args.samples, args.second_order, args.sobol_seed)
-        sample_df = write_samples(samples, args.out)
-    d = len(PARAMETERS)
-    expected_runs = args.samples * ((2 * d + 2) if args.second_order else (d + 2))
-    print(f"[sanity_check6] parameters: {d}")
-    print(f"[sanity_check6] expected runs: {expected_runs} (N={args.samples}, second_order={args.second_order})")
+        samples = generate_samples(problem, n_samples, args.second_order, sobol_seed)
+        sample_df = write_samples(samples, out_dir)
 
-    endpoint_df = run_or_load_results(args, samples, args.out)
+    d = len(PARAMETERS)
+    print(f"[sanity_check6] parameters: {d}")
+    print(f"[sanity_check6] expected runs: {expected_runs(n_samples, args.second_order, d)} (N={n_samples}, second_order={args.second_order})")
+
+    endpoint_df = run_or_load_results(args, samples, out_dir)
     if args.dry_run:
         print("[sanity_check6] dry run complete; no Sobol analysis or figures generated")
-        return
+        return sample_df, endpoint_df, {}
 
     required_cols = {"sample_index", "alp_240h", "collagen_336h", "ars_672h"}
     if not required_cols.issubset(set(endpoint_df.columns)):
@@ -670,14 +716,69 @@ def main() -> None:
         raise SystemExit(f"endpoint_results missing columns: {missing}")
 
     endpoint_df = endpoint_df.sort_values("sample_index").reset_index(drop=True)
-    sobol_df, raw_sobol = sobol_analysis(problem, endpoint_df, args.out, second_order=args.second_order)
-    export_plots(sample_df, endpoint_df, sobol_df, raw_sobol, args.out)
+    effective_df = write_effective_samples(endpoint_df, out_dir)
+    sobol_df, raw_sobol = sobol_analysis(problem, endpoint_df, out_dir, second_order=args.second_order)
+    export_plots(effective_df, endpoint_df, sobol_df, raw_sobol, out_dir)
+    return effective_df, sobol_df, raw_sobol
 
+
+def run_convergence(args: argparse.Namespace) -> None:
+    convergence_ns = [128, 256, 512, 1024]
+    rows: list[dict[str, Any]] = []
+    for offset, n_samples in enumerate(convergence_ns):
+        run_out = args.out / "convergence" / f"N{n_samples:04d}"
+        _, sobol_df, _ = run_single_analysis(args, run_out, n_samples=n_samples, sobol_seed=args.sobol_seed + offset)
+        if args.dry_run:
+            continue
+        for endpoint in ENDPOINTS:
+            ep = endpoint["name"]
+            top = (
+                sobol_df[sobol_df["endpoint"] == ep]
+                .sort_values("ST", ascending=False)
+                .head(5)
+            )
+            for _, record in top.iterrows():
+                rows.append(
+                    {
+                        "N": n_samples,
+                        "endpoint": ep,
+                        "parameter": str(record["parameter"]),
+                        "ST": float(record["ST"]),
+                        "ST_conf": float(record["ST_conf"]),
+                        "S1": float(record["S1"]),
+                        "S1_conf": float(record["S1_conf"]),
+                    }
+                )
+    if rows:
+        pd.DataFrame(rows).to_csv(args.out / "convergence_summary.csv", index=False)
+
+
+def main() -> None:
+    args = parse_args()
+    args.out.mkdir(parents=True, exist_ok=True)
+    if args.convergence:
+        run_convergence(args)
+        print(f"[sanity_check6] convergence root: {args.out / 'convergence'}")
+        if not args.dry_run:
+            print(f"[sanity_check6] convergence summary: {args.out / 'convergence_summary.csv'}")
+        return
+
+    sample_df, sobol_df, raw_sobol = run_single_analysis(
+        args,
+        args.out,
+        n_samples=args.samples,
+        sobol_seed=args.sobol_seed,
+    )
+    if args.dry_run:
+        return
+
+    figure_count = 4 + int(any(raw_sobol.get(endpoint["name"], {}).get("S2") is not None for endpoint in ENDPOINTS))
     print(f"[sanity_check6] samples: {len(sample_df)}")
     print(f"[sanity_check6] endpoint table: {args.out / 'endpoint_results.csv'}")
+    print(f"[sanity_check6] effective sample table: {args.out / 'effective_sample_matrix.csv'}")
     print(f"[sanity_check6] Sobol table: {args.out / 'sobol_indices_all_endpoints.csv'}")
     print(f"[sanity_check6] ranking: {args.out / 'parameter_ranking.csv'}")
-    print(f"[sanity_check6] figures: {args.out / 'figures'} (5 figures, png+pdf)")
+    print(f"[sanity_check6] figures: {args.out / 'figures'} ({figure_count} figures, png+pdf)")
 
 
 if __name__ == "__main__":
