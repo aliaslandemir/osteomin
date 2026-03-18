@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
 
-" recommended run 
-
-"python sanity/sanity_check6.py --samples 1024
+#python sanity/sanity_check6.py --samples 256
 
 
-"
 
 from __future__ import annotations
 

@@ -50,30 +50,24 @@ COLORS = {
 PARAM_LABELS = {
     "alp_rb": "ALP basal rate",
     "alp_ro": "ALP osteogenic rate",
-    "alp_a_d": "ALP Dex ampl.",
-    "alp_b_d": "ALP Dex curve",
-    "alp_a_k": "ALP MK-4 ampl.",
-    "alp_b_k": "ALP MK-4 curve",
     "collagen_rb": "Collagen basal rate",
     "collagen_ro": "Collagen osteogenic rate",
-    "collagen_a_d": "Collagen Dex ampl.",
-    "collagen_b_d": "Collagen Dex curve",
-    "collagen_a_k": "Collagen MK-4 ampl.",
-    "collagen_b_k": "Collagen MK-4 curve",
     "ha_ro": "HAp osteogenic rate",
-    "ha_a_d": "HAp Dex ampl.",
-    "ha_b_d": "HAp Dex curve",
-    "ha_a_k": "HAp MK-4 ampl.",
-    "ha_b_k": "HAp MK-4 curve",
     "ha_tau": "HAp tau",
     "ha_hill_n": "HAp Hill n",
     "commit_k": "Commitment k",
-    "commit_k_growth": "Commitment k growth",
     "apoptosis_prob": "Apoptosis prob",
     "move_prob": "Motility prob",
     "aa0": "Ascorbate A0",
     "aa_half_life": "Ascorbate half-life",
     "collagen_aa_km": "Collagen AA Km",
+    "commit_delay": "Commitment delay",
+    "min_div_hours": "Min division interval",
+    "div_gap_hours": "Division gap",
+    "proliferation_chance": "Division chance",
+    "ob_apoptosis_prob": "OB apoptosis prob",
+    "osteo_induction_hours": "Osteogenic induction",
+    "media_interval": "Media interval",
 }
 
 plt.rcParams.update(
@@ -127,6 +121,12 @@ def parse_args() -> argparse.Namespace:
         "--clip-for-display",
         action="store_true",
         help="clip Sobol indices/CIs for plotting readability; raw CSV values are unchanged",
+    )
+    parser.add_argument(
+        "--top-n",
+        type=int,
+        default=10,
+        help="number of strongest parameters to show in the main ranking/heatmap panels",
     )
     return parser.parse_args()
 
@@ -226,15 +226,28 @@ def endpoint_order(sobol_df: pd.DataFrame) -> list[str]:
     return order
 
 
-def fig2_parameter_order(sobol_df: pd.DataFrame) -> list[str]:
-    exclude_suffixes = ("_b_d", "_b_k")
-    exclude_exact = {"alp_a_d", "alp_a_k", "collagen_a_d", "collagen_a_k"}
+def top_parameters(sobol_df: pd.DataFrame, top_n: int) -> list[str]:
+    if top_n <= 0:
+        raise SystemExit("--top-n must be >= 1")
     params = endpoint_order(sobol_df)
-    return [
-        p
-        for p in params
-        if (not any(p.endswith(sfx) for sfx in exclude_suffixes)) and (p not in exclude_exact)
-    ]
+    return params[: min(top_n, len(params))]
+
+
+def top_parameters_for_endpoint(
+    sobol_df: pd.DataFrame, endpoint: str, top_n: int
+) -> list[str]:
+    if top_n <= 0:
+        raise SystemExit("--top-n must be >= 1")
+    metric = "ST_nonneg" if "ST_nonneg" in sobol_df.columns else "ST"
+    sub = sobol_df[sobol_df["endpoint"] == endpoint].copy()
+    if sub.empty:
+        return []
+    params = (
+        sub.sort_values(metric, ascending=False)["parameter"]
+        .astype(str)
+        .tolist()
+    )
+    return params[: min(top_n, len(params))]
 
 
 def endpoint_title(key: str) -> str:
@@ -298,115 +311,145 @@ def validate_sobol_table(sobol_df: pd.DataFrame) -> None:
         )
 
 
-def fig1_total_effect_heatmap(sobol_df: pd.DataFrame, out_dir: Path) -> None:
-    params = endpoint_order(sobol_df)
-    eps = [e["key"] for e in ENDPOINTS]
-    mat = np.zeros((len(params), len(eps)), dtype=float)
-    for i, p in enumerate(params):
-        for j, ep in enumerate(eps):
-            row = sobol_df[
-                (sobol_df["parameter"] == p) & (sobol_df["endpoint"] == ep)
-            ].iloc[0]
-            mat[i, j] = float(row["ST_norm"])
-
-    cmap = LinearSegmentedColormap.from_list(
-        "stmap", ["#f7fbff", "#bdd7e7", "#6baed6", "#2171b5", "#084594"]
-    )
-
-    fig, ax = plt.subplots(
-        figsize=(7.2, max(4.2, 0.32 * len(params) + 1.4)), constrained_layout=True
-    )
-    im = ax.imshow(mat, aspect="auto", cmap=cmap, vmin=0.0, vmax=1.0)
-    ax.set_xticks(np.arange(len(eps)))
-    ax.set_xticklabels([endpoint_title(e) for e in eps], rotation=12, ha="right")
-    ax.set_yticks(np.arange(len(params)))
-    ax.set_yticklabels([pretty_param(p) for p in params])
-    ax.set_title("Total-order sensitivity heatmap (normalized ST)")
-    ax.set_xlabel("Endpoint")
-    ax.set_ylabel("Parameter")
-    for i in range(len(params)):
-        for j in range(len(eps)):
-            v = mat[i, j]
-            txt = f"{v:.2f}"
-            color = "white" if v > 0.55 else COLORS["ink"]
-            ax.text(j, i, txt, ha="center", va="center", fontsize=7.5, color=color)
-    cbar = fig.colorbar(im, ax=ax, fraction=0.035, pad=0.02)
-    cbar.set_label("Normalized ST (0-1 within each endpoint)")
-    add_panel_label(ax, "A")
-    save_figure(fig, out_dir, "figure_1_total_effect_heatmap")
-
-
-def fig2_s1_vs_st(
-    sobol_df: pd.DataFrame, out_dir: Path, *, clip_for_display: bool
+def fig1_total_effect_heatmap(
+    sobol_df: pd.DataFrame, out_dir: Path, *, top_n: int
 ) -> None:
-    legend_handles = None
-    global_x_min = 0.0
-    global_x_max = 1.0
-    if clip_for_display:
-        global_x_min, global_x_max = -0.2, 1.2
-    else:
-        x1 = sobol_df["S1_plot"] - sobol_df["S1_conf_plot"]
-        x2 = sobol_df["ST_plot"] + sobol_df["ST_conf_plot"]
-        global_x_min = min(-0.05, float(np.nanmin(x1)))
-        global_x_max = max(1.0, float(np.nanmax(x2)))
-        span = global_x_max - global_x_min
-        global_x_min -= 0.05 * span
-        global_x_max += 0.05 * span
-    params = fig2_parameter_order(sobol_df)
-    fig_h = max(8.0, 0.30 * len(params) + 1.6)
-    fig = plt.figure(figsize=(16.8, fig_h), constrained_layout=False)
-    gs = fig.add_gridspec(1, 4, width_ratios=[1.55, 4.25, 4.25, 4.25], wspace=0.07)
-    label_ax = fig.add_subplot(gs[0, 0])
-    axes = [fig.add_subplot(gs[0, i]) for i in range(1, 4)]
-    fig.subplots_adjust(left=0.012, right=0.985, top=0.89, bottom=0.08)
-
-    y = np.arange(len(params))
-    label_ax.set_xlim(0.0, 1.0)
-    label_ax.set_ylim(len(params) - 0.5, -0.5)
-    label_ax.axis("off")
-    for i, p in enumerate(params):
-        label_ax.text(
-            0.99,
-            y[i],
-            pretty_param(p),
-            ha="right",
-            va="center",
-            fontsize=10.0,
-            color=COLORS["ink"],
-        )
-
+    cmap = LinearSegmentedColormap.from_list(
+        "dual_sobol", ["#f8fafc", "#dbeafe", "#60a5fa", "#1d4ed8"]
+    )
+    fig, axes = plt.subplots(
+        1,
+        len(ENDPOINTS),
+        figsize=(13.8, max(4.8, 0.42 * top_n + 1.8)),
+        sharex=True,
+        constrained_layout=True,
+    )
     for idx, (ax, ep) in enumerate(zip(axes, [e["key"] for e in ENDPOINTS])):
+        params = top_parameters_for_endpoint(sobol_df, ep, top_n)
         sub = (
             sobol_df[sobol_df["endpoint"] == ep]
             .set_index("parameter")
             .loc[params]
             .reset_index()
         )
+        mat = np.vstack(
+            [
+                sub["S1_plot"].clip(lower=0.0, upper=1.0).to_numpy(float),
+                sub["ST_plot"].clip(lower=0.0, upper=1.0).to_numpy(float),
+            ]
+        )
+        im = ax.imshow(mat, aspect="auto", cmap=cmap, vmin=0.0, vmax=1.0)
+        ax.set_xticks(np.arange(len(params)))
+        ax.set_xticklabels([pretty_param(p) for p in params], rotation=42, ha="right", fontsize=8.2)
+        ax.set_yticks([0, 1])
+        ax.set_yticklabels(["S1", "ST"], fontsize=9.2)
+        ax.set_title(f"{endpoint_panel_title(ep)}\nendpoint-specific top {len(params)}", fontsize=10.8)
+        for i in range(2):
+            for j in range(len(params)):
+                v = float(mat[i, j])
+                ax.text(
+                    j,
+                    i,
+                    f"{v:.2f}",
+                    ha="center",
+                    va="center",
+                    fontsize=7.2,
+                    color="white" if v > 0.55 else COLORS["ink"],
+                )
+        style_axes(ax, None, 0.0)
+        ax.tick_params(length=0)
+        ax.text(
+            -0.14,
+            1.03,
+            chr(ord("A") + idx),
+            transform=ax.transAxes,
+            ha="left",
+            va="bottom",
+            fontsize=12.0,
+            fontweight="bold",
+            color=COLORS["ink"],
+        )
+    cbar = fig.colorbar(im, ax=axes.ravel().tolist(), fraction=0.026, pad=0.02)
+    cbar.set_label("Sobol index")
+    fig.suptitle(
+        "Endpoint-specific Sobol heatmaps",
+        fontsize=14.0,
+        fontweight="semibold",
+    )
+    save_figure(fig, out_dir, "figure_1_total_effect_heatmap")
+
+
+def fig2_s1_vs_st(
+    sobol_df: pd.DataFrame, out_dir: Path, *, clip_for_display: bool, top_n: int
+) -> None:
+    legend_handles = None
+    global_x_min = -0.2
+    global_x_max = 1.0
+    fig_h = max(7.8, 0.36 * top_n + 1.9)
+    fig = plt.figure(figsize=(18.8, fig_h), constrained_layout=False)
+    gs = fig.add_gridspec(
+        1,
+        6,
+        width_ratios=[0.68, 1.52, 0.68, 1.52, 0.68, 1.52],
+        wspace=0.05,
+    )
+    label_axes = [fig.add_subplot(gs[0, i]) for i in [0, 2, 4]]
+    axes = [fig.add_subplot(gs[0, i]) for i in [1, 3, 5]]
+    fig.subplots_adjust(left=0.03, right=0.99, top=0.84, bottom=0.10)
+
+    for idx, (label_ax, ax, ep) in enumerate(
+        zip(label_axes, axes, [e["key"] for e in ENDPOINTS])
+    ):
+        params = top_parameters_for_endpoint(sobol_df, ep, top_n)
+        sub = (
+            sobol_df[sobol_df["endpoint"] == ep]
+            .set_index("parameter")
+            .loc[params]
+            .reset_index()
+        )
+        y = np.arange(len(params))
         s1 = sub["S1_plot"].to_numpy(float)
         st = sub["ST_plot"].to_numpy(float)
         s1c = sub["S1_conf_plot"].to_numpy(float)
         stc = sub["ST_conf_plot"].to_numpy(float)
+
+        label_ax.set_xlim(0.0, 1.0)
+        label_ax.set_ylim(len(params) - 0.5, -0.5)
+        label_ax.axis("off")
         for row_idx in range(len(params)):
             if row_idx % 2 == 0:
                 ax.axhspan(
                     row_idx - 0.5,
                     row_idx + 0.5,
-                    color="#f1f5f9",
+                    color="#eef2f7",
                     alpha=1.0,
                     zorder=0,
                 )
-        ax.hlines(y, s1, st, color="#cbd5e1", lw=1.9, alpha=1.0)
+        for yi, p in zip(y, params):
+            label_ax.text(
+                0.98,
+                yi,
+                pretty_param(p),
+                ha="right",
+                va="center",
+                fontsize=8.7,
+                fontweight="semibold",
+                color=COLORS["ink"],
+            )
+        ax.hlines(y, s1, st, color="#475569", lw=6.0, alpha=0.34, zorder=1)
         h1 = ax.errorbar(
             s1,
             y,
             xerr=s1c,
             fmt="o",
             color="#111827",
-            markersize=6.4,
+            markersize=14.0,
             markeredgewidth=0.0,
-            capsize=2.6,
-            elinewidth=1.35,
+            capsize=4.0,
+            elinewidth=4.8,
             label="S1",
+            zorder=3,
+            alpha=0.62,
         )
         h2 = ax.errorbar(
             st,
@@ -414,55 +457,50 @@ def fig2_s1_vs_st(
             xerr=stc,
             fmt="s",
             color=endpoint_color(ep),
-            markersize=7.1,
+            markersize=14.8,
             markeredgewidth=0.0,
-            capsize=2.6,
-            elinewidth=1.35,
+            capsize=4.0,
+            elinewidth=4.8,
             label="ST",
+            zorder=4,
+            alpha=0.62,
         )
-        ax.axvline(0.0, color="#64748b", lw=1.0)
+        ax.axvline(0.0, color="#334155", lw=1.4, zorder=1)
         ax.set_xlim(global_x_min, global_x_max)
         ax.set_ylim(len(params) - 0.5, -0.5)
-        ax.set_title(endpoint_panel_title(ep), fontsize=11.8, x=0.53)
-        ax.set_xlabel("Sobol sensitivity index")
+        ax.set_title(endpoint_panel_title(ep), fontsize=10.2, pad=7.0)
+        ax.set_xlabel("Sobol index")
         ax.set_yticks(y)
-        ax.set_yticklabels([""] * len(params))
-        style_axes(ax, "x", 0.35)
+        ax.set_yticklabels([])
+        style_axes(ax, "x", 0.28)
+        ax.tick_params(axis="x", labelsize=9.0, width=0.9)
+        ax.tick_params(axis="y", pad=1, length=0)
         if legend_handles is None:
             legend_handles = (h1, h2)
-        ax.text(
-            -0.06,
-            1.01,
-            chr(ord("A") + idx),
-            transform=ax.transAxes,
-            ha="left",
-            va="bottom",
-            fontsize=12.5,
-            fontweight="bold",
-            color=COLORS["ink"],
-        )
     if legend_handles is not None:
         fig.legend(
             legend_handles,
             ["First-order (S1)", "Total-order (ST)"],
             frameon=False,
-            loc="upper right",
-            bbox_to_anchor=(0.985, 0.997),
+            loc="upper center",
+            bbox_to_anchor=(0.52, 0.945),
             ncol=2,
-            fontsize=10.0,
-            handlelength=1.4,
-            columnspacing=1.6,
+            fontsize=10.4,
+            handlelength=1.5,
+            columnspacing=2.0,
         )
     fig.suptitle(
-        "First-order vs total-order Sobol indices",
-        fontsize=16.0,
+        f"First-order vs total-order Sobol indices (endpoint-specific top {top_n})",
+        fontsize=13.6,
         fontweight="semibold",
-        y=0.995,
+        y=0.975,
     )
     save_figure(fig, out_dir, "figure_2_s1_vs_st")
 
 
-def fig6_s1_ploscb_style(sobol_df: pd.DataFrame, out_dir: Path) -> None:
+def fig6_s1_ploscb_style(
+    sobol_df: pd.DataFrame, out_dir: Path, *, top_n: int
+) -> None:
     # PLOS CB style companion panel: first-order effects only (S1 +/- CI),
     # focusing on the strongest parameters for readability in print layouts.
     params = (
@@ -472,7 +510,7 @@ def fig6_s1_ploscb_style(sobol_df: pd.DataFrame, out_dir: Path) -> None:
         .sort_values("S1_abs", ascending=False)["parameter"]
         .tolist()
     )
-    top_n = min(12, len(params))
+    top_n = min(top_n, len(params))
     params = params[:top_n]
 
     fig, axes = plt.subplots(
@@ -541,6 +579,8 @@ def fig7_integrated_sobol_final(
     sobol_raw_df: pd.DataFrame,
     s2_mats: dict[str, pd.DataFrame],
     out_dir: Path,
+    *,
+    top_n: int,
 ) -> None:
     if not s2_mats:
         return
@@ -592,8 +632,8 @@ def fig7_integrated_sobol_final(
 
     # Keep the main-effect side concise while letting S2 summarize the
     # strongest interaction-driven terms for each endpoint separately.
-    top_n = 8
-    s2_top_n = 8
+    top_n = min(top_n, 10)
+    s2_top_n = min(top_n, 10)
     left_top_by_ep: dict[str, list[str]] = {}
     right_top_by_ep: dict[str, list[str]] = {}
     s2_vmax_by_ep: dict[str, float] = {}
@@ -847,7 +887,7 @@ def fig7_integrated_sobol_final(
 
 
 def export_parameter_label_table(sobol_df: pd.DataFrame, out_dir: Path) -> None:
-    params = fig2_parameter_order(sobol_df)
+    params = endpoint_order(sobol_df)
     table = pd.DataFrame(
         {
             "parameter_code": params,
@@ -857,8 +897,9 @@ def export_parameter_label_table(sobol_df: pd.DataFrame, out_dir: Path) -> None:
     table.to_csv(out_dir / "figure_2_parameter_labels.csv", index=False)
 
 
-def fig3_parameter_ranking(rank_df: pd.DataFrame, out_dir: Path) -> None:
-    rank = rank_df.sort_values("mean_ST_across_endpoints", ascending=True)
+def fig3_parameter_ranking(rank_df: pd.DataFrame, out_dir: Path, *, top_n: int) -> None:
+    rank = rank_df.sort_values("mean_ST_across_endpoints", ascending=False).head(top_n)
+    rank = rank.sort_values("mean_ST_across_endpoints", ascending=True)
     labels = [pretty_param(str(p)) for p in rank["parameter"]]
     ypos = np.arange(len(rank))
     fig, ax = plt.subplots(
@@ -881,10 +922,159 @@ def fig3_parameter_ranking(rank_df: pd.DataFrame, out_dir: Path) -> None:
         w = float(b.get_width())
         ax.text(w + 0.01, b.get_y() + b.get_height() * 0.5, f"{w:.2f}", va="center", ha="left", fontsize=8.0, color=COLORS["muted"])
     ax.set_xlabel("Mean ST across endpoints")
-    ax.set_title("Global parameter importance ranking")
+    ax.set_title(f"Global parameter importance ranking (top {len(rank)})")
     style_axes(ax, "x", 0.35)
     add_panel_label(ax, "E")
     save_figure(fig, out_dir, "figure_3_parameter_ranking")
+
+
+def fig8_interaction_gap(
+    sobol_df: pd.DataFrame, out_dir: Path, *, top_n: int
+) -> None:
+    fig, axes = plt.subplots(
+        1,
+        len(ENDPOINTS),
+        figsize=(14.6, max(4.8, 0.36 * top_n + 1.8)),
+        sharex=False,
+        constrained_layout=True,
+    )
+    for idx, (ax, ep) in enumerate(zip(axes, [e["key"] for e in ENDPOINTS])):
+        params = top_parameters_for_endpoint(sobol_df, ep, top_n)
+        sub = (
+            sobol_df[sobol_df["endpoint"] == ep]
+            .set_index("parameter")
+            .loc[params]
+            .reset_index()
+        )
+        interaction_gap = (sub["ST_plot"] - sub["S1_plot"]).clip(lower=0.0)
+        ypos = np.arange(len(sub))
+        ax.barh(
+            ypos,
+            interaction_gap,
+            color=endpoint_color(ep),
+            alpha=0.88,
+            edgecolor="none",
+        )
+        ax.set_yticks(ypos)
+        ax.set_yticklabels([pretty_param(p) for p in sub["parameter"]], fontsize=8.6)
+        ax.invert_yaxis()
+        ax.set_xlabel("Interaction share (ST - S1)")
+        ax.set_title(f"{endpoint_panel_title(ep)}\ninteraction-dominated contribution", fontsize=10.8)
+        style_axes(ax, "x", 0.30)
+        for y, v in zip(ypos, interaction_gap):
+            ax.text(
+                float(v) + 0.01,
+                y,
+                f"{float(v):.2f}",
+                va="center",
+                ha="left",
+                fontsize=7.5,
+                color=COLORS["muted"],
+            )
+        ax.text(
+            -0.12,
+            1.03,
+            chr(ord("P") + idx),
+            transform=ax.transAxes,
+            ha="left",
+            va="bottom",
+            fontsize=12.0,
+            fontweight="bold",
+            color=COLORS["ink"],
+        )
+    fig.suptitle(
+        "Interaction gap among endpoint-specific top parameters",
+        fontsize=13.6,
+        fontweight="semibold",
+    )
+    save_figure(fig, out_dir, "figure_8_interaction_gap")
+
+
+def fig9_s1_vs_st_scatter(
+    sobol_df: pd.DataFrame, out_dir: Path, *, top_n: int
+) -> None:
+    fig, axes = plt.subplots(
+        1,
+        len(ENDPOINTS),
+        figsize=(14.8, 4.8),
+        sharex=True,
+        sharey=True,
+        constrained_layout=True,
+    )
+    max_val = 1.0
+    for ep in [e["key"] for e in ENDPOINTS]:
+        sub = sobol_df[sobol_df["endpoint"] == ep]
+        if sub.empty:
+            continue
+        max_val = max(
+            max_val,
+            float(sub["S1_plot"].clip(lower=0.0).max()),
+            float(sub["ST_plot"].clip(lower=0.0).max()),
+        )
+    max_val = min(1.05, max_val * 1.08)
+
+    for idx, (ax, ep) in enumerate(zip(axes, [e["key"] for e in ENDPOINTS])):
+        params = top_parameters_for_endpoint(sobol_df, ep, top_n)
+        sub = (
+            sobol_df[sobol_df["endpoint"] == ep]
+            .set_index("parameter")
+            .loc[params]
+            .reset_index()
+        )
+        x = sub["S1_plot"].clip(lower=0.0).to_numpy(float)
+        y = sub["ST_plot"].clip(lower=0.0).to_numpy(float)
+        gap = np.clip(y - x, a_min=0.0, a_max=None)
+        sizes = 70.0 + 260.0 * np.clip(y, 0.0, 1.0)
+        sc = ax.scatter(
+            x,
+            y,
+            c=gap,
+            s=sizes,
+            cmap="magma",
+            vmin=0.0,
+            vmax=max(0.25, float(np.nanmax(gap)) if len(gap) else 0.25),
+            alpha=0.92,
+            edgecolors="white",
+            linewidths=0.8,
+            zorder=3,
+        )
+        guide = np.linspace(0.0, max_val, 100)
+        ax.plot(guide, guide, color="#94a3b8", lw=1.1, ls="--", zorder=1)
+        for xi, yi, p in zip(x, y, sub["parameter"]):
+            ax.text(
+                float(xi) + 0.012,
+                float(yi) + 0.012,
+                pretty_param(str(p)),
+                fontsize=7.5,
+                color=COLORS["ink"],
+            )
+        ax.set_xlim(0.0, max_val)
+        ax.set_ylim(0.0, max_val)
+        ax.set_xlabel("S1")
+        if idx == 0:
+            ax.set_ylabel("ST")
+        ax.set_title(f"{endpoint_panel_title(ep)}\nendpoint-specific top {len(params)}", fontsize=10.6)
+        style_axes(ax, "both", 0.28)
+        ax.text(
+            -0.12,
+            1.03,
+            chr(ord("S") + idx),
+            transform=ax.transAxes,
+            ha="left",
+            va="bottom",
+            fontsize=12.0,
+            fontweight="bold",
+            color=COLORS["ink"],
+        )
+
+    cbar = fig.colorbar(sc, ax=axes.ravel().tolist(), fraction=0.028, pad=0.02)
+    cbar.set_label("Interaction gap (ST - S1)")
+    fig.suptitle(
+        "S1 vs ST parameter map",
+        fontsize=13.8,
+        fontweight="semibold",
+    )
+    save_figure(fig, out_dir, "figure_9_s1_vs_st_scatter")
 
 
 def fig4_top2_response_maps(
@@ -1065,14 +1255,16 @@ def fig5_trajectory_bands(
 def write_caption_file(out_dir: Path, *, clip_for_display: bool) -> None:
     caption = (
         "Figure outputs for sanity_check6 Sobol sensitivity analysis. "
-        "Figure 1: endpoint-normalized total-order indices (ST). "
+        "Figure 1: endpoint-specific top-parameter heatmaps showing S1 and ST side by side. "
         "Figure 2: first-order (S1) and total-order (ST) indices with confidence intervals "
-        "for selected parameters (curvature terms and ALP/Collagen response amplitudes omitted). "
-        "Figure 3: mean ST ranking across endpoints. "
+        "for the endpoint-specific top drivers. "
+        "Figure 3: mean ST ranking across endpoints for the top drivers. "
         "Figure 4: endpoint values plotted against the top two endpoint-specific drivers. "
         "Figure 5: endpoint trajectories grouped by low and high quartiles of each endpoint's top driver. "
         "Figure 6: publication-style first-order Sobol panel (S1 +/- CI) for top parameters. "
-        "Figure 7: integrated final Sobol panel combining S1, ST, and second-order interactions (S2)."
+        "Figure 7: integrated final Sobol panel combining S1, ST, and second-order interactions (S2). "
+        "Figure 8: interaction gap bars showing ST-S1 among each endpoint's top drivers. "
+        "Figure 9: S1-versus-ST scatter map for each endpoint's top drivers."
     )
     if clip_for_display:
         caption += " Display clipping was enabled."
@@ -1100,14 +1292,27 @@ def main() -> None:
         sobol_df, clip_for_display=args.clip_for_display
     )
 
-    fig1_total_effect_heatmap(sobol_plot_df, out_dir)
-    fig2_s1_vs_st(sobol_plot_df, out_dir, clip_for_display=args.clip_for_display)
+    fig1_total_effect_heatmap(sobol_plot_df, out_dir, top_n=args.top_n)
+    fig2_s1_vs_st(
+        sobol_plot_df,
+        out_dir,
+        clip_for_display=args.clip_for_display,
+        top_n=args.top_n,
+    )
     export_parameter_label_table(sobol_plot_df, out_dir)
-    fig3_parameter_ranking(rank_df, out_dir)
+    fig3_parameter_ranking(rank_df, out_dir, top_n=args.top_n)
     fig4_top2_response_maps(endpoint_df, sobol_plot_df, sobol_df, out_dir)
     fig5_trajectory_bands(endpoint_df, sobol_plot_df, runs_dir, out_dir)
-    fig6_s1_ploscb_style(sobol_plot_df, out_dir)
-    fig7_integrated_sobol_final(sobol_plot_df, sobol_df, s2_mats, out_dir)
+    fig6_s1_ploscb_style(sobol_plot_df, out_dir, top_n=args.top_n)
+    fig7_integrated_sobol_final(
+        sobol_plot_df,
+        sobol_df,
+        s2_mats,
+        out_dir,
+        top_n=args.top_n,
+    )
+    fig8_interaction_gap(sobol_plot_df, out_dir, top_n=args.top_n)
+    fig9_s1_vs_st_scatter(sobol_plot_df, out_dir, top_n=args.top_n)
     write_caption_file(out_dir, clip_for_display=args.clip_for_display)
 
     print(f"[sanity6_figure_extract] input: {input_dir}")
