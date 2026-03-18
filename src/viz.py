@@ -11,7 +11,7 @@ from scipy.sparse.csgraph import connected_components
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
-from matplotlib.colors import to_rgb, PowerNorm
+from matplotlib.colors import LinearSegmentedColormap, PowerNorm, to_rgb
 from .agent import CellState
 from .modulatoreff import plot_drug_modulation_summary
 
@@ -27,8 +27,8 @@ __all__ = [
 ]
 
 COLORS = {
-    "preob": "#4C78A8",
-    "ob": "#F2A541",
+    "preob": "#0072B2",
+    "ob": "#D55E00",
     "dead_preob": "#E45756",
     "dead_ob": "#B279A2",
     "text": "#111827",
@@ -52,9 +52,21 @@ FIGURE_SIZE_MAP = (10.6, 9.2)
 MAP_AX_POS = [0.125, 0.045, 0.75, 0.895]
 CBAR_LEFT_POS = [0.055, 0.105, 0.022, 0.79]
 CBAR_RIGHT_POS = [0.915, 0.105, 0.022, 0.79]
-COLLAGEN_CMAP = matplotlib.colormaps["Greens"]
-HAP_CMAP = matplotlib.colormaps["Purples"]
-ALP_CMAP = matplotlib.colormaps["Reds"]
+SPATIAL_DEAD_COLOR = "#2f2f2f"
+COLLAGEN_BASE_COLOR = "#0f9d94"
+HAP_BASE_COLOR = "#c2185b"
+
+
+def _sequential_map(name: str, color: str) -> LinearSegmentedColormap:
+    return LinearSegmentedColormap.from_list(name, ["#ffffff", color])
+
+
+COLLAGEN_CMAP = _sequential_map("osteomin_collagen", COLLAGEN_BASE_COLOR)
+HAP_CMAP = _sequential_map("osteomin_hap", HAP_BASE_COLOR)
+ALP_CMAP = LinearSegmentedColormap.from_list(
+    "osteomin_alp",
+    ["#ffffff", "#fff2b3", "#f9c22e", "#f28e1c", "#d73027"],
+)
 
 plt.rcParams.update(
     {
@@ -747,15 +759,16 @@ def _render_spatial_image(
     dead_total_cum: int,
 ) -> None:
     h, w = state_grid.shape
-    canvas = np.zeros((h, w, 3), dtype=float) + 1.0
+    canvas = np.zeros((h, w, 4), dtype=float)
+    canvas[..., :3] = 1.0
+    canvas[..., 3] = 1.0
     preob_mask = state_grid == CellState.PRE_OB
     ob_mask = state_grid == CellState.OSTEOBLAST
-    preob_color = to_rgb(COLORS["preob"])
-    ob_color = to_rgb(COLORS["ob"])
-    canvas[preob_mask] = preob_color
-    canvas[ob_mask] = ob_color
-    canvas[deaths_preob_mask.astype(bool)] = to_rgb(COLORS["dead_preob"])
-    canvas[deaths_ob_mask.astype(bool)] = to_rgb(COLORS["dead_ob"])
+    dead_mask = deaths_preob_mask.astype(bool) | deaths_ob_mask.astype(bool)
+    canvas[preob_mask, :3] = to_rgb(COLORS["preob"])
+    canvas[ob_mask, :3] = to_rgb(COLORS["ob"])
+    canvas[dead_mask, :3] = to_rgb(SPATIAL_DEAD_COLOR)
+    canvas[dead_mask, 3] = 0.6
 
     n_preob = int(preob_mask.sum())
     n_ob = int(ob_mask.sum())
@@ -780,11 +793,10 @@ def _render_spatial_image(
     legend_elems = [
         Patch(facecolor=COLORS["preob"], label=f"preOB ({n_preob})"),
         Patch(facecolor=COLORS["ob"], label=f"Osteoblast ({n_ob})"),
-        Patch(facecolor=COLORS["dead_preob"], label=f"Died while preOB ({n_da})"),
-        Patch(facecolor=COLORS["dead_ob"], label=f"Died while osteoblast ({n_do})"),
+        Patch(facecolor=SPATIAL_DEAD_COLOR, label=f"Dead ({n_da + n_do})"),
     ]
     legend = ax.legend(
-        handles=legend_elems, frameon=True, loc="upper right", ncol=1, fontsize=9
+        handles=legend_elems, frameon=True, loc="upper right", ncol=1, fontsize=8.5
     )
     legend.get_frame().set_edgecolor("black")
     legend.get_frame().set_linewidth(0.6)
@@ -890,7 +902,6 @@ def _render_collagen_ha_overlay(
 
     col_norm = PowerNorm(gamma=0.62, vmin=0.0, vmax=vmax_col)
     ha_norm = PowerNorm(gamma=0.7, vmin=0.0, vmax=vmax_ha)
-    col_scaled = col_norm(col)
     ha_scaled = ha_norm(ha)
 
     fig = plt.figure(figsize=FIGURE_SIZE_MAP)
@@ -903,26 +914,14 @@ def _render_collagen_ha_overlay(
         cmap=COLLAGEN_CMAP,
         norm=col_norm,
     )
-    ha_mask = ha > 0.0
-    if state_grid is not None:
-        ob_mask = np.asarray(state_grid == CellState.OSTEOBLAST, dtype=bool)
-        ha_mask = ha_mask & ob_mask & (col > 0.0)
-    if np.any(ha_mask):
-        ys_h, xs_h = np.where(ha_mask)
-        hvals = ha_scaled[ys_h, xs_h]
-        sizes = 6.0 + 64.0 * np.power(hvals, 1.55)
-        rgba = HAP_CMAP(0.24 + 0.68 * hvals)
-        rgba[:, 3] = 0.20 + 0.48 * np.power(hvals, 1.15)
-        ax.scatter(
-            xs_h,
-            ys_h,
-            s=sizes,
-            marker="o",
-            c=rgba,
-            edgecolors="#3d2a5a",
-            linewidths=0.15,
-            zorder=4,
-        )
+    ha_rgba = HAP_CMAP(ha_scaled)
+    ha_rgba[..., 3] = np.where(ha > 0.0, 0.14 + 0.56 * np.power(ha_scaled, 1.05), 0.0)
+    ax.imshow(
+        ha_rgba,
+        origin="lower",
+        interpolation="nearest",
+        zorder=3,
+    )
     if nodule_centers:
         xs = [c[0] for c in nodule_centers]
         ys = [c[1] for c in nodule_centers]
@@ -930,11 +929,11 @@ def _render_collagen_ha_overlay(
             xs,
             ys,
             s=52,
-            c="#00c2ff",
-            edgecolors="#083344",
+            c="#ff8c00",
+            edgecolors="#9a4d00",
             linewidths=0.8,
             marker="o",
-            label="Nodule center",
+            label="Nodule",
             zorder=6,
         )
         legend = ax.legend(
@@ -989,29 +988,45 @@ def export_alp_field_snapshot(
     alp: np.ndarray,
     *,
     global_vmax_alp: float | None = None,
+    state_grid: np.ndarray | None = None,
 ) -> None:
     img_path = Path(img_path)
     img_path.parent.mkdir(parents=True, exist_ok=True)
     if alp.size == 0:
         return
-    bg = float(np.nanmin(alp)) if alp.size else 0.0
-    alp_disp = np.maximum(0.0, alp - bg)
+    alp_disp = np.maximum(0.0, alp)
     vmax = (
-        max(float(global_vmax_alp) - bg, 1e-9)
+        max(float(global_vmax_alp), 1e-9)
         if global_vmax_alp is not None
         else max(float(np.nanpercentile(alp_disp, 99)), 1e-9)
     )
-    norm = PowerNorm(gamma=0.50, vmin=0.0, vmax=vmax)
+    floor = max(vmax * 0.02, 1e-12)
+    alp_plot = alp_disp.copy()
+    alp_plot[alp_plot < floor] = 0.0
+    norm = PowerNorm(gamma=0.5, vmin=0.0, vmax=vmax)
     fig = plt.figure(figsize=FIGURE_SIZE_MAP)
     ax = fig.add_axes(MAP_AX_POS)
     _set_white(ax)
     im = ax.imshow(
-        alp_disp,
+        alp_plot,
         origin="lower",
         interpolation="nearest",
         cmap=ALP_CMAP,
         norm=norm,
     )
+    if state_grid is not None:
+        live_mask = (state_grid == CellState.PRE_OB) | (state_grid == CellState.OSTEOBLAST)
+        if np.any(live_mask):
+            ys, xs = np.where(live_mask)
+            ax.scatter(
+                xs,
+                ys,
+                s=6,
+                c="#111827",
+                alpha=0.14,
+                linewidths=0.0,
+                zorder=4,
+            )
     ax.set_xticks([])
     ax.set_yticks([])
     _set_map_header(
@@ -1020,7 +1035,10 @@ def export_alp_field_snapshot(
     )
     cax = fig.add_axes(CBAR_RIGHT_POS)
     cbar = fig.colorbar(im, cax=cax)
-    cbar.set_label("ALP above background (a.u.)", fontsize=9)
+    tick_vals = np.linspace(0.0, vmax, 5)
+    cbar.set_ticks(tick_vals)
+    cbar.set_ticklabels([f"{int(round(v))}" for v in tick_vals])
+    cbar.set_label("ALP signal (a.u.)", fontsize=9)
     cbar.ax.tick_params(labelsize=8, colors="black")
     _save_snapshot_figure(fig, img_path)
     plt.close(fig)

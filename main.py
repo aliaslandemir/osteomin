@@ -139,11 +139,14 @@ def _export_alp_snapshots(
         if not alp_path.exists():
             continue
         alp = np.load(alp_path)
+        state_path = model.grids_dir / f"state_day_{day:03d}.npy"
+        state_grid = np.load(state_path) if state_path.exists() else None
         export_alp_field_snapshot(
             alp_dir / f"alp_day_{day:03d}.pdf",
             f"Day {day:02d}",
             alp,
             global_vmax_alp=alp_vmax,
+            state_grid=state_grid,
         )
         exported += 1
 
@@ -156,6 +159,7 @@ def _export_alp_snapshots(
             global_vmax_alp=(
                 float(np.nanmax(model.field.alp)) if model.field.alp.size else 1.0
             ),
+            state_grid=None,
         )
 
 
