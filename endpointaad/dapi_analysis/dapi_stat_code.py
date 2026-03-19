@@ -22,9 +22,9 @@ Plot (changed only to match ALP Figure-2 master):
 
 
 
-python dapi_stat_code.py \
-  --input ../confocal \
-  --out dapi_output \
+python endpointaad/dapi_analysis/dapi_stat_code.py \
+  --input endpointaad/confocal \
+  --out endpointaad/dapi_analysis/dapi_output \
   --pixel_um 0.21 \
   --min_area_um2 140 \
   --max_area_um2 300 \
@@ -118,6 +118,7 @@ MEAN_COLOR = "#B22222"
 MEDIAN_COLOR = "#1F1F1F"
 STAR_COLOR_A = "#000000"
 STAR_COLOR_B = "#B22222"
+SD_COLOR = "#5A5A5A"
 
 
 def two_line_label(name: str) -> str:
@@ -140,6 +141,18 @@ def cond_id_to_pretty_name(c: str) -> str:
 
 def cond_id_to_tag(c: str) -> str:
     return two_line_label(cond_id_to_pretty_name(c))
+
+
+def _mean_sd(vals: np.ndarray) -> Tuple[float, float]:
+    vals = np.asarray(vals, dtype=float)
+    vals = vals[np.isfinite(vals)]
+    if vals.size == 0:
+        return np.nan, np.nan
+    mean = float(np.mean(vals))
+    if vals.size < 2:
+        return mean, np.nan
+    sd = float(np.std(vals, ddof=1))
+    return mean, sd
 
 
 # ========================== DAPI CONFIG ==========================
@@ -168,6 +181,8 @@ FEATURES_TO_PLOT = [
     "solidity",
     "integrated_intensity",
 ]
+
+ARS_STYLE_FEATURES = {"area_um2", "aspect_ratio"}
 
 DEFAULT_MIN_AREA_UM2 = 140.0
 DEFAULT_MAX_AREA_UM2 = 300.0
@@ -526,6 +541,161 @@ def plot_fig2_tags_violin_delta_sig(
     return fig
 
 
+def plot_fig2_tags_points_sig(
+    df: pd.DataFrame,
+    value_col: str,
+    conds: List[str],
+    famA: Dict[str, Dict[str, float]],
+    famB: Dict[str, Dict[str, float]],
+    suptitle: str,
+    xlab: str,
+    seed: int = 0,
+) -> plt.Figure:
+    rng = np.random.default_rng(seed)
+
+    data = [
+        df.loc[df["condition"] == c, value_col].dropna().astype(float).values
+        for c in conds
+    ]
+
+    nonempty = [v for v in data if v.size > 0]
+    if nonempty:
+        allv = np.concatenate(nonempty)
+        xmin = float(np.min(allv))
+        xmax = float(np.max(allv))
+        xr = (xmax - xmin) if xmax > xmin else (abs(xmax) if xmax != 0 else 1.0)
+        pad = 0.10 * xr
+        xlim = (xmin - pad, xmax + pad)
+    else:
+        xlim = (0.0, 1.0)
+
+    fig = plt.figure(figsize=(9.2, 6.0))
+    fig.subplots_adjust(left=0.03, right=0.995, bottom=0.12, top=0.835, wspace=0.08)
+
+    gs = GridSpec(
+        1, 3,
+        width_ratios=[0.90, 3.20, 0.70],
+        wspace=0.05,
+        figure=fig,
+    )
+
+    axT = fig.add_subplot(gs[0, 0])
+    axV = fig.add_subplot(gs[0, 1], sharey=axT)
+    axS = fig.add_subplot(gs[0, 2], sharey=axT)
+
+    y = np.arange(len(conds))
+    axT.set_ylim(len(conds) - 0.5, -0.5)
+
+    row_color, row_alpha, row_lw = "#000000", 0.10, 0.8
+    for yy in y:
+        for ax in (axT, axV, axS):
+            ax.axhline(yy, color=row_color, alpha=row_alpha, linewidth=row_lw, zorder=0)
+
+    title_pad = 4
+
+    axT.set_xlim(0, 1)
+    axT.set_xticks([])
+    axT.set_yticks(y)
+    axT.set_yticklabels([])
+    axT.set_title("Condition", pad=title_pad)
+    for i, c in enumerate(conds):
+        axT.text(
+            0.5, i, cond_id_to_tag(c),
+            ha="center", va="center",
+            fontsize=10.2, color="#1a1a1a",
+            linespacing=1.05,
+        )
+    for s in axT.spines.values():
+        s.set_visible(False)
+
+    for i, (c, vals) in enumerate(zip(conds, data)):
+        if vals.size == 0:
+            continue
+        yj = i + rng.normal(0, 0.022, size=vals.size)
+        axV.scatter(
+            vals, yj,
+            s=24,
+            color=COND_COLORS.get(c, "#444444"),
+            edgecolor="white",
+            linewidth=0.7,
+            alpha=0.9,
+            zorder=4,
+        )
+        mean, sd = _mean_sd(vals)
+        if np.isfinite(mean):
+            if np.isfinite(sd):
+                lo = mean - sd
+                hi = mean + sd
+                axV.hlines(i, lo, hi, color=SD_COLOR, linewidth=1.2, alpha=0.24, zorder=2)
+                axV.scatter(
+                    [lo, hi],
+                    [i, i],
+                    marker="|",
+                    s=105,
+                    color=SD_COLOR,
+                    alpha=0.24,
+                    linewidths=1.4,
+                    zorder=2,
+                )
+            axV.scatter(
+                mean, i,
+                s=96, marker="o",
+                color=COND_COLORS.get(c, MEAN_COLOR),
+                edgecolor="black",
+                linewidth=0.9,
+                zorder=5,
+            )
+
+    axV.set_xlim(*xlim)
+    axV.set_xlabel("")
+    axV.set_title(xlab, pad=title_pad)
+    axV.grid(axis="x", alpha=0.05, linewidth=0.45)
+    axV.set_yticks([])
+    axV.yaxis.set_major_formatter(NullFormatter())
+    axV.tick_params(axis="y", length=0, labelsize=11)
+    for s in axV.spines.values():
+        s.set_visible(False)
+
+    axS.set_xlim(-0.45, 0.45)
+    axS.set_yticks([])
+    axS.yaxis.set_major_formatter(NullFormatter())
+    axS.tick_params(axis="y", length=0)
+    axS.set_xticks([])
+    axS.set_title("Significance", pad=title_pad)
+    axS.axvspan(-0.6, 0.6, color="0.0", alpha=0.008, zorder=0)
+    axS.text(
+        0.26, -0.09, "vs C1",
+        transform=axS.transAxes,
+        ha="center", va="top",
+        fontsize=8.5, color="0.45",
+    )
+    axS.text(
+        0.74, -0.09, "vs C2",
+        transform=axS.transAxes,
+        ha="center", va="top",
+        fontsize=8.5, color="0.45",
+    )
+
+    for i, c in enumerate(conds):
+        if c == "C1":
+            axS.text(-0.14, i, "ref", ha="center", va="center", fontsize=10.5, color="0.5")
+        else:
+            st = star_from_p(famA.get(c, {}).get("p_adj", np.nan))
+            axS.text(-0.14, i, st, ha="center", va="center", fontsize=9.5, color=STAR_COLOR_A)
+
+        if c == "C2":
+            axS.text(0.14, i, "ref", ha="center", va="center", fontsize=10.5, color="0.5")
+        elif c != "C1":
+            st = star_from_p(famB.get(c, {}).get("p_adj", np.nan))
+            axS.text(0.14, i, st, ha="center", va="center", fontsize=9.5, color=STAR_COLOR_B)
+
+    for s in axS.spines.values():
+        s.set_visible(False)
+
+    fig.suptitle(suptitle, fontsize=14, y=0.955)
+    return fig
+
+
 # ========================== SEGMENTATION ==========================
 def segment_and_measure_one(image_path: Path, out_dirs: Dict[str, Path]) -> pd.DataFrame | None:
     try:
@@ -761,7 +931,12 @@ def main():
                         f"p_adj={famB.get(c, {}).get('p_adj', np.nan):.4g}\n")
             f.write("\n")
 
-            fig = plot_fig2_tags_violin_delta_sig(
+            plot_fn = (
+                plot_fig2_tags_points_sig
+                if feat in ARS_STYLE_FEATURES
+                else plot_fig2_tags_violin_delta_sig
+            )
+            fig = plot_fn(
                 df=df_kept,
                 value_col=feat,
                 conds=conds_present,
