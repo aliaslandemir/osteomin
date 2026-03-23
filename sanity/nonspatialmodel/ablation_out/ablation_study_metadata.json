@@ -1,0 +1,135 @@
+{
+  "n_runs": 220,
+  "param_cv": 0.22,
+  "seed": 42,
+  "endpoint_condition": "C4",
+  "base": {
+    "total_hours": 672,
+    "n_preob0": 72.0,
+    "n_ob0": 0.0,
+    "prolif_rate_preob": 0.022222222222222223,
+    "prolif_rate_ob": 0.0,
+    "apoptosis_preob": 0.001,
+    "apoptosis_ob": 0.0,
+    "osteo_induction_hours": 72,
+    "commit_delay_hours": 48,
+    "k_commit_hourly": 0.0125,
+    "dex_conc_nm": 0.0,
+    "mk4_conc_um": 0.0,
+    "alp_basal_rate": 0.094,
+    "alp_osteo_rate": 0.81,
+    "alp_initial": 0.8,
+    "collagen_basal_rate": 0.00355,
+    "collagen_osteo_rate": 0.0131,
+    "aa_initial": 50.0,
+    "aa_half_life_hours": 8.0,
+    "aa_media_interval_hours": 48,
+    "collagen_aa_half_sat": 5.0,
+    "tau_col_hours": 48.0,
+    "ha_osteo_rate": 0.106,
+    "ha_tau_hours": 384.0,
+    "ha_hill_n": 2.0,
+    "ha_collagen_half_sat": 1.0,
+    "alp_resp": {
+      "dex_ref": 20.0,
+      "dex_a": 3.79,
+      "dex_b": 1.92,
+      "mk4_ref": 0.6,
+      "mk4_a": 0.56,
+      "mk4_b": 0.471
+    },
+    "collagen_resp": {
+      "dex_ref": 60.0,
+      "dex_a": 2.42,
+      "dex_b": 0.77,
+      "mk4_ref": 8.0,
+      "mk4_a": 0.915,
+      "mk4_b": 0.167
+    },
+    "ha_resp": {
+      "dex_ref": 50.0,
+      "dex_a": 1.14,
+      "dex_b": 0.365,
+      "mk4_ref": 0.7,
+      "mk4_a": 4.69,
+      "mk4_b": 2.21
+    }
+  },
+  "variants": [
+    {
+      "id": "full_model",
+      "label": "Full model"
+    },
+    {
+      "id": "no_osteogenic_commitment",
+      "label": "No osteogenic commitment"
+    },
+    {
+      "id": "no_commit_delay",
+      "label": "No commitment delay"
+    },
+    {
+      "id": "no_apoptosis",
+      "label": "No apoptosis"
+    },
+    {
+      "id": "no_drug_modulation",
+      "label": "No drug modulation"
+    },
+    {
+      "id": "no_collagen_maturation",
+      "label": "No collagen maturation delay"
+    },
+    {
+      "id": "minimal_nonspatial",
+      "label": "Minimal nonspatial model"
+    }
+  ],
+  "dose_variants": [
+    "full_model",
+    "no_drug_modulation",
+    "no_osteogenic_commitment"
+  ],
+  "conditions": [
+    {
+      "id": "C1",
+      "dex": 0.0,
+      "mk4": 0.0
+    },
+    {
+      "id": "C2",
+      "dex": 1.0,
+      "mk4": 0.1
+    },
+    {
+      "id": "C3",
+      "dex": 3.0,
+      "mk4": 0.3
+    },
+    {
+      "id": "C4",
+      "dex": 10.0,
+      "mk4": 1.0
+    },
+    {
+      "id": "C5",
+      "dex": 30.0,
+      "mk4": 3.0
+    },
+    {
+      "id": "C6",
+      "dex": 100.0,
+      "mk4": 10.0
+    },
+    {
+      "id": "C7",
+      "dex": 10.0,
+      "mk4": 0.1
+    },
+    {
+      "id": "C8",
+      "dex": 10.0,
+      "mk4": 3.0
+    }
+  ]
+}

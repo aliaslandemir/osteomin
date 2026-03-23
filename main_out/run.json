@@ -151,17 +151,17 @@
     "initial_cell_count": 0
   },
   "timing": {
-    "started_utc": "2026-03-18T13:21:59.407697+00:00",
-    "finished_utc": "2026-03-18T13:22:26.839557+00:00"
+    "started_utc": "2026-03-23T14:06:48.828086+00:00",
+    "finished_utc": "2026-03-23T14:07:16.818030+00:00"
   },
   "performance": {
-    "wallclock_seconds": 27.43052024399958,
-    "wallclock_minutes": 0.457175337399993,
-    "wallclock_hours": 0.00761958895666655,
+    "wallclock_seconds": 27.98728158,
+    "wallclock_minutes": 0.46645469300000003,
+    "wallclock_hours": 0.007774244883333334,
     "simulated_hours": 672.0,
     "simulated_days": 28.0,
-    "simulated_hours_per_wallclock_second": 24.498259384890808,
-    "simulated_hours_per_wallclock_hour": 88193.7337856069,
-    "simulated_days_per_wallclock_hour": 3674.738907733621
+    "simulated_hours_per_wallclock_second": 24.010906456889263,
+    "simulated_hours_per_wallclock_hour": 86439.26324480135,
+    "simulated_days_per_wallclock_hour": 3601.6359685333896
   }
 }

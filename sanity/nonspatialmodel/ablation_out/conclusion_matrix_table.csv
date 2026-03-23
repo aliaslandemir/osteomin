@@ -1,0 +1,8 @@
+label,ALP maintained,Collagen maintained,HAp maintained,Cell count maintained
+Spatial model (reference),2.0,2.0,2.0,2.0
+Nonspatial model,0.0,1.0,0.0,2.0
+No osteogenic commitment,1.0,1.0,0.0,2.0
+No commitment delay,0.0,2.0,0.0,1.0
+No apoptosis,0.0,1.0,0.0,2.0
+No drug modulation,0.0,1.0,0.0,2.0
+No collagen maturation delay,0.0,1.0,0.0,2.0
