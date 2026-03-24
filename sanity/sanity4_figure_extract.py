@@ -284,17 +284,28 @@ def export_assay_dose_curves(dex_df: pd.DataFrame, mk4_df: pd.DataFrame, out_dir
         )
 
     for ridx, (col, err_col, title, color) in enumerate(rows):
-        row_vals = np.concatenate(
+        means_all = np.concatenate(
             [
                 dex_df[col].to_numpy(dtype=float),
-                dex_df[err_col].to_numpy(dtype=float),
                 mk4_df[col].to_numpy(dtype=float),
+            ]
+        )
+        errs_all = np.concatenate(
+            [
+                dex_df[err_col].to_numpy(dtype=float),
                 mk4_df[err_col].to_numpy(dtype=float),
             ]
         )
-        y_abs = float(np.max(np.abs(row_vals))) if row_vals.size else 1.0
-        y_pad = max(0.8, 0.14 * y_abs)
-        y_lim = (-y_abs - y_pad, y_abs + y_pad)
+        y_min_data = float(np.min(means_all - errs_all)) if means_all.size else 0.0
+        y_max_data = float(np.max(means_all + errs_all)) if means_all.size else 1.0
+        y_span = max(y_max_data - y_min_data, 1.0)
+        y_pad = max(0.8, 0.10 * y_span)
+        if y_min_data >= -0.02 * max(abs(y_max_data), 1.0):
+            y_low = 0.0
+        else:
+            y_low = y_min_data - y_pad
+        y_high = y_max_data + y_pad
+        y_lim = (y_low, y_high)
         y_peak = y_lim[1] - 0.08 * (y_lim[1] - y_lim[0])
         line_width = 2.5 if "ha" in col else 1.9
         dex_peak_low, dex_peak_high = peak_window_for_metric(dex_pos, col)

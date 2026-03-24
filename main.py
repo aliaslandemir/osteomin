@@ -968,7 +968,9 @@ def main() -> None:
         if args.spatial_every > 0:
             overlay_interval_days = {
                 (hour - 1) // HOURS_PER_DAY + 1
-                for hour in range(args.spatial_every, total_hours + 1, args.spatial_every)
+                for hour in range(
+                    args.spatial_every, total_hours + 1, args.spatial_every
+                )
             }
             overlay_days = sorted(
                 {
