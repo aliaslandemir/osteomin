@@ -135,6 +135,8 @@ BASE_ARGS = [
     "minimal",
     "--ha-ro",
     "0.106",
+    "--ha-h0",
+    "2.34",
     "--ha-tau",
     "384",
     "--ha-hill-n",

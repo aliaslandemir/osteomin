@@ -425,7 +425,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--ha-h0",
         type=float,
-        default=0.0,
+        default=2.34,
         help="initial mineral field baseline H0 applied at simulation start",
     )
     p.add_argument(
@@ -991,7 +991,7 @@ def main() -> None:
         else:
             all_days = range(total_days)
             collagen_vmax = _global_field_max(model.grids_dir, "collagen", all_days)
-            ha_vmax = _global_field_max(model.grids_dir, "ha", all_days)
+            ha_vmax = max(1e-9, _global_field_max(model.grids_dir, "ha", all_days) - max(0.0, float(args.ha_h0)))
             prev_col: np.ndarray | None = None
             prev_ha: np.ndarray | None = None
             prev_meta: tuple | None = None
@@ -1047,6 +1047,7 @@ def main() -> None:
                     global_vmax_col=collagen_vmax,
                     global_vmax_ha=ha_vmax,
                     state_grid=state,
+                    ha_baseline=max(0.0, float(args.ha_h0)),
                 )
 
         print("[OsteoMin]")

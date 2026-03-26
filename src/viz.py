@@ -871,10 +871,14 @@ def _render_collagen_ha_overlay(
     global_vmax_col: float | None = None,
     global_vmax_ha: float | None = None,
     state_grid: np.ndarray | None = None,
+    ha_baseline: float = 0.0,
 ) -> None:
     img_path.parent.mkdir(parents=True, exist_ok=True)
 
-    if not col.any() and not ha.any():
+    ha_baseline = max(0.0, float(ha_baseline))
+    ha_disp = np.maximum(0.0, ha - ha_baseline)
+
+    if not col.any() and not ha_disp.any():
         fig = plt.figure(figsize=FIGURE_SIZE_MAP)
         ax = fig.add_axes(MAP_AX_POS)
         _set_white(ax)
@@ -898,11 +902,11 @@ def _render_collagen_ha_overlay(
     if global_vmax_ha is not None:
         vmax_ha = max(global_vmax_ha, 1e-9)
     else:
-        vmax_ha = max(_p99(ha), 1e-9)
+        vmax_ha = max(_p99(ha_disp), 1e-9)
 
     col_norm = PowerNorm(gamma=0.62, vmin=0.0, vmax=vmax_col)
     ha_norm = PowerNorm(gamma=0.7, vmin=0.0, vmax=vmax_ha)
-    ha_scaled = ha_norm(ha)
+    ha_scaled = ha_norm(ha_disp)
 
     fig = plt.figure(figsize=FIGURE_SIZE_MAP)
     ax = fig.add_axes(MAP_AX_POS)
@@ -915,7 +919,7 @@ def _render_collagen_ha_overlay(
         norm=col_norm,
     )
     ha_rgba = HAP_CMAP(ha_scaled)
-    ha_rgba[..., 3] = np.where(ha > 0.0, 0.14 + 0.56 * np.power(ha_scaled, 1.05), 0.0)
+    ha_rgba[..., 3] = np.where(ha_disp > 0.0, 0.14 + 0.56 * np.power(ha_scaled, 1.05), 0.0)
     ax.imshow(
         ha_rgba,
         origin="lower",
@@ -1058,6 +1062,7 @@ def export_overlay_collagen_ha(
     global_vmax_col: float | None = None,
     global_vmax_ha: float | None = None,
     state_grid: np.ndarray | None = None,
+    ha_baseline: float = 0.0,
 ) -> None:
     _render_collagen_ha_overlay(
         Path(img_path),
@@ -1072,6 +1077,7 @@ def export_overlay_collagen_ha(
         global_vmax_col=global_vmax_col,
         global_vmax_ha=global_vmax_ha,
         state_grid=state_grid,
+        ha_baseline=ha_baseline,
     )
 
 
@@ -1089,6 +1095,7 @@ def export_collagen_ha_snapshot(
     boundary_mode: str = "clamp",
     global_vmax_col: float | None = None,
     global_vmax_ha: float | None = None,
+    ha_baseline: float = 0.0,
 ) -> None:
     target = Path(outdir) / "day_hor" / f"day{day}" / "collagen_ha"
     img_path = target / f"hour_{hour:02d}.pdf"
@@ -1114,6 +1121,7 @@ def export_collagen_ha_snapshot(
         global_vmax_col=global_vmax_col,
         global_vmax_ha=global_vmax_ha,
         state_grid=state_grid,
+        ha_baseline=ha_baseline,
     )
 
 
@@ -1125,6 +1133,7 @@ def export_overlay_collagen_ha_from_npy(
     boundary_mode: str = "clamp",
     global_vmax_col: float | None = None,
     global_vmax_ha: float | None = None,
+    ha_baseline: float = 0.0,
 ) -> None:
     grids_dir = Path(grids_dir)
     outdir = Path(outdir)
@@ -1164,4 +1173,5 @@ def export_overlay_collagen_ha_from_npy(
         global_vmax_col=global_vmax_col,
         global_vmax_ha=global_vmax_ha,
         state_grid=state_grid if state_path.exists() else None,
+        ha_baseline=ha_baseline,
     )

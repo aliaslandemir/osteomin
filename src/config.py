@@ -63,7 +63,7 @@ class FieldConfig:
     aa_half_life_hours: float = 6.0
     collagen_aa_half_sat: float = 1.0
     ha_model: str = "minimal"
-    ha_initial: float = 0.0
+    ha_initial: float = 2.34
     ha_osteo_rate: float = 0.0
     ha_dex_ref_conc: float = 20.0
     ha_mk4_ref_conc: float = 0.7
