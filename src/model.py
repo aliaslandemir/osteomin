@@ -132,8 +132,6 @@ class OsteoModel:
         self.nodule_boundary_mode = str(abm_cfg.boundary_mode).lower()
         self.nodule_centers_by_day: Dict[int, List[Tuple[float, float]]] = {}
         self.nodule_count_by_day: Dict[int, int] = {}
-        self._persistent_nodule_centers: List[Tuple[float, float]] = []
-        self._nodule_merge_radius: float = 4.0
 
         self.spatial_every = max(0, int(spatial_every))
         base_days = set((spatial_days or []))
@@ -467,8 +465,7 @@ class OsteoModel:
             boundary_mode=self.nodule_boundary_mode,
         )
         nodule_count_current = int(len(nodule_centers))
-        persistent_centers = self._update_persistent_nodules(nodule_centers)
-        nodule_count_ever = int(len(persistent_centers))
+        nodule_count_ever = nodule_count_current
         self.nodule_centers_by_day[int(day)] = list(nodule_centers)
         self.nodule_count_by_day[int(day)] = nodule_count_ever
 
@@ -564,34 +561,6 @@ class OsteoModel:
         hour = int(day) * HOURS_PER_DAY
         ages = [max(0.0, float(hour - c.birth_day)) for c in self.abm.cells]
         return float(np.mean(ages)) if ages else 0.0
-
-    def _update_persistent_nodules(
-        self, centers_now: List[Tuple[float, float]]
-    ) -> List[Tuple[float, float]]:
-        if not centers_now:
-            return list(self._persistent_nodule_centers)
-        if not self._persistent_nodule_centers:
-            self._persistent_nodule_centers = list(centers_now)
-            return list(self._persistent_nodule_centers)
-
-        r2 = float(self._nodule_merge_radius) ** 2
-        for cx, cy in centers_now:
-            matched = False
-            for px, py in self._persistent_nodule_centers:
-                if self.nodule_boundary_mode == "periodic":
-                    dx = abs(cx - px)
-                    dy = abs(cy - py)
-                    dx = min(dx, float(self.abm.width) - dx)
-                    dy = min(dy, float(self.abm.height) - dy)
-                else:
-                    dx = cx - px
-                    dy = cy - py
-                if (dx * dx + dy * dy) <= r2:
-                    matched = True
-                    break
-            if not matched:
-                self._persistent_nodule_centers.append((float(cx), float(cy)))
-        return list(self._persistent_nodule_centers)
 
     def save_timeseries_excel(self, df: pd.DataFrame, basename: str = "timeseries") -> Path:
         out = self.outdir / f"{basename}.xlsx"
