@@ -25,6 +25,13 @@ class ABMManager:
         if mode not in ("clamp", "periodic"):
             raise ValueError(f"unsupported boundary_mode '{cfg.boundary_mode}'")
         self.boundary_mode = mode
+        update_order = getattr(cfg, "update_order", "fixed")
+        update_order = (
+            update_order.lower() if isinstance(update_order, str) else "fixed"
+        )
+        if update_order not in ("fixed", "random"):
+            raise ValueError(f"unsupported update_order '{cfg.update_order}'")
+        self.update_order = update_order
 
         self.cells: List[Cell] = []
         self.occupancy = np.full((self.height, self.width), -1, dtype=np.int32)
@@ -119,7 +126,8 @@ class ABMManager:
 
         if self.cfg.enable_commitment and hour >= self._commit_activation_hour:
             commit_prob = self._commit_probability(hour)
-            for c in self.cells:
+            for idx in self._cell_iteration_order():
+                c = self.cells[idx]
                 if (
                     c.state == CellState.PRE_OB
                     and (hour - c.last_div_day) >= HOURS_PER_DAY
@@ -207,8 +215,15 @@ class ABMManager:
         idx = int(self.rng.choice(len(candidates), p=probs))
         return candidates[idx]
 
+    def _cell_iteration_order(self) -> np.ndarray:
+        n_cells = len(self.cells)
+        if self.update_order == "random" and n_cells > 1:
+            return np.asarray(self.rng.permutation(n_cells), dtype=np.int32)
+        return np.arange(n_cells, dtype=np.int32)
+
     def _random_move_step(self) -> None:
-        for idx, c in enumerate(self.cells):
+        for idx in self._cell_iteration_order():
+            c = self.cells[int(idx)]
             if c.state != CellState.PRE_OB:
                 continue
             if self.rng.random() >= self._move_prob_hourly:
@@ -232,7 +247,9 @@ class ABMManager:
         prob_ob = min(1.0, self._apoptosis_prob_ob)
 
         died_indices = []
-        for idx, c in enumerate(self.cells):
+        for idx in self._cell_iteration_order():
+            idx = int(idx)
+            c = self.cells[idx]
             prob = prob_ob if c.state == CellState.OSTEOBLAST else prob_pre
             if self.rng.random() < prob:
                 state_before = c.state
@@ -257,7 +274,9 @@ class ABMManager:
 
     def _proliferation_step(self, hour: int) -> None:
         newborns: List[Cell] = []
-        for idx, c in enumerate(self.cells):
+        for idx in self._cell_iteration_order():
+            idx = int(idx)
+            c = self.cells[idx]
             if c.state == CellState.APOPTOTIC:
                 continue
             if (

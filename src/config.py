@@ -9,6 +9,7 @@ class ABMConfig:
     width: int = 33
     height: int = 33
     boundary_mode: str = "periodic"
+    update_order: str = "random"
     enable_random_move: bool = True
     enable_commitment: bool = True
     enable_apoptosis: bool = True

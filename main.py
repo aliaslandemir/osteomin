@@ -464,6 +464,12 @@ def parse_args() -> argparse.Namespace:
         default="periodic",
         help="treat edges as hard boundaries (clamp) or wrap around (periodic)",
     )
+    p.add_argument(
+        "--update-order",
+        choices=["random", "fixed"],
+        default=default_abm.update_order,
+        help="per-stage cell processing order: randomized each stage or persistent creation order",
+    )
 
     p.add_argument(
         "--random-move",
@@ -836,6 +842,7 @@ def main() -> None:
         width=args.w,
         height=args.h,
         boundary_mode=args.boundary_mode,
+        update_order=args.update_order,
         enable_random_move=args.random_move,
         enable_commitment=args.commitment,
         enable_apoptosis=args.apoptosis,
