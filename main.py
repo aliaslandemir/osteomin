@@ -41,8 +41,8 @@ python main.py \
   --commit-delay 48 \
   --commit-k 0.0125 \
   \
-  --dex-conc 0 \
-  --mk4-conc 0 \
+  --dex-conc 50 \
+  --mk4-conc 5 \
   \
   --alp-rb 0.094 \
   --alp-ro 0.810 \

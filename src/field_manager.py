@@ -3,6 +3,8 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
+from .modulatoreff import endpoint_drug_factors
+
 __all__ = ["FieldManager"]
 
 
@@ -159,12 +161,6 @@ class FieldManager:
         idx = min(max(0, int(hour)), self.total_hours)
         return float(self._aa_hourly[idx])
 
-    def _log_concentration_offset(self, conc: float, ref_conc: float) -> float:
-        # Baseline/no-drug runs can use conc <= 0; treat those as neutral offset.
-        if conc <= 0.0:
-            return 0.0
-        return float(np.log10(conc / ref_conc))
-
     def _deposit_uniform_to_mask(
         self,
         field: np.ndarray,
@@ -215,48 +211,18 @@ class FieldManager:
         else:
             live_mask = np.asarray(pre_mask, dtype=bool) | np.asarray(ob_mask, dtype=bool)
         u_osteo = self._osteo_active(hour)
-        i_d = 1.0 if self.dex_conc > 0.0 else 0.0
-        i_k = 1.0 if self.mk4_conc > 0.0 else 0.0
-
-        alp_dex_offset = self._log_concentration_offset(
-            self.dex_conc, self.alp_dex_ref_conc
-        )
-        alp_mk4_offset = self._log_concentration_offset(
-            self.mk4_conc, self.alp_mk4_ref_conc
-        )
-        col_dex_offset = self._log_concentration_offset(
-            self.dex_conc, self.collagen_dex_ref_conc
-        )
-        col_mk4_offset = self._log_concentration_offset(
-            self.mk4_conc, self.collagen_mk4_ref_conc
-        )
-        ha_dex_offset = self._log_concentration_offset(
-            self.dex_conc, self.ha_dex_ref_conc
-        )
-        ha_mk4_offset = self._log_concentration_offset(
-            self.mk4_conc, self.ha_mk4_ref_conc
-        )
-        m_d_alp = max(
-            0.0, 1.0 + i_d * (self.alp_a_d - self.alp_b_d * alp_dex_offset**2)
-        )
-        m_k_alp = max(
-            0.0, 1.0 + i_k * (self.alp_a_k - self.alp_b_k * alp_mk4_offset**2)
-        )
-        m_alp = m_d_alp * m_k_alp
-        m_d_col = max(
-            0.0,
-            1.0 + i_d * (self.collagen_a_d - self.collagen_b_d * col_dex_offset**2),
-        )
-        m_k_col = max(
-            0.0,
-            1.0 + i_k * (self.collagen_a_k - self.collagen_b_k * col_mk4_offset**2),
-        )
-        m_col = m_d_col * m_k_col
-        m_d_ha = max(0.0, 1.0 + i_d * (self.ha_a_d - self.ha_b_d * ha_dex_offset**2))
-        m_k_ha = max(
-            0.0, 1.0 + i_k * (self.ha_a_k - self.ha_b_k * ha_mk4_offset**2)
-        )
-        m_ha = m_d_ha * m_k_ha
+        alp_factors = endpoint_drug_factors(self, "alp")
+        collagen_factors = endpoint_drug_factors(self, "collagen")
+        ha_factors = endpoint_drug_factors(self, "ha")
+        m_d_alp = float(alp_factors["m_d"])
+        m_k_alp = float(alp_factors["m_k"])
+        m_alp = float(alp_factors["m_total"])
+        m_d_col = float(collagen_factors["m_d"])
+        m_k_col = float(collagen_factors["m_k"])
+        m_col = float(collagen_factors["m_total"])
+        m_d_ha = float(ha_factors["m_d"])
+        m_k_ha = float(ha_factors["m_k"])
+        m_ha = float(ha_factors["m_total"])
 
         if live_mask is not None and live_mask.any():
             alp_added = self._deposit_uniform_to_mask(
