@@ -211,8 +211,8 @@ def fit_rates(
         sse = float(np.sum((y_hat - y_obs) ** 2))
         method = "scipy.least_squares"
 
-        dof = max(1, y_obs.size - res.x.size)
-        s_sq = sse / dof
+        dof = y_obs.size - res.x.size
+        s_sq = sse / max(1, dof)
         jt_j = res.jac.T @ res.jac
         pcov = np.linalg.pinv(jt_j) * s_sq
     except Exception:
@@ -232,18 +232,26 @@ def fit_rates(
         sse, c0, r_b_h, r_o_h = best
         method = "grid"
         pcov = np.zeros((3, 3), dtype=float)
+        dof = y_obs.size - 3
 
     con_hat, aa_hat, gate_hat = simulate(
         t_days, c0, r_b_h, r_o_h, k_a_mm, a0, tau_a_h, dt_med_h, t_osteo_h, dt_h
     )
     y_all = np.concatenate([c_control, c_aa])
     yhat_all = np.concatenate([con_hat, aa_hat])
+    # Per-condition interpretation treats basal/osteo as separate linear fits
+    # with 2 parameters each (intercept + slope).
+    dof_basal = int(np.asarray(c_control).size - 2)
+    dof_osteo = int(np.asarray(c_aa).size - 2)
     return {
         "c0": c0,
         "r_b_h": r_b_h,
         "r_o_h": r_o_h,
         "sse": sse,
         "method": method,
+        "dof": int(dof),
+        "dof_basal": dof_basal,
+        "dof_osteo": dof_osteo,
         "con_hat": con_hat,
         "aa_hat": aa_hat,
         "gate_hat": gate_hat,
@@ -306,6 +314,9 @@ def save_outputs(
         "fit_method": fit["method"],
         "r_basal_per_h": fit["r_b_h"],
         "r_osteo_per_h": fit["r_o_h"],
+        "degrees_of_freedom": fit["dof"],
+        "degrees_of_freedom_basal": fit["dof_basal"],
+        "degrees_of_freedom_osteo": fit["dof_osteo"],
         "note": "Ungated rate fit: AA-gate parameters are not used.",
         "metrics_overall": fit["metrics_overall"],
         "metrics_basal": fit["metrics_basal"],
@@ -326,15 +337,16 @@ def save_outputs(
     c_osteo = "#d95f02"
 
     t_h_data = 24.0 * T_DAYS
-    fig = plt.figure(figsize=(7.8, 4.8))
+    cm_to_in = 1.0 / 2.54
+    fig = plt.figure(figsize=(8.5 * cm_to_in, 6.6 * cm_to_in))
     ax = fig.add_subplot(1, 1, 1)
     fig.patch.set_facecolor("white")
     ax.set_facecolor("white")
 
-    ax.plot(t_h_dense, con_dense, lw=2.4, color=c_basal)
-    ax.plot(t_h_dense, aa_dense, lw=2.4, color=c_osteo)
-    ax.scatter(t_h_data, C_CONTROL, s=54, color=c_basal, edgecolor="white", linewidth=0.8, zorder=3, clip_on=False)
-    ax.scatter(t_h_data, C_AA, s=54, color=c_osteo, edgecolor="white", linewidth=0.8, zorder=3, clip_on=False)
+    ax.plot(t_h_dense, con_dense, lw=1.2, color=c_basal)
+    ax.plot(t_h_dense, aa_dense, lw=1.2, color=c_osteo)
+    ax.scatter(t_h_data, C_CONTROL, s=30, color=c_basal, edgecolor="white", linewidth=0.8, zorder=3, clip_on=False)
+    ax.scatter(t_h_data, C_AA, s=30, color=c_osteo, edgecolor="white", linewidth=0.8, zorder=3, clip_on=False)
 
     x_max_h = float(t_max_day) * 24.0
     x_pad_h = max(4.0, 0.02 * x_max_h)
@@ -346,11 +358,11 @@ def save_outputs(
 
     ax.set_xlabel("Time (hours)")
     ax.set_ylabel("Collagen signal (assay units)")
-    ax.set_title("Collagen Activity Fit", fontsize=11, pad=8)
+    ax.set_title("Collagen Activity Fit", fontsize=9, pad=4)
     ax.xaxis.set_major_locator(MultipleLocator(24.0 * 2.0))
     ax.yaxis.set_major_locator(MultipleLocator(0.5))
     ax.yaxis.set_minor_locator(MultipleLocator(0.25))
-    ax.tick_params(labelsize=9, top=False, labeltop=False)
+    ax.tick_params(labelsize=8, top=False, labeltop=False)
     ax.xaxis.set_ticks_position("bottom")
     ax.grid(True, which="major", color="#b0b0b0", alpha=0.28, linewidth=0.75)
     ax.grid(True, which="minor", color="#d0d0d0", alpha=0.18, linewidth=0.5)
@@ -359,33 +371,38 @@ def save_outputs(
     ax.spines["left"].set_linewidth(1.0)
     ax.spines["bottom"].set_linewidth(1.0)
 
-    met = fit["metrics_overall"]
+    met_basal = fit["metrics_basal"]
+    met_osteo = fit["metrics_osteo"]
     txt = "\n".join([
-        f"r_b (AU h^-1)  {fit['r_b_h']:.3g}",
-        f"r_o (AU h^-1)  {fit['r_o_h']:.3g}",
-        f"RMSE (AU)      {met['RMSE']:.3g}",
-        f"R2             {met['R2']:.3g}",
+        f"r_b = {fit['r_b_h']:.2e} AU/h",
+        f"r_o = {fit['r_o_h']:.2e} AU/h",
+        f"DoF(b) = {fit['dof_basal']}",
+        f"RMSE(b) = {met_basal['RMSE']:.2e}",
+        f"DoF(o) = {fit['dof_osteo']}",
+        f"RMSE(o) = {met_osteo['RMSE']:.2e}",
     ])
     ax.text(
-        0.02, 0.70, txt,
+        0.98, 0.08, txt,
         transform=ax.transAxes,
-        va="top", ha="left",
-        fontsize=8.5, family="monospace",
-        bbox=dict(boxstyle="round,pad=0.28", facecolor="white", edgecolor="#bcbcbc", alpha=0.96),
+        va="bottom", ha="right",
+        fontsize=7.2,
+        bbox=dict(boxstyle="round,pad=0.22", facecolor="white", edgecolor="#bcbcbc", alpha=0.90),
     )
 
     legend_handles = [
-        Line2D([0], [0], color=c_basal, lw=2.4, label="Basal fit"),
-        Line2D([0], [0], color=c_osteo, lw=2.4, label="Osteogenic fit"),
-        Line2D([0], [0], color=c_basal, lw=2.0, marker="o", markersize=7, markerfacecolor=c_basal, markeredgecolor="white", markeredgewidth=0.8, label="Basal data"),
-        Line2D([0], [0], color=c_osteo, lw=2.0, marker="o", markersize=7, markerfacecolor=c_osteo, markeredgecolor="white", markeredgewidth=0.8, label="Osteogenic data"),
+        Line2D([0], [0], color=c_basal, lw=1.2, label="Basal fit"),
+        Line2D([0], [0], color=c_osteo, lw=1.2, label="Osteogenic fit"),
+        Line2D([0], [0], color=c_basal, lw=1.2, marker="o", markersize=5.5, markerfacecolor=c_basal, markeredgecolor="white", markeredgewidth=0.8, label="Basal data"),
+        Line2D([0], [0], color=c_osteo, lw=1.2, marker="o", markersize=5.5, markerfacecolor=c_osteo, markeredgecolor="white", markeredgewidth=0.8, label="Osteogenic data"),
     ]
-    ax.legend(handles=legend_handles, loc="upper left", frameon=False, fontsize=9, handlelength=2.0, borderaxespad=0.6)
+    ax.legend(handles=legend_handles, loc="upper left", frameon=False, fontsize=7.2, handlelength=1.8, borderaxespad=0.4)
 
-    fig.tight_layout()
+    ax.xaxis.label.set_size(9)
+    ax.yaxis.label.set_size(9)
+    fig.tight_layout(pad=0.4)
     png_path = out_dir / "collagen_fit_style.png"
     pdf_path = out_dir / "collagen_fit_style.pdf"
-    fig.savefig(png_path, dpi=300)
+    fig.savefig(png_path, dpi=600)
     fig.savefig(pdf_path)
     plt.close(fig)
 
@@ -441,6 +458,15 @@ def main() -> None:
     print(f"SSE             : {met['SSE']:.6g}")
     print(f"RMSE            : {met['RMSE']:.6g}")
     print(f"R2              : {met['R2']:.6g}")
+    print(f"DoF             : {fit['dof']}")
+    print(
+        f"Basal metrics   : RMSE={fit['metrics_basal']['RMSE']:.6g}, "
+        f"R2={fit['metrics_basal']['R2']:.6g}, DoF={fit['dof_basal']}"
+    )
+    print(
+        f"Osteo metrics   : RMSE={fit['metrics_osteo']['RMSE']:.6g}, "
+        f"R2={fit['metrics_osteo']['R2']:.6g}, DoF={fit['dof_osteo']}"
+    )
     print(
         f"final_day       : {final_day:.0f} d | "
         f"CON obs={C_CONTROL[final_idx]:.6g}, pred={fit['con_hat'][final_idx]:.6g} | "

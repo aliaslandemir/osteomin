@@ -41,34 +41,34 @@ python main.py \
   --commit-delay 48 \
   --commit-k 0.0125 \
   \
-  --dex-conc 50 \
-  --mk4-conc 5 \
+  --dex-conc 0 \
+  --mk4-conc 0 \
   \
-  --alp-rb 0.094 \
+  --alp-rb 0.0949 \
   --alp-ro 0.810 \
-  --collagen-rb 0.00355 \
-  --collagen-ro 0.0131 \
-  --ha-ro 0.106 \
+  --collagen-rb 0.00336 \
+  --collagen-ro 0.0130 \
+  --ha-ro 0.102 \
   \
-  --alp-dex-ref 20 \
-  --collagen-dex-ref 60 \
-  --ars-dex-ref 50 \
-  --alp-a-d 3.79 \
-  --alp-b-d 1.92 \
-  --collagen-a-d 2.42 \
-  --collagen-b-d 0.770 \
-  --ha-a-d 1.14 \
-  --ha-b-d 0.365 \
+  --alp-dex-ref 22.7 \
+  --collagen-dex-ref 6.22 \
+  --ars-dex-ref 46.6 \
+  --alp-a-d 3.72 \
+  --alp-b-d 1.75 \
+  --collagen-a-d 2.69 \
+  --collagen-b-d 2.04 \
+  --ha-a-d 1.22 \
+  --ha-b-d 0.679 \
   \
-  --alp-mk4-ref 0.6 \
-  --collagen-mk4-ref 8 \
-  --ars-mk4-ref 0.7 \
-  --alp-a-k 0.56 \
-  --alp-b-k 0.471 \
-  --collagen-a-k 0.915 \
-  --collagen-b-k 0.167 \
-  --ha-a-k 4.69 \
-  --ha-b-k 2.21 \
+  --alp-mk4-ref 0.784 \
+  --collagen-mk4-ref 0.349 \
+  --ars-mk4-ref 0.667 \
+  --alp-a-k 1.10 \
+  --alp-b-k 1.06 \
+  --collagen-a-k 4.66 \
+  --collagen-b-k 2.15 \
+  --ha-a-k 4.66 \
+  --ha-b-k 2.15 \
   \
   --ha-model minimal \
   --ha-tau 384 \
@@ -220,13 +220,13 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--alp-rb",
         type=float,
-        default=0.10710412147505423,
+        default=0.0949,
         help="basal ALP rate r_b^P per preOB site per hour",
     )
     p.add_argument(
         "--alp-ro",
         type=float,
-        default=0.9856290672451192,
+        default=0.810,
         help="osteogenic ALP rate r_o^P per OB site per hour",
     )
     p.add_argument(
@@ -254,13 +254,13 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--alp-dex-ref",
         type=float,
-        default=20.0,
+        default=22.7,
         help="ALP-specific Dex reference concentration c_D0 in nM",
     )
     p.add_argument(
         "--collagen-dex-ref",
         type=float,
-        default=60.0,
+        default=6.22,
         help="collagen-specific Dex reference concentration c_D0 in nM",
     )
     p.add_argument(
@@ -268,7 +268,7 @@ def parse_args() -> argparse.Namespace:
         "--ars-dex-ref",
         dest="ha_dex_ref",
         type=float,
-        default=50.0,
+        default=46.6,
         help="mineral/ARS-specific Dex reference concentration c_D0 in nM",
     )
     p.add_argument(
@@ -324,13 +324,13 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--alp-mk4-ref",
         type=float,
-        default=0.6,
+        default=0.784,
         help="ALP-specific MK-4 reference concentration c_K0 in uM",
     )
     p.add_argument(
         "--collagen-mk4-ref",
         type=float,
-        default=8.0,
+        default=0.349,
         help="collagen-specific MK-4 reference concentration c_K0 in uM",
     )
     p.add_argument(
@@ -338,7 +338,7 @@ def parse_args() -> argparse.Namespace:
         "--ars-mk4-ref",
         dest="ha_mk4_ref",
         type=float,
-        default=0.7,
+        default=0.667,
         help="mineral/ARS-specific MK-4 reference concentration c_K0 in uM",
     )
     p.add_argument(
@@ -380,13 +380,13 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--collagen-rb",
         type=float,
-        default=0.0035518253599441936,
+        default=0.00336,
         help="basal collagen rate r_b^C per preOB site per hour",
     )
     p.add_argument(
         "--collagen-ro",
         type=float,
-        default=0.0130876,
+        default=0.0130,
         help="osteogenic collagen rate r_o^C per OB site per hour before AA gating",
     )
     p.add_argument(
@@ -419,7 +419,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--ha-ro",
         type=float,
-        default=24.147854915293642,
+        default=0.102,
         help="osteogenic HAp rate r_o^H per OB site per hour before Hill gating",
     )
     p.add_argument(
@@ -437,7 +437,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--ha-hill-n",
         type=float,
-        default=4.0,
+        default=2.0,
         help="Hill exponent n for minimal HAp activation",
     )
     p.add_argument(
@@ -755,62 +755,62 @@ def main() -> None:
     alp_a_d = (
         float(args.alp_a_d)
         if args.alp_a_d is not None
-        else float(args.dex_a) if args.dex_a is not None else 3.79
+        else float(args.dex_a) if args.dex_a is not None else 3.72
     )
     alp_b_d = (
         float(args.alp_b_d)
         if args.alp_b_d is not None
-        else float(args.dex_b) if args.dex_b is not None else 1.92
+        else float(args.dex_b) if args.dex_b is not None else 1.75
     )
     collagen_a_d = (
         float(args.collagen_a_d)
         if args.collagen_a_d is not None
-        else float(args.dex_a) if args.dex_a is not None else 2.42
+        else float(args.dex_a) if args.dex_a is not None else 2.69
     )
     collagen_b_d = (
         float(args.collagen_b_d)
         if args.collagen_b_d is not None
-        else float(args.dex_b) if args.dex_b is not None else 0.770
+        else float(args.dex_b) if args.dex_b is not None else 2.04
     )
     ha_a_d = (
         float(args.ha_a_d)
         if args.ha_a_d is not None
-        else float(args.dex_a) if args.dex_a is not None else 1.14
+        else float(args.dex_a) if args.dex_a is not None else 1.22
     )
     ha_b_d = (
         float(args.ha_b_d)
         if args.ha_b_d is not None
-        else float(args.dex_b) if args.dex_b is not None else 0.365
+        else float(args.dex_b) if args.dex_b is not None else 0.679
     )
     alp_a_k = (
         float(args.alp_a_k)
         if args.alp_a_k is not None
-        else float(args.drug_a_k) if args.drug_a_k is not None else 0.56
+        else float(args.drug_a_k) if args.drug_a_k is not None else 1.10
     )
     alp_b_k = (
         float(args.alp_b_k)
         if args.alp_b_k is not None
-        else float(args.drug_b_k) if args.drug_b_k is not None else 0.471
+        else float(args.drug_b_k) if args.drug_b_k is not None else 1.06
     )
     collagen_a_k = (
         float(args.collagen_a_k)
         if args.collagen_a_k is not None
-        else float(args.drug_a_k) if args.drug_a_k is not None else 0.915
+        else float(args.drug_a_k) if args.drug_a_k is not None else 4.66
     )
     collagen_b_k = (
         float(args.collagen_b_k)
         if args.collagen_b_k is not None
-        else float(args.drug_b_k) if args.drug_b_k is not None else 0.167
+        else float(args.drug_b_k) if args.drug_b_k is not None else 2.15
     )
     ha_a_k = (
         float(args.ha_a_k)
         if args.ha_a_k is not None
-        else float(args.drug_a_k) if args.drug_a_k is not None else 4.69
+        else float(args.drug_a_k) if args.drug_a_k is not None else 4.66
     )
     ha_b_k = (
         float(args.ha_b_k)
         if args.ha_b_k is not None
-        else float(args.drug_b_k) if args.drug_b_k is not None else 2.21
+        else float(args.drug_b_k) if args.drug_b_k is not None else 2.15
     )
 
     args.move_prob = max(0.0, min(1.0, args.move_prob))
@@ -868,8 +868,8 @@ def main() -> None:
         osteo_induction_hours=induction_hours,
         dex_conc=args.dex_conc,
         mk4_conc=args.mk4_conc,
-        dex_ref_conc=20.0,
-        mk4_ref_conc=0.6,
+        dex_ref_conc=22.7,
+        mk4_ref_conc=0.784,
         alp_basal_rate=args.alp_rb,
         alp_osteo_rate=args.alp_ro,
         alp_initial=args.alp_p0,

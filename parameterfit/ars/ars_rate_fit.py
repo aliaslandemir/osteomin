@@ -105,8 +105,8 @@ def fit_ars(t_days: np.ndarray, ars: np.ndarray, fit_dt_h: float = 1.0) -> dict:
         sse = float(np.sum((y_hat - ars) ** 2))
         method = "scipy.least_squares"
 
-        dof = max(1, y_obs.size - 1)
-        s_sq = sse / dof
+        dof = y_obs.size - 1
+        s_sq = sse / max(1, dof)
         jt_j = res.jac.T @ res.jac
         pcov = np.zeros((2, 2), dtype=float)
         pcov[1, 1] = float(np.linalg.pinv(jt_j)[0, 0] * s_sq)
@@ -125,6 +125,7 @@ def fit_ars(t_days: np.ndarray, ars: np.ndarray, fit_dt_h: float = 1.0) -> dict:
         method = "fixed-H0 least squares"
         pcov = np.zeros((2, 2), dtype=float)
         ci_obs = np.zeros_like(t_h)
+        dof = y_obs.size - 1
 
     ars_hat = model(t_h, a0, a1, dt_h=fit_dt_h)
     return {
@@ -132,6 +133,7 @@ def fit_ars(t_days: np.ndarray, ars: np.ndarray, fit_dt_h: float = 1.0) -> dict:
         "r_o_h": a1,
         "sse": sse,
         "method": method,
+        "dof": int(dof),
         "t_h": t_h,
         "ars_hat": ars_hat,
         "pcov": pcov,
@@ -183,6 +185,7 @@ def save_outputs(
         "H0_fixed": H0_BASELINE,
         "H0_baseline": fit["a0"],
         "r_osteo_per_h": fit["r_o_h"],
+        "degrees_of_freedom": fit["dof"],
         "metrics_overall": fit["metrics_overall"],
         "data": {
             "t_days": T_DAYS.tolist(),
@@ -196,18 +199,19 @@ def save_outputs(
     from matplotlib.ticker import MultipleLocator
 
     t_h_data = 24.0 * T_DAYS
-    fig = plt.figure(figsize=(7.8, 4.8))
+    cm_to_in = 1.0 / 2.54
+    fig = plt.figure(figsize=(8.5 * cm_to_in, 6.6 * cm_to_in))
     ax = fig.add_subplot(1, 1, 1)
     fig.patch.set_facecolor("white")
     ax.set_facecolor("white")
 
     c_ars = "#d95f02"
-    ax.plot(t_h_dense, ars_dense, color=c_ars, lw=2.4)
+    ax.plot(t_h_dense, ars_dense, color=c_ars, lw=1.2)
     ax.scatter(
         t_h_data,
         ARS,
         marker="o",
-        s=54,
+        s=30,
         color=c_ars,
         edgecolor="white",
         linewidth=0.8,
@@ -228,8 +232,8 @@ def save_outputs(
 
     ax.set_xlabel("Time (hours)")
     ax.set_ylabel("Alizarin Red S (absorbance units)")
-    ax.set_title("ARS Mineralization Fit", fontsize=11, pad=8)
-    ax.tick_params(labelsize=9, top=False, labeltop=False)
+    ax.set_title("ARS Mineralization Fit", fontsize=9, pad=4)
+    ax.tick_params(labelsize=8, top=False, labeltop=False)
     ax.xaxis.set_ticks_position("bottom")
     ax.grid(True, which="major", color="#b0b0b0", alpha=0.28, linewidth=0.75)
     ax.grid(True, which="minor", color="#d0d0d0", alpha=0.18, linewidth=0.5)
@@ -245,32 +249,34 @@ def save_outputs(
             f"n_H            {N_H:.3g}",
             f"H0 baseline    {fit['a0']:.3g}",
             f"r_o (h^-1)     {fit['r_o_h']:.3g}",
+            f"DoF            {fit['dof']}",
             f"RMSE           {met['RMSE']:.3g}",
-            f"R2             {met['R2']:.3g}",
         ]
     )
     ax.text(
-        0.02, 0.70, txt,
+        0.98, 0.08, txt,
         transform=ax.transAxes,
-        va="top", ha="left",
-        fontsize=8.6, family="monospace",
-        bbox=dict(boxstyle="round,pad=0.28", facecolor="white", edgecolor="#bcbcbc", alpha=0.96),
+        va="bottom", ha="right",
+        fontsize=7.2,
+        bbox=dict(boxstyle="round,pad=0.22", facecolor="white", edgecolor="#bcbcbc", alpha=0.90),
     )
 
     legend_handles = [
-        Line2D([0], [0], color=c_ars, lw=2.4, label="Osteogenic fit"),
+        Line2D([0], [0], color=c_ars, lw=1.2, label="Osteogenic fit"),
         Line2D(
-            [0], [0], color=c_ars, lw=2.0, marker="o", markersize=7,
+            [0], [0], color=c_ars, lw=1.2, marker="o", markersize=5.5,
             markerfacecolor=c_ars, markeredgecolor="white", markeredgewidth=0.8,
             label="Osteogenic data",
         ),
     ]
-    ax.legend(handles=legend_handles, loc="upper left", frameon=False, fontsize=9, handlelength=2.0, borderaxespad=0.6)
+    ax.legend(handles=legend_handles, loc="upper left", frameon=False, fontsize=7.2, handlelength=1.8, borderaxespad=0.4)
 
-    fig.tight_layout()
+    ax.xaxis.label.set_size(9)
+    ax.yaxis.label.set_size(9)
+    fig.tight_layout(pad=0.4)
     png_path = out_dir / "ars_fit_style.png"
     pdf_path = out_dir / "ars_fit_style.pdf"
-    fig.savefig(png_path, dpi=300)
+    fig.savefig(png_path, dpi=600)
     fig.savefig(pdf_path)
     plt.close(fig)
 
@@ -305,6 +311,7 @@ def main() -> None:
     print(f"SSE             : {met['SSE']:.6g}")
     print(f"RMSE            : {met['RMSE']:.6g}")
     print(f"R2              : {met['R2']:.6g}")
+    print(f"DoF             : {fit['dof']}")
     print(f"saved_csv       : {csv_path}")
     print(f"saved_metrics   : {js_path}")
     print(f"saved_plot_png  : {png_path}")

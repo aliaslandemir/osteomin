@@ -61,22 +61,56 @@ def fit_single_baseline(
     if tau.size < 1:
         raise ValueError("Need at least one timepoint at or after t0_day to fit rates.")
 
-    # Stacked linear system:
+    # Stacked linear seed:
     # con = p0 + r_b*tau
     # os  = p0 + r_b*tau + r_o*tau
     a_con = np.column_stack([np.ones_like(tau), tau, np.zeros_like(tau)])
     a_os = np.column_stack([np.ones_like(tau), tau, tau])
     A = np.vstack([a_con, a_os])
     y = np.concatenate([con[mask], os_[mask]])
-    beta, _, _, _ = np.linalg.lstsq(A, y, rcond=None)
+    beta_seed, _, _, _ = np.linalg.lstsq(A, y, rcond=None)
 
-    p0 = float(beta[0])
-    r_b = float(beta[1])
-    r_o = float(beta[2])
+    try:
+        from scipy.optimize import least_squares
 
-    if nonneg:
-        r_b = max(0.0, r_b)
-        r_o = max(0.0, r_o)
+        x0 = np.asarray(beta_seed, dtype=float)
+        if nonneg:
+            x0 = np.maximum(x0, 0.0)
+            lower = np.zeros(3, dtype=float)
+            upper = np.full(3, np.inf, dtype=float)
+        else:
+            lower = np.full(3, -np.inf, dtype=float)
+            upper = np.full(3, np.inf, dtype=float)
+
+        def residuals(theta: np.ndarray) -> np.ndarray:
+            con_hat, os_hat = model(
+                t_days,
+                float(theta[0]),
+                float(theta[1]),
+                float(theta[2]),
+                t0_day=t0_day,
+            )
+            return np.concatenate([con_hat[mask], os_hat[mask]]) - y
+
+        res = least_squares(
+            residuals,
+            x0=x0,
+            bounds=(lower, upper),
+            max_nfev=10000,
+        )
+        p0, r_b, r_o = map(float, res.x)
+        method = "scipy.least_squares"
+        dof = y.size - res.x.size
+    except Exception:
+        p0 = float(beta_seed[0])
+        r_b = float(beta_seed[1])
+        r_o = float(beta_seed[2])
+        if nonneg:
+            p0 = max(0.0, p0)
+            r_b = max(0.0, r_b)
+            r_o = max(0.0, r_o)
+        method = "numpy.linalg.lstsq"
+        dof = y.size - 3
 
     con_hat, os_hat = model(t_days, p0, r_b, r_o, t0_day=t0_day)
 
@@ -85,12 +119,20 @@ def fit_single_baseline(
     met_all = _metrics(y_all, yhat_all)
     met_con = _metrics(con, con_hat)
     met_os  = _metrics(os_, os_hat)
+    # Per-condition interpretation treats control/osteo as separate linear fits
+    # with 2 parameters each (intercept + slope).
+    dof_con = int(np.count_nonzero(mask) - 2)
+    dof_os = int(np.count_nonzero(mask) - 2)
 
     return {
         "t0_day": float(t0_day),
         "p0": float(p0),
         "r_b_h": float(r_b),
         "r_o_h": float(r_o),
+        "method": method,
+        "dof": int(dof),
+        "dof_con": dof_con,
+        "dof_os": dof_os,
         "tau_h": tau_h,
         "con_hat": con_hat,
         "os_hat": os_hat,
@@ -135,10 +177,14 @@ def save_metrics_json(out_dir: Path, fit: Dict) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
     js_path = out_dir / "alp_fit_metrics.json"
     payload = {
+        "fit_method": fit["method"],
         "t0_day": fit["t0_day"],
         "P0_at_t0": fit["p0"],
         "r_basal_per_h": fit["r_b_h"],
         "r_osteo_extra_per_h": fit["r_o_h"],
+        "degrees_of_freedom": fit["dof"],
+        "degrees_of_freedom_control": fit["dof_con"],
+        "degrees_of_freedom_osteo": fit["dof_os"],
         "metrics_overall": fit["metrics_overall"],
         "metrics_control": fit["metrics_con"],
         "metrics_osteo": fit["metrics_os"],
@@ -166,7 +212,8 @@ def make_style_plot(out_dir: Path, fit: Dict, *, t_max_day: float, dt_day: float
 
     t_data_hour = 24.0 * T_DAYS
 
-    fig = plt.figure(figsize=(7.8, 4.8))
+    cm_to_in = 1.0 / 2.54
+    fig = plt.figure(figsize=(8.5 * cm_to_in, 6.6 * cm_to_in))
     ax = fig.add_subplot(1, 1, 1)
     fig.patch.set_facecolor("white")
     ax.set_facecolor("white")
@@ -174,15 +221,15 @@ def make_style_plot(out_dir: Path, fit: Dict, *, t_max_day: float, dt_day: float
     c_basal = "#1f78b4"
     c_osteo = "#d95f02"
 
-    ax.plot(t_hour, con_dense, lw=2.5, color=c_basal, label="Control fit")
-    ax.plot(t_hour, os_dense, lw=2.5, color=c_osteo, label="Osteogenic fit")
+    ax.plot(t_hour, con_dense, lw=1.2, color=c_basal, label="Control fit")
+    ax.plot(t_hour, os_dense, lw=1.2, color=c_osteo, label="Osteogenic fit")
 
     ax.scatter(
-        t_data_hour, ALP_CON, s=56, color=c_basal, edgecolor="white",
+        t_data_hour, ALP_CON, s=30, color=c_basal, edgecolor="white",
         linewidth=0.8, zorder=3, clip_on=False, label="Control data"
     )
     ax.scatter(
-        t_data_hour, ALP_OS, s=56, color=c_osteo, edgecolor="white",
+        t_data_hour, ALP_OS, s=30, color=c_osteo, edgecolor="white",
         linewidth=0.8, zorder=3, clip_on=False, label="Osteogenic data"
     )
 
@@ -212,41 +259,43 @@ def make_style_plot(out_dir: Path, fit: Dict, *, t_max_day: float, dt_day: float
     ax.spines["left"].set_linewidth(1.0)
     ax.spines["bottom"].set_linewidth(1.0)
 
-    ax.set_title("ALP Activity Fit", fontsize=11, pad=8)
-    ax.tick_params(labelsize=9, top=False, labeltop=False)
+    ax.set_title("ALP Activity Fit", fontsize=9, pad=4)
+    ax.tick_params(labelsize=8, top=False, labeltop=False)
     ax.xaxis.set_ticks_position("bottom")
-    ax.xaxis.label.set_size(10.5)
-    ax.yaxis.label.set_size(10.5)
+    ax.xaxis.label.set_size(9)
+    ax.yaxis.label.set_size(9)
 
-    met = fit["metrics_overall"]
+    met_con = fit["metrics_con"]
+    met_os = fit["metrics_os"]
     txt = "\n".join(
         [
-            f"P₀ (AU)        {fit['p0']:.3g}",
-            f"r_b (AU h⁻¹)   {fit['r_b_h']:.3g}",
-            f"r_o (AU h⁻¹)   {fit['r_o_h']:.3g}",
-            f"RMSE (AU)      {met['RMSE']:.3g}",
-            f"R²             {met['R2']:.3g}",
+            f"P0 = {fit['p0']:.2f}",
+            f"r_b = {fit['r_b_h']:.2e} AU/h",
+            f"r_o = {fit['r_o_h']:.2e} AU/h",
+            f"DoF(c) = {fit['dof_con']}",
+            f"RMSE(c) = {met_con['RMSE']:.2e}",
+            f"DoF(o) = {fit['dof_os']}",
+            f"RMSE(o) = {met_os['RMSE']:.2e}",
         ]
     )
     ax.text(
-        0.02, 0.70, txt,
+        0.98, 0.08, txt,
         transform=ax.transAxes,
-        va="top", ha="left",
-        fontsize=8.6,
-        family="monospace",
-        bbox=dict(boxstyle="round,pad=0.28", facecolor="white", edgecolor="#bcbcbc", alpha=0.96),
+        va="bottom", ha="right",
+        fontsize=7.2,
+        bbox=dict(boxstyle="round,pad=0.22", facecolor="white", edgecolor="#bcbcbc", alpha=0.90),
     )
 
     legend_handles = [
-        Line2D([0], [0], color=c_basal, lw=2.5, label="Basal fit"),
-        Line2D([0], [0], color=c_osteo, lw=2.5, label="Osteogenic fit"),
+        Line2D([0], [0], color=c_basal, lw=1.2, label="Basal fit"),
+        Line2D([0], [0], color=c_osteo, lw=1.2, label="Osteogenic fit"),
         Line2D(
-            [0], [0], color=c_basal, lw=2.0, marker="o", markersize=7,
+            [0], [0], color=c_basal, lw=1.2, marker="o", markersize=5.5,
             markerfacecolor=c_basal, markeredgecolor="white", markeredgewidth=0.8,
             label="Basal data",
         ),
         Line2D(
-            [0], [0], color=c_osteo, lw=2.0, marker="o", markersize=7,
+            [0], [0], color=c_osteo, lw=1.2, marker="o", markersize=5.5,
             markerfacecolor=c_osteo, markeredgecolor="white", markeredgewidth=0.8,
             label="Osteogenic data",
         ),
@@ -255,16 +304,16 @@ def make_style_plot(out_dir: Path, fit: Dict, *, t_max_day: float, dt_day: float
         handles=legend_handles,
         loc="upper left",
         frameon=False,
-        fontsize=9,
-        handlelength=2.0,
-        borderaxespad=0.6,
+        fontsize=7.2,
+        handlelength=1.8,
+        borderaxespad=0.4,
     )
 
-    fig.tight_layout()
+    fig.tight_layout(pad=0.4)
 
     png_path = out_dir / "alp_fit_style.png"
     pdf_path = out_dir / "alp_fit_style.pdf"
-    fig.savefig(png_path, dpi=300)
+    fig.savefig(png_path, dpi=600)
     fig.savefig(pdf_path)
     plt.close(fig)
 
@@ -293,6 +342,7 @@ def main() -> None:
 
     met = fit["metrics_overall"]
     print("=== ALP fit (single baseline at t0_day) ===")
+    print(f"fit_method      : {fit['method']}")
     print(f"t0_day          : {fit['t0_day']:.0f} d")
     print(f"P0 (at t0)      : {fit['p0']:.6g} assay units")
     print(f"r_basal_P       : {fit['r_b_h']:.6g} assay units/hour")
@@ -301,6 +351,15 @@ def main() -> None:
     print(f"RMSE            : {met['RMSE']:.6g}")
     print(f"MAE             : {met['MAE']:.6g}")
     print(f"R2              : {met['R2']:.6g}")
+    print(f"DoF             : {fit['dof']}")
+    print(
+        f"Control metrics : RMSE={fit['metrics_con']['RMSE']:.6g}, "
+        f"R2={fit['metrics_con']['R2']:.6g}, DoF={fit['dof_con']}"
+    )
+    print(
+        f"Osteo metrics   : RMSE={fit['metrics_os']['RMSE']:.6g}, "
+        f"R2={fit['metrics_os']['R2']:.6g}, DoF={fit['dof_os']}"
+    )
 
     final_idx = -1
     con_hat, os_hat = fit["con_hat"], fit["os_hat"]

@@ -2,6 +2,9 @@
   "fit_method": "scipy.least_squares",
   "r_basal_per_h": 0.0033580231683314333,
   "r_osteo_per_h": 0.012951087199887018,
+  "degrees_of_freedom": 11,
+  "degrees_of_freedom_basal": 5,
+  "degrees_of_freedom_osteo": 5,
   "note": "Ungated rate fit: AA-gate parameters are not used.",
   "metrics_overall": {
     "SSE": 1.0649534400342833,

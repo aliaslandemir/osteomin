@@ -5,6 +5,7 @@
   "H0_fixed": 2.0,
   "H0_baseline": 2.0,
   "r_osteo_per_h": 0.1028647196203912,
+  "degrees_of_freedom": 5,
   "metrics_overall": {
     "SSE": 30.410773953223238,
     "RMSE": 2.2513245713439916,

@@ -69,56 +69,56 @@ class NonSpatialParams:
     mk4_conc_um: float = 0.0
 
     # ALP rates (cumulative)
-    alp_basal_rate: float = 0.10710412147505423
-    alp_osteo_rate: float = 0.9856290672451192
+    alp_basal_rate: float = 0.0949
+    alp_osteo_rate: float = 0.810
     alp_initial: float = 0.8
 
     # Collagen rates (cumulative)
-    collagen_basal_rate: float = 0.0035518253599441936
-    collagen_osteo_rate: float = 0.0130876
+    collagen_basal_rate: float = 0.00336
+    collagen_osteo_rate: float = 0.0130
 
     # Ascorbate gating for collagen
     aa_initial: float = 50.0
-    aa_half_life_hours: float = 48.0
+    aa_half_life_hours: float = 8.0
     aa_media_interval_hours: int = 48
-    collagen_aa_half_sat: float = 10.0
+    collagen_aa_half_sat: float = 5.0
 
     # Collagen maturation and mineral formation
     tau_col_hours: float = 48.0
-    ha_osteo_rate: float = 24.147854915293642
+    ha_osteo_rate: float = 0.102
     ha_tau_hours: float = 384.0
-    ha_hill_n: float = 4.0
+    ha_hill_n: float = 2.0
     ha_collagen_half_sat: float = 1.0
 
     # Dose-response families
     alp_resp: DrugResponseParams = field(
         default_factory=lambda: DrugResponseParams(
-            dex_ref=20.0,
-            dex_a=3.79,
-            dex_b=1.92,
-            mk4_ref=0.6,
-            mk4_a=0.56,
-            mk4_b=0.471,
+            dex_ref=22.7,
+            dex_a=3.72,
+            dex_b=1.75,
+            mk4_ref=0.784,
+            mk4_a=1.10,
+            mk4_b=1.06,
         )
     )
     collagen_resp: DrugResponseParams = field(
         default_factory=lambda: DrugResponseParams(
-            dex_ref=60.0,
-            dex_a=2.42,
-            dex_b=0.770,
-            mk4_ref=8.0,
-            mk4_a=0.915,
-            mk4_b=0.167,
+            dex_ref=6.22,
+            dex_a=2.69,
+            dex_b=2.04,
+            mk4_ref=0.349,
+            mk4_a=4.66,
+            mk4_b=2.15,
         )
     )
     ha_resp: DrugResponseParams = field(
         default_factory=lambda: DrugResponseParams(
-            dex_ref=50.0,
-            dex_a=1.14,
-            dex_b=0.365,
-            mk4_ref=0.7,
-            mk4_a=4.69,
-            mk4_b=2.21,
+            dex_ref=46.6,
+            dex_a=1.22,
+            dex_b=0.679,
+            mk4_ref=0.667,
+            mk4_a=4.66,
+            mk4_b=2.15,
         )
     )
 

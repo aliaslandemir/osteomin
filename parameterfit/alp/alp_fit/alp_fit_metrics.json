@@ -1,8 +1,12 @@
 {
+  "fit_method": "scipy.least_squares",
   "t0_day": 0.0,
   "P0_at_t0": 57.49999999999982,
   "r_basal_per_h": 0.09487410071942504,
   "r_osteo_extra_per_h": 0.8102517985611508,
+  "degrees_of_freedom": 5,
+  "degrees_of_freedom_control": 2,
+  "degrees_of_freedom_osteo": 2,
   "metrics_overall": {
     "SSE": 4233.363309352518,
     "MAE": 15.655575539568336,

@@ -257,7 +257,6 @@ def save_outputs(
             f"bD = {fit['b_d']:.2f}",
             f"DoF = {fit['dof']}",
             f"RMSE = {met['RMSE']:.2e}",
-            f"R2 = {met['R2']:.3f}",
         ]
     )
     ax.text(
