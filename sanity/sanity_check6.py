@@ -157,7 +157,7 @@ PARAMETERS: list[dict[str, Any]] = [
     {"name": "alp_rb", "flag": "--alp-rb", "bounds": [0.07, 0.13], "baseline": 0.0949, "label": "ALP basal rate"},
     {"name": "alp_ro", "flag": "--alp-ro", "bounds": [0.60, 1.05], "baseline": 0.810, "label": "ALP osteogenic rate"},
     {"name": "collagen_rb", "flag": "--collagen-rb", "bounds": [0.0020, 0.0055], "baseline": 0.00336, "label": "Collagen basal rate"},
-    {"name": "collagen_ro", "flag": "--collagen-ro", "bounds": [0.0080, 0.0200], "baseline": 0.0131, "label": "Collagen osteogenic rate"},
+    {"name": "collagen_ro", "flag": "--collagen-ro", "bounds": [0.0080, 0.0200], "baseline": 0.0130, "label": "Collagen osteogenic rate"},
     {"name": "ha_ro", "flag": "--ha-ro", "bounds": [0.075, 0.150], "baseline": 0.102, "label": "HAp osteogenic rate"},
     {"name": "ha_tau", "flag": "--ha-tau", "bounds": [288.0, 480.0], "baseline": 384.0, "label": "HAp Hill tau"},
     {"name": "ha_hill_n", "flag": "--ha-hill-n", "bounds": [1.5, 3.5], "baseline": 2.0, "label": "HAp Hill exponent"},

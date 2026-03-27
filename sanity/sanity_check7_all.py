@@ -8,17 +8,11 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
+import re
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-DEFAULT_ORDER = [
-    "sanity_check1.py",
-    "sanity_check2.py",
-    "sanity_check3.py",
-    "sanity_check4.py",
-    "sanity_check5.py",
-    "sanity_check6.py",
-]
+SELF_NAME = Path(__file__).name
 
 
 @dataclass
@@ -34,7 +28,7 @@ class StepResult:
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="Run sanity_check1..6 sequentially using the current OsteoMin defaults.",
+        description="Run all sanity_check*.py scripts sequentially and continue on errors.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument(
@@ -53,25 +47,66 @@ def parse_args() -> argparse.Namespace:
         help="forward --overwrite to each sanity script if supported",
     )
     p.add_argument(
-        "--continue-on-error",
+        "--stop-on-error",
         action="store_true",
-        help="keep running subsequent sanity scripts after a failure",
+        help="stop at first failing script (default is to continue)",
     )
     p.add_argument(
         "--dry-run",
         action="store_true",
         help="print commands without executing",
     )
+    p.add_argument(
+        "--scripts",
+        nargs="+",
+        default=None,
+        help="optional explicit script list (e.g. sanity_check1.py sanity_check8.py)",
+    )
     return p.parse_args()
 
 
-def script_cmd(args: argparse.Namespace, script_name: str) -> list[str]:
+def _script_sort_key(name: str) -> tuple[int, str]:
+    m = re.fullmatch(r"sanity_check(\d+)(.*)\.py", name)
+    if not m:
+        return (10**9, name)
+    return (int(m.group(1)), m.group(2))
+
+
+def default_order() -> list[str]:
+    scripts = [
+        p.name
+        for p in SCRIPT_DIR.glob("sanity_check*.py")
+        if p.name != SELF_NAME
+    ]
+    return sorted(scripts, key=_script_sort_key)
+
+
+def script_supports_flag(python_exe: str, script_name: str, flag: str) -> bool:
+    cmd = [python_exe, str(SCRIPT_DIR / script_name), "--help"]
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=SCRIPT_DIR.parent,
+            text=True,
+            capture_output=True,
+            timeout=20,
+            check=False,
+        )
+    except Exception:
+        return False
+    help_text = (proc.stdout or "") + "\n" + (proc.stderr or "")
+    return flag in help_text
+
+
+def script_cmd(
+    args: argparse.Namespace, script_name: str, supports: dict[str, bool]
+) -> list[str]:
     cmd = [args.python, str(SCRIPT_DIR / script_name)]
-    if args.runtime:
+    if args.runtime and supports.get("runtime", False):
         cmd.append("--runtime")
-    if args.overwrite:
+    if args.overwrite and supports.get("overwrite", False):
         cmd.append("--overwrite")
-    if args.dry_run:
+    if args.dry_run and supports.get("dry_run", False):
         cmd.append("--dry-run")
     return cmd
 
@@ -86,16 +121,32 @@ def run_step(cmd: list[str], cwd: Path) -> StepResult:
 
 def main() -> int:
     args = parse_args()
+    requested = args.scripts if args.scripts else default_order()
+    run_order = [name for name in requested if name != SELF_NAME]
+    if not run_order:
+        print("No sanity_check scripts found.")
+        return 1
+
+    for name in run_order:
+        if not (SCRIPT_DIR / name).exists():
+            print(f"Missing script: {name}")
+            return 1
+
     results: list[StepResult] = []
 
     print("Running sanity suite in order:")
-    for idx, name in enumerate(DEFAULT_ORDER, start=1):
+    for idx, name in enumerate(run_order, start=1):
         print(f"  {idx}. {name}")
     print("")
 
-    for idx, script_name in enumerate(DEFAULT_ORDER, start=1):
-        cmd = script_cmd(args, script_name)
-        print(f"[{idx}/{len(DEFAULT_ORDER)}] {script_name}")
+    for idx, script_name in enumerate(run_order, start=1):
+        supports = {
+            "runtime": script_supports_flag(args.python, script_name, "--runtime"),
+            "overwrite": script_supports_flag(args.python, script_name, "--overwrite"),
+            "dry_run": script_supports_flag(args.python, script_name, "--dry-run"),
+        }
+        cmd = script_cmd(args, script_name, supports)
+        print(f"[{idx}/{len(run_order)}] {script_name}")
         print(f"  cmd: {shlex.join(cmd)}")
 
         if args.dry_run:
@@ -108,8 +159,8 @@ def main() -> int:
         print(f"  status: {status} ({step.elapsed_s:.1f}s)")
         print("")
 
-        if not step.ok and not args.continue_on_error:
-            print("Stopping on first failure. Use --continue-on-error to run all steps.")
+        if not step.ok and args.stop_on_error:
+            print("Stopping on first failure. Omit --stop-on-error to continue.")
             break
 
     failures = [r for r in results if not r.ok]

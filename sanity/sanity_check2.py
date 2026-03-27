@@ -211,7 +211,7 @@ def build_configs(width: int, height: int) -> tuple[ABMConfig, FieldConfig]:
         aa_half_life_hours=8.0,
         collagen_aa_half_sat=5.0,
         ha_model="minimal",
-        ha_initial=0.0,
+        ha_initial=2.34,
         ha_osteo_rate=0.102,
         ha_dex_ref_conc=46.6,
         ha_mk4_ref_conc=0.667,
