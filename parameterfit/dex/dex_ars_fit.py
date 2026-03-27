@@ -356,7 +356,6 @@ def main() -> None:
     print(f"ars_control_y0  : {fit['y0']:.6g}")
     print(f"aD              : {fit['a_d']:.6g}")
     print(f"bD              : {fit['b_d']:.6g}")
-    print(f"SSE             : {met['SSE']:.6g}")
     print(f"DoF             : {fit['dof']}")
     print(f"RMSE            : {met['RMSE']:.6g}")
     print(f"R2              : {met['R2']:.6g}")

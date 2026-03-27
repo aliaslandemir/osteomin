@@ -297,7 +297,6 @@ def save_outputs(
             f"aK = {fit['a_k']:.2f}",
             f"bK = {fit['b_k']:.2f}",
             f"DoF = {fit['dof']}",
-            f"SSE = {met['SSE']:.2e}",
             f"RMSE = {met['RMSE']:.2e}",
         ]
     )
@@ -386,7 +385,6 @@ def main() -> None:
     print(f"alp_control_y0  : {fit['y0']:.6g}")
     print(f"aK              : {fit['a_k']:.6g}")
     print(f"bK              : {fit['b_k']:.6g}")
-    print(f"SSE             : {met['SSE']:.6g}")
     print(f"DoF             : {fit['dof']}")
     print(f"RMSE            : {met['RMSE']:.6g}")
     print(f"R2              : {met['R2']:.6g}")
