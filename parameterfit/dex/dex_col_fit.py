@@ -14,11 +14,12 @@ from typing import Dict
 import numpy as np
 
 
-DEX_DOSE_nM = np.array([0.0, 1.0, 10.0, 100.0], dtype=float)
-# The 1 nM point is linearly interpolated between the measured 0 and 10 nM values.
-COL_REL = np.array([1.0, 1.12, 2.2, 4.0], dtype=float)
+# Chiang2025DexIGF1R
 
-CD0_nM = 60.0
+DEX_DOSE_nM = np.array([0.0, 1.0, 10.0], dtype=float)
+COL_REL = np.array([1.0, 2.4, 3.6], dtype=float)
+
+CD0_nM = 10.0
 
 
 def dex_modulation_mP(
@@ -80,8 +81,8 @@ def fit_dex(c_dex_nM: np.ndarray, y: np.ndarray) -> dict:
         method = "scipy.least_squares"
         yhat_fit = model(c_fit, y0, a_d, b_d)
         sse = float(np.sum((y_fit - yhat_fit) ** 2))
-        dof = max(1, y_fit.size - res.x.size)
-        s_sq = sse / dof
+        dof = y_fit.size - res.x.size
+        s_sq = sse / max(1, dof)
         jt_j = res.jac.T @ res.jac
         pcov = np.linalg.pinv(jt_j) * s_sq
     except Exception:
@@ -94,6 +95,7 @@ def fit_dex(c_dex_nM: np.ndarray, y: np.ndarray) -> dict:
         b_d = max(0.0, float(theta[1]))
         method = "numpy.linalg.lstsq"
         pcov = np.zeros((2, 2), dtype=float)
+        dof = y_fit.size - 2
 
     yhat_all = model(c_dex_nM, y0, a_d, b_d)
     return {
@@ -102,6 +104,7 @@ def fit_dex(c_dex_nM: np.ndarray, y: np.ndarray) -> dict:
         "a_d": a_d,
         "b_d": b_d,
         "pcov": pcov,
+        "dof": int(dof),
         "yhat_all": yhat_all,
         "metrics_overall": _metrics(y, yhat_all),
         "metrics_dosed": _metrics(y_fit, model(c_fit, y0, a_d, b_d)),
@@ -188,23 +191,24 @@ def save_outputs(
     import matplotlib.pyplot as plt
     from matplotlib.lines import Line2D
 
-    c_dex = "#d95f02"
-    fig = plt.figure(figsize=(7.8, 4.8))
+    c_dex = "#1f77b4"
+    cm_to_in = 1.0 / 2.54
+    fig = plt.figure(figsize=(8.5 * cm_to_in, 6.6 * cm_to_in))
     ax = fig.add_subplot(1, 1, 1)
     fig.patch.set_facecolor("white")
     ax.set_facecolor("white")
 
-    ax.plot(c_dense_pos, y_dense_pos, color=c_dex, lw=2.4)
+    ax.plot(c_dense_pos, y_dense_pos, color=c_dex, lw=1.2)
     positive_mask = DEX_DOSE_nM > 0.0
     if np.any(positive_mask):
         ax.scatter(
             DEX_DOSE_nM[positive_mask],
             COL_REL[positive_mask],
             marker="o",
-            s=54,
+            s=30,
             color=c_dex,
             edgecolor="white",
-            linewidth=0.8,
+            linewidth=0.6,
             zorder=3,
             clip_on=False,
         )
@@ -213,10 +217,10 @@ def save_outputs(
         [control_x],
         [COL_REL[0]],
         marker="o",
-        s=54,
+        s=30,
         color=c_dex,
         edgecolor="white",
-        linewidth=0.8,
+        linewidth=0.6,
         zorder=3,
         clip_on=False,
     )
@@ -232,8 +236,8 @@ def save_outputs(
 
     ax.set_xlabel("Dex concentration (nM, log scale)")
     ax.set_ylabel("Collagen relative signal")
-    ax.set_title("Dex Dose-Response Fit for Collagen", fontsize=11, pad=8)
-    ax.tick_params(labelsize=9, top=False, labeltop=False)
+    ax.set_title("Dex Collagen Fit", fontsize=9, pad=4)
+    ax.tick_params(labelsize=8, top=False, labeltop=False)
     ax.xaxis.set_ticks_position("bottom")
     ax.grid(True, which="major", color="#b0b0b0", alpha=0.28, linewidth=0.75)
     ax.grid(True, which="minor", color="#d0d0d0", alpha=0.18, linewidth=0.5)
@@ -247,11 +251,13 @@ def save_outputs(
     met = fit["metrics_dosed"]
     txt = "\n".join(
         [
-            f"cD0 (nM)       {CD0_nM:.3g}",
-            f"aD             {fit['a_d']:.3g}",
-            f"bD             {fit['b_d']:.3g}",
-            f"RMSE           {met['RMSE']:.3g}",
-            f"R2             {met['R2']:.3g}",
+            f"cD0 = {CD0_nM:.2f} nM",
+            f"y0 = {fit['y0']:.2f}",
+            f"aD = {fit['a_d']:.2f}",
+            f"bD = {fit['b_d']:.2f}",
+            f"DoF = {fit['dof']}",
+            f"RMSE = {met['RMSE']:.2e}",
+            f"R2 = {met['R2']:.3f}",
         ]
     )
     ax.text(
@@ -261,28 +267,35 @@ def save_outputs(
         transform=ax.transAxes,
         va="bottom",
         ha="right",
-        fontsize=8.6,
-        family="monospace",
+        fontsize=7.2,
         bbox=dict(
-            boxstyle="round,pad=0.28",
+            boxstyle="round,pad=0.22",
             facecolor="white",
             edgecolor="#bcbcbc",
-            alpha=0.96,
+            alpha=0.90,
         ),
     )
 
     legend_handles = [
-        Line2D([0], [0], color=c_dex, lw=2.4, label="Dex fit"),
+        Line2D([0], [0], color=c_dex, lw=1.2, label="Dex fit"),
+        Line2D(
+            [0],
+            [0],
+            color="#777777",
+            lw=1.0,
+            ls="--",
+            label="cD0",
+        ),
         Line2D(
             [0],
             [0],
             color=c_dex,
-            lw=2.0,
+            lw=1.2,
             marker="o",
-            markersize=7,
+            markersize=5.5,
             markerfacecolor=c_dex,
             markeredgecolor="white",
-            markeredgewidth=0.8,
+            markeredgewidth=0.6,
             label="Collagen data",
         ),
     ]
@@ -290,15 +303,18 @@ def save_outputs(
         handles=legend_handles,
         loc="upper left",
         frameon=False,
-        fontsize=9,
-        handlelength=2.0,
-        borderaxespad=0.6,
+        fontsize=7.2,
+        handlelength=1.8,
+        borderaxespad=0.4,
     )
 
-    fig.tight_layout()
+    ax.xaxis.label.set_size(9)
+    ax.yaxis.label.set_size(9)
+
+    fig.tight_layout(pad=0.4)
     png_path = out_dir / "dex_fit_style.png"
     pdf_path = out_dir / "dex_col_fit.pdf"
-    fig.savefig(png_path, dpi=300)
+    fig.savefig(png_path, dpi=600)
     fig.savefig(pdf_path)
     plt.close(fig)
 
@@ -341,6 +357,7 @@ def main() -> None:
     print(f"aD              : {fit['a_d']:.6g}")
     print(f"bD              : {fit['b_d']:.6g}")
     print(f"SSE             : {met['SSE']:.6g}")
+    print(f"DoF             : {fit['dof']}")
     print(f"RMSE            : {met['RMSE']:.6g}")
     print(f"R2              : {met['R2']:.6g}")
 

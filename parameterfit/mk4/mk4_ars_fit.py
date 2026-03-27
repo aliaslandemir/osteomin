@@ -16,7 +16,7 @@ import numpy as np
 MK4_DOSE_uM = np.array([0.0, 0.1, 1.0, 10.0], dtype=float)
 ARS_MINERALIZATION = np.array([100.0, 420.0, 560.0, 270.0], dtype=float)
 
-CK0_uM = 0.7
+CK0_uM = 1.0
 
 
 def gating_m(
@@ -78,8 +78,8 @@ def fit_mk4(c_uM: np.ndarray, y: np.ndarray) -> dict:
         method = "scipy.least_squares"
         yhat_fit = model(c_fit, y0, a_k, b_k)
         sse = float(np.sum((y_fit - yhat_fit) ** 2))
-        dof = max(1, y_fit.size - res.x.size)
-        s_sq = sse / dof
+        dof = y_fit.size - res.x.size
+        s_sq = sse / max(1, dof)
         jt_j = res.jac.T @ res.jac
         pcov = np.linalg.pinv(jt_j) * s_sq
     except Exception:
@@ -92,6 +92,7 @@ def fit_mk4(c_uM: np.ndarray, y: np.ndarray) -> dict:
         b_k = max(0.0, float(theta[1]))
         method = "numpy.linalg.lstsq"
         pcov = np.zeros((2, 2), dtype=float)
+        dof = y_fit.size - 2
 
     yhat_all = model(c_uM, y0, a_k, b_k)
     return {
@@ -100,6 +101,7 @@ def fit_mk4(c_uM: np.ndarray, y: np.ndarray) -> dict:
         "a_k": a_k,
         "b_k": b_k,
         "pcov": pcov,
+        "dof": int(dof),
         "yhat_all": yhat_all,
         "metrics_overall": _metrics(y, yhat_all),
         "metrics_dosed": _metrics(y_fit, model(c_fit, y0, a_k, b_k)),
@@ -186,23 +188,24 @@ def save_outputs(
     import matplotlib.pyplot as plt
     from matplotlib.lines import Line2D
 
-    c_mk4 = "#d95f02"
-    fig = plt.figure(figsize=(7.8, 4.8))
+    c_mk4 = "#1f77b4"
+    cm_to_in = 1.0 / 2.54
+    fig = plt.figure(figsize=(8.5 * cm_to_in, 6.6 * cm_to_in))
     ax = fig.add_subplot(1, 1, 1)
     fig.patch.set_facecolor("white")
     ax.set_facecolor("white")
 
-    ax.plot(c_dense_pos, y_dense_pos, color=c_mk4, lw=2.4)
+    ax.plot(c_dense_pos, y_dense_pos, color=c_mk4, lw=1.2)
     positive_mask = MK4_DOSE_uM > 0.0
     if np.any(positive_mask):
         ax.scatter(
             MK4_DOSE_uM[positive_mask],
             ARS_MINERALIZATION[positive_mask],
             marker="o",
-            s=54,
+            s=30,
             color=c_mk4,
             edgecolor="white",
-            linewidth=0.8,
+            linewidth=0.6,
             zorder=3,
             clip_on=False,
         )
@@ -211,10 +214,10 @@ def save_outputs(
         [control_x],
         [ARS_MINERALIZATION[0]],
         marker="o",
-        s=54,
+        s=30,
         color=c_mk4,
         edgecolor="white",
-        linewidth=0.8,
+        linewidth=0.6,
         zorder=3,
         clip_on=False,
     )
@@ -230,8 +233,8 @@ def save_outputs(
 
     ax.set_xlabel("MK-4 concentration (uM, log scale)")
     ax.set_ylabel("Mineralization (% of control)")
-    ax.set_title("MK-4 Dose-Response Fit", fontsize=11, pad=8)
-    ax.tick_params(labelsize=9, top=False, labeltop=False)
+    ax.set_title("MK-4 ARS Fit", fontsize=9, pad=4)
+    ax.tick_params(labelsize=8, top=False, labeltop=False)
     ax.xaxis.set_ticks_position("bottom")
     ax.grid(True, which="major", color="#b0b0b0", alpha=0.28, linewidth=0.75)
     ax.grid(True, which="minor", color="#d0d0d0", alpha=0.18, linewidth=0.5)
@@ -245,42 +248,44 @@ def save_outputs(
     met = fit["metrics_dosed"]
     txt = "\n".join(
         [
-            f"cK0 (uM)       {CK0_uM:.3g}",
-            f"aK             {fit['a_k']:.3g}",
-            f"bK             {fit['b_k']:.3g}",
-            f"RMSE           {met['RMSE']:.3g}",
-            f"R2             {met['R2']:.3g}",
+            f"cK0 = {CK0_uM:.2f} uM",
+            f"y0 = {fit['y0']:.2f}",
+            f"aK = {fit['a_k']:.2f}",
+            f"bK = {fit['b_k']:.2f}",
+            f"DoF = {fit['dof']}",
+            f"RMSE = {met['RMSE']:.2e}",
+            f"R2 = {met['R2']:.3f}",
         ]
     )
     ax.text(
         0.98,
-        0.78,
+        0.08,
         txt,
         transform=ax.transAxes,
         va="bottom",
         ha="right",
-        fontsize=8.6,
-        family="monospace",
+        fontsize=7.2,
         bbox=dict(
-            boxstyle="round,pad=0.28",
+            boxstyle="round,pad=0.22",
             facecolor="white",
             edgecolor="#bcbcbc",
-            alpha=0.96,
+            alpha=0.90,
         ),
     )
 
     legend_handles = [
-        Line2D([0], [0], color=c_mk4, lw=2.4, label="MK-4 fit"),
+        Line2D([0], [0], color=c_mk4, lw=1.2, label="MK-4 fit"),
+        Line2D([0], [0], color="#777777", lw=1.0, ls="--", label="cK0"),
         Line2D(
             [0],
             [0],
             color=c_mk4,
-            lw=2.0,
+            lw=1.2,
             marker="o",
-            markersize=7,
+            markersize=5.5,
             markerfacecolor=c_mk4,
             markeredgecolor="white",
-            markeredgewidth=0.8,
+            markeredgewidth=0.6,
             label="ARS data",
         ),
     ]
@@ -288,15 +293,18 @@ def save_outputs(
         handles=legend_handles,
         loc="upper left",
         frameon=False,
-        fontsize=9,
-        handlelength=2.0,
-        borderaxespad=0.6,
+        fontsize=7.2,
+        handlelength=1.8,
+        borderaxespad=0.4,
     )
 
-    fig.tight_layout()
+    ax.xaxis.label.set_size(9)
+    ax.yaxis.label.set_size(9)
+
+    fig.tight_layout(pad=0.4)
     png_path = out_dir / "mk4_ars_fit_style.png"
     pdf_path = out_dir / "mk4_ars_fit_style.pdf"
-    fig.savefig(png_path, dpi=300)
+    fig.savefig(png_path, dpi=600)
     fig.savefig(pdf_path)
     plt.close(fig)
 
@@ -339,6 +347,7 @@ def main() -> None:
     print(f"aK              : {fit['a_k']:.6g}")
     print(f"bK              : {fit['b_k']:.6g}")
     print(f"SSE             : {met['SSE']:.6g}")
+    print(f"DoF             : {fit['dof']}")
     print(f"RMSE            : {met['RMSE']:.6g}")
     print(f"R2              : {met['R2']:.6g}")
 
