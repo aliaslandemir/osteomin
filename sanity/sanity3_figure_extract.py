@@ -372,14 +372,23 @@ def export_overview_heatmap(df: pd.DataFrame, out_dir: Path, assay_hours: dict[s
     # Rank by composite osteogenic response and keep only the top 10 conditions.
     ranked = df.copy()
     ranked["overview_score"] = ranked[[m[0] for m in metrics]].mean(axis=1)
-    ordered = (
+    ranked_sorted = (
         ranked.sort_values(
             ["overview_score", "assay_ha_pct_vs_control", "assay_collagen_pct_vs_control", "assay_alp_pct_vs_control"],
             ascending=[False, False, False, False],
         )
-        .head(10)
         .reset_index(drop=True)
     )
+    ordered = ranked_sorted.head(10).copy()
+    # Always keep baseline condition (Dex=0, MK-4=0) in the displayed top-10 table.
+    baseline = ranked[(ranked["dex_conc_nM"] == 0.0) & (ranked["mk4_conc_uM"] == 0.0)]
+    if not baseline.empty:
+        baseline_row = baseline.iloc[[0]].copy()
+        baseline_cid = int(baseline_row.iloc[0]["condition_index"])
+        already_in = bool((ordered["condition_index"] == baseline_cid).any())
+        if not already_in:
+            ordered = pd.concat([ordered.iloc[:-1], baseline_row], ignore_index=True)
+
     ordered.to_csv(out_dir / "figure_3_top10_conditions.csv", index=False)
 
     values = ordered[[m[0] for m in metrics]].to_numpy(dtype=float)
@@ -400,7 +409,7 @@ def export_overview_heatmap(df: pd.DataFrame, out_dir: Path, assay_hours: dict[s
 
     # Smarter split layout: dedicated label panel + wide heatmap panel.
     fig = plt.figure(figsize=(10.2, 7.1))
-    gs = gridspec.GridSpec(1, 2, width_ratios=[0.78, 2.62], wspace=0.015)
+    gs = gridspec.GridSpec(1, 2, width_ratios=[0.72, 2.32], wspace=0.02)
     ax_labels = fig.add_subplot(gs[0, 0])
     ax = fig.add_subplot(gs[0, 1])
 
@@ -434,25 +443,26 @@ def export_overview_heatmap(df: pd.DataFrame, out_dir: Path, assay_hours: dict[s
             )
 
     # Long condition labels in a separate axis keep columns wide and readable.
-    ax_labels.set_xlim(0.0, 1.0)
+    ax_labels.set_xlim(0.0, 1.35)
     ax_labels.set_ylim(values.shape[0] - 0.5, -0.5)
     ax_labels.axis("off")
     for i, lbl in enumerate(row_labels):
         ax_labels.text(
-            0.01,
+            0.0,
             i,
             lbl,
             ha="left",
             va="center",
             fontsize=11.8,
             color=COLORS["ink"],
+            clip_on=False,
         )
 
     ax.set_title("Top-10 dose response heatmap", pad=14, fontsize=15.5)
     cbar = fig.colorbar(im, ax=ax, fraction=0.038, pad=0.035)
     cbar.set_label("% difference vs control", fontsize=11.2)
     cbar.ax.tick_params(labelsize=10.2)
-    fig.subplots_adjust(left=0.004, right=0.965, bottom=0.13, top=0.90)
+    fig.subplots_adjust(left=0.01, right=0.965, bottom=0.13, top=0.90)
     save_figure(fig, out_dir, "figure_3_ecm_overview_heatmap")
 
 

@@ -827,13 +827,13 @@ def main() -> None:
             0, int(round(float(args.osteo_induction_day) * HOURS_PER_DAY))
         )
     args.commit_k = max(0.0, float(args.commit_k))
-    if args.dex_conc != 0.0 and not (1.0 <= float(args.dex_conc) <= 100.0):
+    if not (0.0 <= float(args.dex_conc) <= 100.0):
         raise SystemExit(
-            f"Dex concentration {args.dex_conc:g} nM is outside the supported non-toxic range of 1 to 100 nM"
+            f"Dex concentration {args.dex_conc:g} nM is outside the supported non-toxic range of 0 to 100 nM"
         )
-    if args.mk4_conc != 0.0 and not (0.1 <= float(args.mk4_conc) <= 10.0):
+    if not (0.0 <= float(args.mk4_conc) <= 10.0):
         raise SystemExit(
-            f"MK-4 concentration {args.mk4_conc:g} uM is outside the supported non-toxic range of 0.1 to 10 uM"
+            f"MK-4 concentration {args.mk4_conc:g} uM is outside the supported non-toxic range of 0 to 10 uM"
         )
     if args.datafit:
         raise SystemExit(

@@ -10,7 +10,7 @@ import matplotlib
 import numpy as np
 import pandas as pd
 from matplotlib import gridspec
-from matplotlib.colors import LinearSegmentedColormap, Normalize
+from matplotlib.colors import LinearSegmentedColormap, Normalize, TwoSlopeNorm
 from matplotlib.cm import ScalarMappable
 from scipy import stats
 
@@ -588,24 +588,18 @@ def export_ecm_overview_heatmap(
         geo_cols[replace_idx] = "final_nodule_count_mean"
         geo_labels[replace_idx] = "Nodules"
     geo = ordered[geo_cols].to_numpy(dtype=float)
-    geo_scaled = np.zeros_like(geo)
-    for i in range(geo.shape[1]):
-        col = geo[:, i]
-        denom = max(float(np.max(col) - np.min(col)), 1e-12)
-        geo_scaled[:, i] = (col - np.min(col)) / denom
-    # Use distinct column hues (Radius/Edge/Nodules) while preserving 0..1 scaling in lightness.
-    column_colors = ["#7c3aed", "#059669", "#dc2626"]
-    if nodule_column_mode == "none":
-        column_colors = ["#7c3aed", "#6b7280", "#2563eb"]
-    rgba = np.ones((geo_scaled.shape[0], geo_scaled.shape[1], 4), dtype=float)
-    for j in range(geo_scaled.shape[1]):
-        base = np.array(matplotlib.colors.to_rgb(column_colors[j]), dtype=float)
-        vals = np.clip(geo_scaled[:, j], 0.0, 1.0)
-        for i, v in enumerate(vals):
-            rgb = (1.0 - v) * np.ones(3, dtype=float) + v * base
-            rgba[i, j, :3] = rgb
-            rgba[i, j, 3] = 1.0
-    geo_im = ax_geo.imshow(rgba, aspect="auto", vmin=0.0, vmax=1.0)
+    control_idx_arr = np.where(ordered["condition_index"].to_numpy(dtype=int) == 1)[0]
+    control_geo = geo[int(control_idx_arr[0])] if control_idx_arr.size else geo[0]
+    geo_diff = np.zeros_like(geo)
+    for j in range(geo.shape[1]):
+        base = float(control_geo[j])
+        if abs(base) > 1e-12:
+            geo_diff[:, j] = 100.0 * (geo[:, j] - base) / abs(base)
+        else:
+            geo_diff[:, j] = geo[:, j] - base
+    geo_vmax = max(1.0, float(np.nanmax(np.abs(geo_diff))))
+    geo_norm = TwoSlopeNorm(vmin=-geo_vmax, vcenter=0.0, vmax=geo_vmax)
+    geo_im = ax_geo.imshow(geo_diff, aspect="auto", cmap=response_cmap(), norm=geo_norm)
     ax_geo.set_xticks(np.arange(len(geo_labels)), geo_labels, rotation=18, ha="center")
     ax_geo.tick_params(axis="x", pad=8, labelsize=10.0)
     ax_geo.tick_params(axis="y", labelleft=False, length=0)
@@ -623,7 +617,7 @@ def export_ecm_overview_heatmap(
     cbar = fig.colorbar(im, ax=ax_main, fraction=0.028, pad=0.016)
     cbar.set_label("% difference vs C01", fontsize=10.5)
     cbar.ax.tick_params(labelsize=9.5)
-    # Geometry colorbar removed because columns use distinct hues; numeric values are shown in-cell.
+    # Geometry side uses color for % vs C01 but displays raw values in-cell; no extra colorbar.
     fig.subplots_adjust(top=0.90, right=0.96, bottom=0.14)
     save_figure(fig, out_dir, "figure_3_ecm_overview_heatmap")
 
