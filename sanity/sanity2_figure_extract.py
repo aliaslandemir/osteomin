@@ -19,6 +19,14 @@ import matplotlib.pyplot as plt
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 
+JOURNAL_AXIS_LABEL_PT = 9
+JOURNAL_TICK_PT = 8
+JOURNAL_LEGEND_PT = 8
+JOURNAL_PANEL_LABEL_PT = 12
+JOURNAL_LINE_PT = 1.2
+JOURNAL_AXIS_LINE_PT = 1.0
+JOURNAL_MARKER_PT = 5.5
+
 COLORS = {
     "ink": "#0f172a",
     "muted": "#64748b",
@@ -45,14 +53,17 @@ plt.rcParams.update(
         "font.family": "DejaVu Serif",
         "axes.edgecolor": COLORS["ink"],
         "axes.labelcolor": COLORS["ink"],
-        "axes.linewidth": 0.9,
+        "axes.linewidth": JOURNAL_AXIS_LINE_PT,
         "axes.spines.top": False,
         "axes.spines.right": False,
         "axes.titleweight": "semibold",
         "axes.titlesize": 12,
-        "axes.labelsize": 10,
-        "xtick.labelsize": 9,
-        "ytick.labelsize": 9,
+        "axes.labelsize": JOURNAL_AXIS_LABEL_PT,
+        "xtick.labelsize": JOURNAL_TICK_PT,
+        "ytick.labelsize": JOURNAL_TICK_PT,
+        "legend.fontsize": JOURNAL_LEGEND_PT,
+        "lines.linewidth": JOURNAL_LINE_PT,
+        "lines.markersize": JOURNAL_MARKER_PT,
         "xtick.color": COLORS["ink"],
         "ytick.color": COLORS["ink"],
         "figure.facecolor": "white",
@@ -114,20 +125,26 @@ def save_figure(fig: plt.Figure, out_dir: Path, stem: str) -> None:
 
 def style_axes(ax: plt.Axes, grid_axis: str | None = "y") -> None:
     ax.set_facecolor("white")
-    ax.tick_params(direction="out", length=4.0, width=0.8)
+    ax.tick_params(direction="out", length=4.0, width=JOURNAL_AXIS_LINE_PT)
     if grid_axis:
-        ax.grid(axis=grid_axis, color=COLORS["grid"], linewidth=0.8, alpha=0.6)
+        ax.grid(axis=grid_axis, color=COLORS["grid"], linewidth=JOURNAL_LINE_PT, alpha=0.6)
 
 
 def add_panel_label(ax: plt.Axes, label: str) -> None:
-    ax.text(-0.08, 1.02, label, transform=ax.transAxes, fontsize=14, fontweight="bold", va="bottom", ha="left")
+    ax.text(
+        -0.08,
+        1.02,
+        label,
+        transform=ax.transAxes,
+        fontsize=JOURNAL_PANEL_LABEL_PT,
+        fontweight="bold",
+        va="bottom",
+        ha="left",
+    )
 
 
 def response_cmap() -> LinearSegmentedColormap:
-    return LinearSegmentedColormap.from_list(
-        "plos_cb_div",
-        ["#0072B2", "#f7f7f7", "#D55E00"],
-    )
+    return matplotlib.colormaps["coolwarm"]
 
 
 def hap_field_cmap() -> LinearSegmentedColormap:
@@ -536,20 +553,29 @@ def export_ecm_overview_heatmap(
     vmax = max(2.0, float(np.max(np.abs(values))))
     cmap = response_cmap()
 
-    fig = plt.figure(figsize=(9.8, 9.4))
-    gs = gridspec.GridSpec(1, 2, width_ratios=[3.0, 1.45], wspace=0.18)
+    fig = plt.figure(figsize=(11.2, 10.0))
+    gs = gridspec.GridSpec(1, 2, width_ratios=[3.2, 1.55], wspace=0.16)
     ax_main = fig.add_subplot(gs[0, 0])
     ax_geo = fig.add_subplot(gs[0, 1], sharey=ax_main)
 
     im = ax_main.imshow(values, aspect="auto", cmap=cmap, vmin=-vmax, vmax=vmax)
-    ax_main.set_xticks(np.arange(len(value_labels)), value_labels, rotation=28, ha="right")
+    ax_main.set_xticks(np.arange(len(value_labels)), value_labels, rotation=24, ha="right")
     ax_main.set_yticks(np.arange(len(ordered)), ordered["row_label"])
-    ax_main.tick_params(axis="y", length=0)
+    ax_main.tick_params(axis="x", labelsize=10.5)
+    ax_main.tick_params(axis="y", length=0, labelsize=10.0)
     for spine in ax_main.spines.values():
         spine.set_visible(False)
     for i in range(values.shape[0]):
         for j in range(values.shape[1]):
-            ax_main.text(j, i, f"{values[i, j]:+.1f}", ha="center", va="center", fontsize=7.1, color=COLORS["ink"])
+            ax_main.text(
+                j,
+                i,
+                f"{values[i, j]:+.1f}",
+                ha="center",
+                va="center",
+                fontsize=9.6,
+                color=COLORS["ink"],
+            )
 
     control_row = int(np.where(ordered["condition_index"].to_numpy() == 1)[0][0])
     ax_main.axhline(control_row - 0.5, color=COLORS["control"], lw=1.2)
@@ -581,7 +607,7 @@ def export_ecm_overview_heatmap(
             rgba[i, j, 3] = 1.0
     geo_im = ax_geo.imshow(rgba, aspect="auto", vmin=0.0, vmax=1.0)
     ax_geo.set_xticks(np.arange(len(geo_labels)), geo_labels, rotation=18, ha="center")
-    ax_geo.tick_params(axis="x", pad=8)
+    ax_geo.tick_params(axis="x", pad=8, labelsize=10.0)
     ax_geo.tick_params(axis="y", labelleft=False, length=0)
     for spine in ax_geo.spines.values():
         spine.set_visible(False)
@@ -591,13 +617,14 @@ def export_ecm_overview_heatmap(
                 val_txt = f"{geo[i, j]:.1f}"
             else:
                 val_txt = f"{geo[i, j]:.2f}"
-            ax_geo.text(j, i, val_txt, ha="center", va="center", fontsize=7.0, color=COLORS["ink"])
+            ax_geo.text(j, i, val_txt, ha="center", va="center", fontsize=9.2, color=COLORS["ink"])
 
-    fig.suptitle("Relative endpoint response heatmap", fontsize=15, fontweight="semibold", y=0.955)
-    cbar = fig.colorbar(im, ax=ax_main, fraction=0.025, pad=0.015)
-    cbar.set_label("% difference vs C01")
+    fig.suptitle("Relative endpoint response heatmap", fontsize=16.5, fontweight="semibold", y=0.955)
+    cbar = fig.colorbar(im, ax=ax_main, fraction=0.028, pad=0.016)
+    cbar.set_label("% difference vs C01", fontsize=10.5)
+    cbar.ax.tick_params(labelsize=9.5)
     # Geometry colorbar removed because columns use distinct hues; numeric values are shown in-cell.
-    fig.subplots_adjust(top=0.88, right=0.95, bottom=0.13)
+    fig.subplots_adjust(top=0.90, right=0.96, bottom=0.14)
     save_figure(fig, out_dir, "figure_3_ecm_overview_heatmap")
 
 
@@ -883,7 +910,7 @@ def _render_initial_state_thumb(
         spine.set_linewidth(0.8)
         spine.set_edgecolor("#e2e8f0")
     if title:
-        ax.set_title(title, loc="left", fontsize=9.6, pad=4.0)
+        ax.set_title(title, loc="left", fontsize=11.0, pad=4.0)
 
 
 def export_spatial_gallery(
@@ -937,7 +964,8 @@ def export_spatial_gallery(
         gax = fig.add_subplot(gallery_gs[r, c])
         gax.axis("off")
 
-    fig.suptitle(title, fontsize=18, fontweight="semibold", y=0.992)
+    title_size = 19.5 if mode == "initial" else 18
+    fig.suptitle(title, fontsize=title_size, fontweight="semibold", y=0.992)
     fig.subplots_adjust(top=0.94, right=0.99, left=0.025, bottom=0.03)
     save_figure(fig, out_dir, stem)
 

@@ -22,6 +22,14 @@ BOOTSTRAP_SEED = 12345
 REFERENCE_PREFERENCE = ("C2", "C1")
 RELATIVE_EPS = 1e-9
 
+JOURNAL_AXIS_LABEL_PT = 9
+JOURNAL_TICK_PT = 8
+JOURNAL_LEGEND_PT = 8
+JOURNAL_LINE_PT = 1.2
+JOURNAL_AXIS_LINE_PT = 1.0
+JOURNAL_MARKER_PT = 5.5
+JOURNAL_PANEL_LABEL_PT = 12
+
 CONDITION_ORDER = ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8"]
 CONDITION_LABELS = {
     "C1": "Basal",
@@ -79,6 +87,7 @@ COLORS = {
     "grid": "#dde3ea",
     "sim": "#111827",
     "sim_line": "#4b5563",
+    "exp_line": "#111111",
     "bg": "#ffffff",
 }
 
@@ -87,14 +96,17 @@ plt.rcParams.update(
         "font.family": "DejaVu Serif",
         "axes.edgecolor": COLORS["ink"],
         "axes.labelcolor": COLORS["ink"],
-        "axes.linewidth": 0.9,
+        "axes.linewidth": JOURNAL_AXIS_LINE_PT,
         "axes.spines.top": False,
         "axes.spines.right": False,
         "axes.titlesize": 12.5,
         "axes.titleweight": "semibold",
-        "axes.labelsize": 10.5,
-        "xtick.labelsize": 9.5,
-        "ytick.labelsize": 9.5,
+        "axes.labelsize": JOURNAL_AXIS_LABEL_PT,
+        "xtick.labelsize": JOURNAL_TICK_PT,
+        "ytick.labelsize": JOURNAL_TICK_PT,
+        "legend.fontsize": JOURNAL_LEGEND_PT,
+        "lines.linewidth": JOURNAL_LINE_PT,
+        "lines.markersize": JOURNAL_MARKER_PT,
         "xtick.color": COLORS["ink"],
         "ytick.color": COLORS["ink"],
         "figure.facecolor": COLORS["bg"],
@@ -169,9 +181,9 @@ def style_axes(
     ax: plt.Axes, grid_axis: str | None = "y", grid_alpha: float = 0.45
 ) -> None:
     ax.set_facecolor("white")
-    ax.tick_params(direction="out", length=4.5, width=0.8)
+    ax.tick_params(direction="out", length=4.5, width=JOURNAL_AXIS_LINE_PT)
     if grid_axis:
-        ax.grid(axis=grid_axis, color=COLORS["grid"], linewidth=0.8, alpha=grid_alpha)
+        ax.grid(axis=grid_axis, color=COLORS["grid"], linewidth=JOURNAL_LINE_PT, alpha=grid_alpha)
 
 
 def zscore(values: pd.Series) -> pd.Series:
@@ -551,7 +563,7 @@ def plot_profile_panel(
         x,
         exp_vals,
         yerr=exp_sd,
-        color=spec["color"],
+        color=COLORS["exp_line"],
         marker=spec["marker"],
         ms=5.0,
         lw=1.8,
@@ -605,12 +617,12 @@ def plot_profile_panel(
     )
     ax.text(
         0.98,
-        1.015,
+        0.04,
         main_panel_metric_text(metrics),
         transform=ax.transAxes,
         ha="right",
-        va="top",
-        fontsize=7.4,
+        va="bottom",
+        fontsize=8.8,
         color=COLORS["ink"],
         bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.82, "pad": 1.0},
     )
@@ -650,7 +662,7 @@ def plot_standardized_panel(
         exp_z,
         sim_z,
         s=102,
-        color=spec["color"],
+        color=COLORS["exp_line"],
         marker=spec["marker"],
         edgecolors="white",
         linewidths=0.8,
@@ -678,12 +690,12 @@ def plot_standardized_panel(
     )
     ax.text(
         0.97,
-        0.92,
+        0.05,
         main_panel_metric_text(metrics),
         transform=ax.transAxes,
         ha="right",
-        va="top",
-        fontsize=8.0,
+        va="bottom",
+        fontsize=9.0,
         color=COLORS["ink"],
     )
     ax.set_xlabel("Experimental standardized response")
@@ -729,7 +741,7 @@ def export_main_figure(
         Line2D(
             [0],
             [0],
-            color=ASSAY_SPECS["alp"]["color"],
+            color=COLORS["exp_line"],
             marker=ASSAY_SPECS["alp"]["marker"],
             linestyle="-",
             linewidth=1.8,
@@ -782,7 +794,7 @@ def export_discrete_condition_figure(
         ax.plot(
             x_exp,
             frame["exp_rel_effect"].to_numpy(dtype=float),
-            color=spec["color"],
+            color=COLORS["exp_line"],
             lw=1.5,
             alpha=0.55,
             ls=(0, (4, 2)),
@@ -802,7 +814,7 @@ def export_discrete_condition_figure(
             frame["exp_rel_effect"].to_numpy(dtype=float),
             yerr=frame["exp_rel_effect_sd"].to_numpy(dtype=float),
             fmt=spec["marker"],
-            color=spec["color"],
+            color=COLORS["exp_line"],
             markersize=5.4,
             markeredgecolor="white",
             markeredgewidth=0.8,
@@ -835,12 +847,12 @@ def export_discrete_condition_figure(
         ax.set_title(spec["title"], pad=8, fontsize=11.5)
         ax.text(
             0.98,
-            0.96,
+            0.05,
             main_panel_metric_text(metrics),
             transform=ax.transAxes,
             ha="right",
-            va="top",
-            fontsize=7.3,
+            va="bottom",
+            fontsize=8.6,
             bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.8, "pad": 1.0},
         )
         ax.set_xticks(x, frame["condition_code"])
@@ -853,7 +865,7 @@ def export_discrete_condition_figure(
         Line2D(
             [0],
             [0],
-            color="gray",
+            color=COLORS["exp_line"],
             marker="o",
             lw=1.5,
             alpha=0.65,

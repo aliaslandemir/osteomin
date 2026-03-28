@@ -71,6 +71,8 @@ python main.py \
   --ha-b-k 2.15 \
   \
   --ha-model minimal \
+  --ha-collagen-maturation-tau 48 \
+  --ha-collagen-km 1.0 \
   --ha-tau 384 \
   --ha-hill-n 2 \
   \

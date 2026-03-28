@@ -7,31 +7,42 @@ import json
 import shlex
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent
 BASE_OUT = SCRIPT_DIR / "out" / "sanity_check3"
-TOTAL_CONDITIONS = 15
+TOTAL_CONDITIONS = 20
 DEFAULT_REPLICATES = 5
 BASE_SEED = 12345
 DOSE_MATRIX = [
     (0.0, 0.0),
+    # MK-4 0.1 uM branch across Dex (nM)
     (0.1, 1.0),
+    (0.1, 3.0),
     (0.1, 10.0),
-    (0.1, 100.0),
+    (0.1, 30.0),
+    # MK-4 0.3 uM branch across Dex (nM)
     (0.3, 1.0),
+    (0.3, 3.0),
     (0.3, 10.0),
+    (0.3, 30.0),
+    # MK-4 1.0 uM branch across Dex (nM)
     (1.0, 1.0),
-    (1.0, 6.0),
+    (1.0, 3.0),
     (1.0, 10.0),
-    (1.0, 100.0),
-    (4.0, 10.0),
-    (4.0, 100.0),
+    (1.0, 30.0),
+    # MK-4 3.0 uM branch across Dex (nM)
+    (3.0, 1.0),
+    (3.0, 3.0),
+    (3.0, 10.0),
+    (3.0, 30.0),
+    # MK-4 10 uM branch across Dex (nM)
     (10.0, 1.0),
+    (10.0, 3.0),
     (10.0, 10.0),
-    (10.0, 100.0),
 ]
 
 BASE_ARGS = [
@@ -221,9 +232,17 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="forward --runtime to main.py for progress logging",
     )
+    parser.add_argument(
+        "--jobs",
+        type=int,
+        default=1,
+        help="number of parallel condition/replicate runs",
+    )
     args = parser.parse_args()
     if args.replicates <= 0:
         raise SystemExit("--replicates must be >= 1")
+    if args.jobs <= 0:
+        raise SystemExit("--jobs must be >= 1")
     return args
 
 
@@ -399,15 +418,23 @@ def main() -> None:
     print("[sanity_check3] Dex range: 0 to 100 nM (custom stepped matrix)")
     print("[sanity_check3] MK-4 range: 0 to 10 uM (custom stepped matrix)")
     print(f"[sanity_check3] replicates per condition: {args.replicates}")
+    print(f"[sanity_check3] jobs: {args.jobs}")
 
-    results: list[RunResult] = []
+    tasks: list[tuple[ConditionSpec, int, int]] = []
     for spec in specs:
-        print(
-            f"[sanity_check3] condition {spec.index:02d}/{len(specs)}: "
-            f"Dex={spec.dex_conc_nM:.4g} nM, MK-4={spec.mk4_conc_uM:.4g} uM"
-        )
         for rep_idx in range(1, args.replicates + 1):
             rep_seed = int(args.base_seed + spec.index * 1000 + rep_idx)
+            tasks.append((spec, rep_idx, rep_seed))
+
+    total = len(tasks)
+    results: list[RunResult] = []
+    if args.jobs == 1:
+        for i, (spec, rep_idx, rep_seed) in enumerate(tasks, start=1):
+            print(
+                f"[sanity_check3] run {i}/{total}: "
+                f"condition {spec.index:02d} rep {rep_idx:02d} "
+                f"(Dex={spec.dex_conc_nM:.4g} nM, MK-4={spec.mk4_conc_uM:.4g} uM)"
+            )
             result = run_condition(
                 spec,
                 rep_idx,
@@ -418,13 +445,41 @@ def main() -> None:
                 runtime=args.runtime,
             )
             results.append(result)
-            if not result.success:
-                write_run_summary(args.out, results)
-                raise SystemExit(
-                    f"condition {spec.index:02d} replicate {rep_idx:02d} failed: {result.error or 'unknown error'}"
+    else:
+        print(f"[sanity_check3] parallel mode: {total} runs with jobs={args.jobs}")
+        with ThreadPoolExecutor(max_workers=args.jobs) as pool:
+            futures = {
+                pool.submit(
+                    run_condition,
+                    spec,
+                    rep_idx,
+                    rep_seed,
+                    python_exe=args.python,
+                    overwrite=args.overwrite,
+                    dry_run=args.dry_run,
+                    runtime=args.runtime,
+                ): (spec, rep_idx)
+                for spec, rep_idx, rep_seed in tasks
+            }
+            done = 0
+            for fut in as_completed(futures):
+                spec, rep_idx = futures[fut]
+                result = fut.result()
+                results.append(result)
+                done += 1
+                print(
+                    f"[sanity_check3] run {done}/{total}: "
+                    f"condition {spec.index:02d} rep {rep_idx:02d} "
+                    f"({'ok' if result.success else 'failed'})"
                 )
 
+    results.sort(key=lambda r: (r.index, r.replicate_index))
     write_run_summary(args.out, results)
+    failed = [r for r in results if not r.success]
+    if failed:
+        raise SystemExit(
+            f"{len(failed)} run(s) failed. See {args.out / 'run_summary.csv'}"
+        )
     print(f"[sanity_check3] completed {len(specs)} conditions x {args.replicates} replicates")
     print(f"[sanity_check3] manifest: {args.out / 'condition_manifest.csv'}")
     print(f"[sanity_check3] summary: {args.out / 'run_summary.csv'}")

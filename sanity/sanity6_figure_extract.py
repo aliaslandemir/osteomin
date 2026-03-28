@@ -16,6 +16,17 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 
+JOURNAL_AXIS_LABEL_PT = 12
+JOURNAL_TICK_PT = 11
+JOURNAL_LEGEND_PT = 11
+JOURNAL_LINE_PT = 1.6
+JOURNAL_AXIS_LINE_PT = 1.0
+JOURNAL_MARKER_PT = 7.0
+JOURNAL_PANEL_LABEL_PT = 14
+
+S1_COLOR = "#1f3b73"
+ST_COLOR = "#b45309"
+
 ENDPOINTS = [
     {
         "key": "alp_240h",
@@ -48,41 +59,46 @@ COLORS = {
 }
 
 PARAM_LABELS = {
-    "alp_rb": "ALP basal rate",
-    "alp_ro": "ALP osteogenic rate",
-    "collagen_rb": "Collagen basal rate",
-    "collagen_ro": "Collagen osteogenic rate",
-    "ha_ro": "HAp osteogenic rate",
-    "ha_tau": "HAp tau",
-    "ha_hill_n": "HAp Hill n",
-    "commit_k": "Commitment k",
-    "apoptosis_prob": "Apoptosis prob",
-    "move_prob": "Motility prob",
-    "aa0": "Ascorbate A0",
+    "alp_rb": "ALP basal production rate",
+    "alp_ro": "ALP osteogenic production rate",
+    "collagen_rb": "Collagen basal production rate",
+    "collagen_ro": "Collagen osteogenic production rate",
+    "ha_ro": "HAp osteogenic deposition rate",
+    "ha_tau": "HAp activation timescale (tau_H)",
+    "ha_hill_n": "HAp Hill exponent (n_H)",
+    "ha_collagen_maturation_tau": "Collagen maturation timescale (tau_col)",
+    "ha_collagen_km": "Collagen support half-saturation (K_col)",
+    "commit_k": "Commitment hazard (k_commit)",
+    "apoptosis_prob": "PreOB apoptosis probability",
+    "move_prob": "Cell motility probability",
+    "aa0": "Ascorbate initial concentration (A0)",
     "aa_half_life": "Ascorbate half-life",
-    "collagen_aa_km": "Collagen AA Km",
+    "collagen_aa_km": "AA half-saturation for collagen (K_A^C)",
     "commit_delay": "Commitment delay",
-    "min_div_hours": "Min division interval",
-    "div_gap_hours": "Division gap",
-    "proliferation_chance": "Division chance",
-    "ob_apoptosis_prob": "OB apoptosis prob",
-    "osteo_induction_hours": "Osteogenic induction",
-    "media_interval": "Media interval",
+    "min_div_hours": "Minimum division interval",
+    "div_gap_hours": "Division interval gap",
+    "proliferation_chance": "Division attempt probability",
+    "ob_apoptosis_prob": "OB apoptosis probability",
+    "osteo_induction_hours": "Osteogenic induction time",
+    "media_interval": "Media refresh interval",
 }
 
 plt.rcParams.update(
     {
-        "font.family": "DejaVu Serif",
+        "font.family": "DejaVu Sans",
         "axes.edgecolor": COLORS["ink"],
         "axes.labelcolor": COLORS["ink"],
-        "axes.linewidth": 0.9,
+        "axes.linewidth": JOURNAL_AXIS_LINE_PT,
         "axes.spines.top": False,
         "axes.spines.right": False,
         "axes.titleweight": "semibold",
-        "axes.titlesize": 12.5,
-        "axes.labelsize": 11,
-        "xtick.labelsize": 9,
-        "ytick.labelsize": 9,
+        "axes.titlesize": 14.5,
+        "axes.labelsize": JOURNAL_AXIS_LABEL_PT,
+        "xtick.labelsize": JOURNAL_TICK_PT,
+        "ytick.labelsize": JOURNAL_TICK_PT,
+        "legend.fontsize": JOURNAL_LEGEND_PT,
+        "lines.linewidth": JOURNAL_LINE_PT,
+        "lines.markersize": JOURNAL_MARKER_PT,
         "xtick.color": COLORS["ink"],
         "ytick.color": COLORS["ink"],
         "figure.facecolor": COLORS["bg"],
@@ -146,15 +162,16 @@ def normalize_path(raw: str) -> Path:
 
 def style_axes(ax: plt.Axes, grid_axis: str | None = "y", alpha: float = 0.45) -> None:
     ax.set_facecolor("white")
-    ax.tick_params(direction="out", length=3.8, width=0.8)
+    ax.tick_params(direction="out", length=3.8, width=JOURNAL_AXIS_LINE_PT)
     if grid_axis is not None:
-        ax.grid(axis=grid_axis, color=COLORS["grid"], linewidth=0.8, alpha=alpha)
+        ax.grid(axis=grid_axis, color=COLORS["grid"], linewidth=JOURNAL_LINE_PT, alpha=alpha)
 
 
 def save_figure(fig: plt.Figure, out_dir: Path, stem: str, *, dpi: int = 500) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_dir / f"{stem}.png", dpi=dpi, bbox_inches="tight", pad_inches=0.1)
     fig.savefig(out_dir / f"{stem}.pdf", dpi=dpi, bbox_inches="tight", pad_inches=0.1)
+    fig.savefig(out_dir / f"{stem}.svg", bbox_inches="tight", pad_inches=0.1)
     plt.close(fig)
 
 
@@ -170,7 +187,7 @@ def add_panel_label(ax: plt.Axes, label: str) -> None:
         transform=ax.transAxes,
         ha="left",
         va="top",
-        fontsize=12.5,
+        fontsize=JOURNAL_PANEL_LABEL_PT,
         fontweight="bold",
         color=COLORS["ink"],
     )
@@ -340,10 +357,10 @@ def fig1_total_effect_heatmap(
         )
         im = ax.imshow(mat, aspect="auto", cmap=cmap, vmin=0.0, vmax=1.0)
         ax.set_xticks(np.arange(len(params)))
-        ax.set_xticklabels([pretty_param(p) for p in params], rotation=42, ha="right", fontsize=8.2)
+        ax.set_xticklabels([pretty_param(p) for p in params], rotation=42, ha="right", fontsize=10.2)
         ax.set_yticks([0, 1])
-        ax.set_yticklabels(["S1", "ST"], fontsize=9.2)
-        ax.set_title(f"{endpoint_panel_title(ep)}\nendpoint-specific top {len(params)}", fontsize=10.8)
+        ax.set_yticklabels(["S1", "ST"], fontsize=11.2)
+        ax.set_title(f"{endpoint_panel_title(ep)}\nendpoint-specific top {len(params)}", fontsize=12.6)
         for i in range(2):
             for j in range(len(params)):
                 v = float(mat[i, j])
@@ -353,7 +370,7 @@ def fig1_total_effect_heatmap(
                     f"{v:.2f}",
                     ha="center",
                     va="center",
-                    fontsize=7.2,
+                    fontsize=8.6,
                     color="white" if v > 0.55 else COLORS["ink"],
                 )
         style_axes(ax, None, 0.0)
@@ -365,15 +382,16 @@ def fig1_total_effect_heatmap(
             transform=ax.transAxes,
             ha="left",
             va="bottom",
-            fontsize=12.0,
+            fontsize=14.0,
             fontweight="bold",
             color=COLORS["ink"],
         )
     cbar = fig.colorbar(im, ax=axes.ravel().tolist(), fraction=0.026, pad=0.02)
-    cbar.set_label("Sobol index")
+    cbar.set_label("Sobol index", fontsize=11.8)
+    cbar.ax.tick_params(labelsize=10.8)
     fig.suptitle(
         "Endpoint-specific Sobol heatmaps",
-        fontsize=14.0,
+        fontsize=16.8,
         fontweight="semibold",
     )
     save_figure(fig, out_dir, "figure_1_total_effect_heatmap")
@@ -382,8 +400,34 @@ def fig1_total_effect_heatmap(
 def fig2_s1_vs_st(
     sobol_df: pd.DataFrame, out_dir: Path, *, clip_for_display: bool, top_n: int
 ) -> None:
+    short_alias = {
+        "alp_rb": "ALP basal rate",
+        "alp_ro": "ALP osteo rate",
+        "collagen_rb": "Coll basal rate",
+        "collagen_ro": "Coll osteo rate",
+        "ha_ro": "HAp osteo rate",
+        "ha_collagen_maturation_tau": "tau_col",
+        "ha_collagen_km": "K_col",
+        "collagen_aa_km": "K_A^C",
+        "ha_hill_n": "n_H",
+        "ha_tau": "tau_H",
+        "osteo_induction_hours": "induction",
+        "min_div_hours": "min div",
+        "div_gap_hours": "div gap",
+        "proliferation_chance": "div prob",
+        "apoptosis_prob": "apoptosis",
+        "aa_half_life": "AA t1/2",
+        "media_interval": "media int",
+        "commit_delay": "commit delay",
+        "commit_k": "k_commit",
+        "move_prob": "motility",
+    }
+
+    def short_param(p: str) -> str:
+        return short_alias.get(str(p), pretty_param(str(p)))
+
     legend_handles = None
-    global_x_min = -0.2
+    global_x_min = 0.0
     global_x_max = 1.0
     fig_h = max(7.8, 0.36 * top_n + 1.9)
     fig = plt.figure(figsize=(18.8, fig_h), constrained_layout=False)
@@ -391,11 +435,11 @@ def fig2_s1_vs_st(
         1,
         6,
         width_ratios=[0.68, 1.52, 0.68, 1.52, 0.68, 1.52],
-        wspace=0.05,
+        wspace=0.11,
     )
     label_axes = [fig.add_subplot(gs[0, i]) for i in [0, 2, 4]]
     axes = [fig.add_subplot(gs[0, i]) for i in [1, 3, 5]]
-    fig.subplots_adjust(left=0.03, right=0.99, top=0.84, bottom=0.10)
+    fig.subplots_adjust(left=0.055, right=0.985, top=0.86, bottom=0.105)
 
     for idx, (label_ax, ax, ep) in enumerate(
         zip(label_axes, axes, [e["key"] for e in ENDPOINTS])
@@ -408,8 +452,8 @@ def fig2_s1_vs_st(
             .reset_index()
         )
         y = np.arange(len(params))
-        s1 = sub["S1_plot"].to_numpy(float)
-        st = sub["ST_plot"].to_numpy(float)
+        s1 = sub["S1_plot"].clip(lower=0.0, upper=1.0).to_numpy(float)
+        st = sub["ST_plot"].clip(lower=0.0, upper=1.0).to_numpy(float)
         s1c = sub["S1_conf_plot"].to_numpy(float)
         stc = sub["ST_conf_plot"].to_numpy(float)
 
@@ -421,18 +465,18 @@ def fig2_s1_vs_st(
                 ax.axhspan(
                     row_idx - 0.5,
                     row_idx + 0.5,
-                    color="#eef2f7",
-                    alpha=1.0,
+                    color="#f8fafc",
+                    alpha=0.20,
                     zorder=0,
                 )
         for yi, p in zip(y, params):
             label_ax.text(
                 0.98,
                 yi,
-                pretty_param(p),
+                short_param(str(p)),
                 ha="right",
                 va="center",
-                fontsize=8.7,
+                fontsize=11.4,
                 fontweight="semibold",
                 color=COLORS["ink"],
             )
@@ -442,56 +486,57 @@ def fig2_s1_vs_st(
             y,
             xerr=s1c,
             fmt="o",
-            color="#111827",
-            markersize=14.0,
-            markeredgewidth=0.0,
-            capsize=4.0,
-            elinewidth=4.8,
+            color=S1_COLOR,
+            markersize=8.6,
+            markeredgewidth=0.6,
+            capsize=6.6,
+            elinewidth=7.4,
             label="S1",
             zorder=3,
-            alpha=0.62,
+            alpha=0.92,
         )
         h2 = ax.errorbar(
             st,
             y,
             xerr=stc,
             fmt="s",
-            color=endpoint_color(ep),
-            markersize=14.8,
-            markeredgewidth=0.0,
-            capsize=4.0,
-            elinewidth=4.8,
+            color=ST_COLOR,
+            markersize=9.0,
+            markeredgewidth=0.6,
+            capsize=6.6,
+            elinewidth=7.4,
             label="ST",
             zorder=4,
-            alpha=0.62,
+            alpha=0.92,
         )
         ax.axvline(0.0, color="#334155", lw=1.4, zorder=1)
         ax.set_xlim(global_x_min, global_x_max)
         ax.set_ylim(len(params) - 0.5, -0.5)
-        ax.set_title(endpoint_panel_title(ep), fontsize=10.2, pad=7.0)
-        ax.set_xlabel("Sobol index")
+        ax.set_title(endpoint_panel_title(ep), fontsize=12.0, pad=7.0)
+        ax.set_xlabel("Sobol index", fontsize=12.0)
         ax.set_yticks(y)
         ax.set_yticklabels([])
         style_axes(ax, "x", 0.28)
-        ax.tick_params(axis="x", labelsize=9.0, width=0.9)
+        ax.set_xticks(np.arange(0.0, 1.01, 0.2))
+        ax.tick_params(axis="x", labelsize=11.2, width=1.0)
         ax.tick_params(axis="y", pad=1, length=0)
         if legend_handles is None:
             legend_handles = (h1, h2)
     if legend_handles is not None:
         fig.legend(
             legend_handles,
-            ["First-order (S1)", "Total-order (ST)"],
+            ["S1", "ST"],
             frameon=False,
             loc="upper center",
-            bbox_to_anchor=(0.52, 0.945),
+            bbox_to_anchor=(0.52, 0.95),
             ncol=2,
-            fontsize=10.4,
+            fontsize=11.8,
             handlelength=1.5,
             columnspacing=2.0,
         )
     fig.suptitle(
         f"First-order vs total-order Sobol indices (endpoint-specific top {top_n})",
-        fontsize=13.6,
+        fontsize=15.0,
         fontweight="semibold",
         y=0.975,
     )
@@ -530,26 +575,26 @@ def fig6_s1_ploscb_style(
 
         for row_idx in range(len(params)):
             if row_idx % 2 == 0:
-                ax.axhspan(row_idx - 0.5, row_idx + 0.5, color="#f8fafc", zorder=0)
+                ax.axhspan(row_idx - 0.5, row_idx + 0.5, color="#f8fafc", alpha=0.20, zorder=0)
 
-        ax.barh(y, s1, color=endpoint_color(ep), alpha=0.92, edgecolor="none", zorder=2)
+        ax.barh(y, s1, color=S1_COLOR, alpha=0.92, edgecolor="none", zorder=2)
         ax.errorbar(
             s1,
             y,
             xerr=s1c,
             fmt="none",
             ecolor=COLORS["ink"],
-            elinewidth=1.0,
-            capsize=2.5,
+            elinewidth=1.8,
+            capsize=3.4,
             zorder=3,
         )
         ax.axvline(0.0, color=COLORS["muted"], lw=1.0, zorder=1)
-        ax.set_title(endpoint_panel_title(ep), fontsize=11.2)
-        ax.set_xlabel("First-order Sobol index (S1)")
+        ax.set_title(endpoint_panel_title(ep), fontsize=12.2)
+        ax.set_xlabel("First-order Sobol index (S1)", fontsize=12.0)
         ax.set_yticks(y)
         if idx == 0:
-            ax.set_yticklabels([pretty_param(p) for p in params], fontsize=8.8)
-            ax.set_ylabel("Parameter")
+            ax.set_yticklabels([pretty_param(p) for p in params], fontsize=10.2)
+            ax.set_ylabel("Parameter", fontsize=12.0)
         else:
             ax.set_yticklabels([])
         style_axes(ax, "x", 0.30)
@@ -561,14 +606,14 @@ def fig6_s1_ploscb_style(
             transform=ax.transAxes,
             ha="left",
             va="bottom",
-            fontsize=12.0,
+            fontsize=14.0,
             fontweight="bold",
             color=COLORS["ink"],
         )
 
     fig.suptitle(
         "Publication-style first-order Sobol sensitivities (top parameters)",
-        fontsize=13.6,
+        fontsize=16.2,
         fontweight="semibold",
     )
     save_figure(fig, out_dir, "figure_6_sobol_first_order_ploscb")
@@ -586,8 +631,8 @@ def fig7_integrated_sobol_final(
         return
 
     # Consistent visual language across all rows.
-    s1_color = "#1f3b73"  # dark blue
-    st_color = "#d97706"  # orange
+    s1_color = S1_COLOR
+    st_color = ST_COLOR
     connector_color = "#9ca3af"
 
     endpoint_name = {
@@ -597,24 +642,24 @@ def fig7_integrated_sobol_final(
     }
 
     short_alias = {
-        "osteo_induction_hours": "induction time",
-        "max_div_hours": "max div",
-        "min_div_hours": "min div",
-        "apoptosis_prob": "apoptosis",
+        "osteo_induction_hours": "Induction time",
+        "max_div_hours": "Max division interval",
+        "min_div_hours": "Min division interval",
+        "apoptosis_prob": "PreOB apoptosis",
         "ob_apoptosis_prob": "OB apoptosis",
         "aa_half_life": "AA half-life",
-        "collagen_aa_km": "collagen AA Km",
-        "proliferation_chance": "division chance",
-        "collagen_ro": "collagen osteo rate",
-        "collagen_rb": "collagen basal rate",
-        "alp_ro": "ALP osteo rate",
+        "collagen_aa_km": "Collagen K_A^C",
+        "proliferation_chance": "Division probability",
+        "collagen_ro": "Collagen osteogenic rate",
+        "collagen_rb": "Collagen basal rate",
+        "alp_ro": "ALP osteogenic rate",
         "alp_rb": "ALP basal rate",
-        "ha_hill_n": "HAp Hill n",
-        "ha_tau": "HAp tau",
-        "commit_k": "commitment k",
-        "commit_delay": "commit delay",
-        "move_prob": "motility",
-        "aa0": "AA initial",
+        "ha_hill_n": "HAp Hill exponent",
+        "ha_tau": "HAp tau_H",
+        "commit_k": "Commitment k",
+        "commit_delay": "Commitment delay",
+        "move_prob": "Motility probability",
+        "aa0": "AA initial concentration",
     }
 
     def short_label(name: str, max_len: int = 18) -> str:
@@ -735,18 +780,18 @@ def fig7_integrated_sobol_final(
         s1c = sub["S1_conf_plot"].to_numpy(float)
         stc = sub["ST_conf_plot"].to_numpy(float)
 
-        ax_l.hlines(y, s1, st, color="#64748b", lw=1.25, zorder=1, alpha=0.95)
+        ax_l.hlines(y, s1, st, color="#64748b", lw=1.8, zorder=1, alpha=0.95)
         ax_l.errorbar(
             s1,
             y,
             xerr=s1c,
             fmt="o",
             color=s1_color,
-            markersize=5.6,
+            markersize=7.8,
             markerfacecolor=s1_color,
             markeredgecolor=s1_color,
-            capsize=2.3,
-            elinewidth=1.15,
+            capsize=3.2,
+            elinewidth=1.7,
             label="S1",
             zorder=3,
         )
@@ -756,32 +801,32 @@ def fig7_integrated_sobol_final(
             xerr=stc,
             fmt="s",
             color=st_color,
-            markersize=5.7,
+            markersize=8.0,
             markerfacecolor="white",
             markeredgecolor=st_color,
-            markeredgewidth=1.2,
-            capsize=2.3,
-            elinewidth=1.15,
+            markeredgewidth=1.4,
+            capsize=3.2,
+            elinewidth=1.7,
             label="ST",
             zorder=3,
         )
         ax_l.axvline(0.0, color="#475569", lw=1.1)
         ax_l.set_yticks(y)
-        ax_l.set_yticklabels([short_label(p) for p in left_top_params], fontsize=8.0)
+        ax_l.set_yticklabels([short_label(p) for p in left_top_params], fontsize=9.8)
         ax_l.set_xlim(-0.04, x_right)
-        ax_l.set_xlabel("Sobol index", fontsize=9.8)
+        ax_l.set_xlabel("Sobol index", fontsize=11.6)
         ax_l.set_title(
             f"{endpoint_name.get(ep, endpoint_title(ep))}: main effects",
-            fontsize=10.4,
+            fontsize=12.0,
             pad=7.0,
         )
         ax_l.invert_yaxis()
         style_axes(ax_l, "x", 0.18)
-        ax_l.tick_params(axis="x", labelsize=8.0)
+        ax_l.tick_params(axis="x", labelsize=10.2)
         if row == 0:
             ax_l.legend(
                 frameon=False,
-                fontsize=8.2,
+                fontsize=10.0,
                 ncol=2,
                 loc="lower right",
                 handletextpad=0.6,
@@ -794,7 +839,7 @@ def fig7_integrated_sobol_final(
             transform=ax_l.transAxes,
             ha="left",
             va="bottom",
-            fontsize=12.0,
+            fontsize=14.0,
             fontweight="bold",
             color=COLORS["ink"],
             clip_on=False,
@@ -830,7 +875,7 @@ def fig7_integrated_sobol_final(
                         f"{v:+.2f}",
                         ha="center",
                         va="center",
-                        fontsize=6.4,
+                        fontsize=7.8,
                         color="#1f2937",
                         zorder=3,
                     )
@@ -840,20 +885,20 @@ def fig7_integrated_sobol_final(
             [short_label_s2(p, max_len=10) for p in right_top_params],
             rotation=35,
             ha="right",
-            fontsize=6.4,
+            fontsize=7.8,
         )
-        ax_r.set_yticklabels([short_label_s2(p, max_len=10) for p in right_top_params], fontsize=6.4)
+        ax_r.set_yticklabels([short_label_s2(p, max_len=10) for p in right_top_params], fontsize=7.8)
         ax_r.set_facecolor("#f8fafc")
         ax_r.set_title(
             f"{endpoint_name.get(ep, endpoint_title(ep))}: second-order effects (S2)",
-            fontsize=9.8,
+            fontsize=11.4,
             pad=5.0,
         )
         ax_r.set_xlabel("")
         ax_r.set_ylabel("")
         style_axes(ax_r, None, 0.0)
-        ax_r.tick_params(axis="x", labelsize=6.4, pad=1.2)
-        ax_r.tick_params(axis="y", labelsize=6.4)
+        ax_r.tick_params(axis="x", labelsize=7.8, pad=1.2)
+        ax_r.tick_params(axis="y", labelsize=7.8)
         ax_r.text(
             -0.19,
             1.02,
@@ -861,7 +906,7 @@ def fig7_integrated_sobol_final(
             transform=ax_r.transAxes,
             ha="left",
             va="bottom",
-            fontsize=12.0,
+            fontsize=14.0,
             fontweight="bold",
             color=COLORS["ink"],
             clip_on=False,
@@ -870,13 +915,13 @@ def fig7_integrated_sobol_final(
         divider = make_axes_locatable(ax_r)
         cax = divider.append_axes("right", size="3.8%", pad=0.025)
         cbar = fig.colorbar(im, cax=cax)
-        cbar.set_label("S2", fontsize=8.4)
-        cbar.ax.tick_params(labelsize=7.0)
+        cbar.set_label("S2", fontsize=10.2)
+        cbar.ax.tick_params(labelsize=9.0)
 
 
     fig.suptitle(
         "Integrated Sobol Sensitivity",
-        fontsize=14.0,
+        fontsize=16.4,
         fontweight="semibold",
         x=0.4,
         ha="center",
@@ -920,9 +965,9 @@ def fig3_parameter_ranking(rank_df: pd.DataFrame, out_dir: Path, *, top_n: int) 
     ax.set_yticklabels(labels)
     for b in bars:
         w = float(b.get_width())
-        ax.text(w + 0.01, b.get_y() + b.get_height() * 0.5, f"{w:.2f}", va="center", ha="left", fontsize=8.0, color=COLORS["muted"])
-    ax.set_xlabel("Mean ST across endpoints")
-    ax.set_title(f"Global parameter importance ranking (top {len(rank)})")
+        ax.text(w + 0.01, b.get_y() + b.get_height() * 0.5, f"{w:.2f}", va="center", ha="left", fontsize=10.0, color=COLORS["muted"])
+    ax.set_xlabel("Mean ST across endpoints", fontsize=12.0)
+    ax.set_title(f"Global parameter importance ranking (top {len(rank)})", fontsize=14.0)
     style_axes(ax, "x", 0.35)
     add_panel_label(ax, "E")
     save_figure(fig, out_dir, "figure_3_parameter_ranking")
@@ -956,10 +1001,10 @@ def fig8_interaction_gap(
             edgecolor="none",
         )
         ax.set_yticks(ypos)
-        ax.set_yticklabels([pretty_param(p) for p in sub["parameter"]], fontsize=8.6)
+        ax.set_yticklabels([pretty_param(p) for p in sub["parameter"]], fontsize=10.2)
         ax.invert_yaxis()
-        ax.set_xlabel("Interaction share (ST - S1)")
-        ax.set_title(f"{endpoint_panel_title(ep)}\ninteraction-dominated contribution", fontsize=10.8)
+        ax.set_xlabel("Interaction share (ST - S1)", fontsize=12.0)
+        ax.set_title(f"{endpoint_panel_title(ep)}\ninteraction-dominated contribution", fontsize=12.4)
         style_axes(ax, "x", 0.30)
         for y, v in zip(ypos, interaction_gap):
             ax.text(
@@ -968,7 +1013,7 @@ def fig8_interaction_gap(
                 f"{float(v):.2f}",
                 va="center",
                 ha="left",
-                fontsize=7.5,
+                fontsize=9.0,
                 color=COLORS["muted"],
             )
         ax.text(
@@ -978,13 +1023,13 @@ def fig8_interaction_gap(
             transform=ax.transAxes,
             ha="left",
             va="bottom",
-            fontsize=12.0,
+            fontsize=14.0,
             fontweight="bold",
             color=COLORS["ink"],
         )
     fig.suptitle(
         "Interaction gap among endpoint-specific top parameters",
-        fontsize=13.6,
+        fontsize=16.0,
         fontweight="semibold",
     )
     save_figure(fig, out_dir, "figure_8_interaction_gap")
@@ -1035,7 +1080,7 @@ def fig9_s1_vs_st_scatter(
             vmax=max(0.25, float(np.nanmax(gap)) if len(gap) else 0.25),
             alpha=0.92,
             edgecolors="white",
-            linewidths=0.8,
+            linewidths=1.1,
             zorder=3,
         )
         guide = np.linspace(0.0, max_val, 100)
@@ -1045,15 +1090,15 @@ def fig9_s1_vs_st_scatter(
                 float(xi) + 0.012,
                 float(yi) + 0.012,
                 pretty_param(str(p)),
-                fontsize=7.5,
+                fontsize=9.2,
                 color=COLORS["ink"],
             )
         ax.set_xlim(0.0, max_val)
         ax.set_ylim(0.0, max_val)
-        ax.set_xlabel("S1")
+        ax.set_xlabel("S1", fontsize=12.0)
         if idx == 0:
-            ax.set_ylabel("ST")
-        ax.set_title(f"{endpoint_panel_title(ep)}\nendpoint-specific top {len(params)}", fontsize=10.6)
+            ax.set_ylabel("ST", fontsize=12.0)
+        ax.set_title(f"{endpoint_panel_title(ep)}\nendpoint-specific top {len(params)}", fontsize=12.2)
         style_axes(ax, "both", 0.28)
         ax.text(
             -0.12,
@@ -1062,16 +1107,17 @@ def fig9_s1_vs_st_scatter(
             transform=ax.transAxes,
             ha="left",
             va="bottom",
-            fontsize=12.0,
+            fontsize=14.0,
             fontweight="bold",
             color=COLORS["ink"],
         )
 
     cbar = fig.colorbar(sc, ax=axes.ravel().tolist(), fraction=0.028, pad=0.02)
-    cbar.set_label("Interaction gap (ST - S1)")
+    cbar.set_label("Interaction gap (ST - S1)", fontsize=11.2)
+    cbar.ax.tick_params(labelsize=10.2)
     fig.suptitle(
         "S1 vs ST parameter map",
-        fontsize=13.8,
+        fontsize=16.0,
         fontweight="semibold",
     )
     save_figure(fig, out_dir, "figure_9_s1_vs_st_scatter")
@@ -1101,16 +1147,17 @@ def fig4_top2_response_maps(
             endpoint_df[y].to_numpy(float),
             c=c,
             cmap="viridis",
-            s=28,
+            s=44,
             alpha=0.86,
             edgecolors="none",
         )
-        ax.set_title(f"{endpoint_title(ep)}\n(top pair: {pretty_param(x)}, {pretty_param(y)})")
-        ax.set_xlabel(pretty_param(x))
-        ax.set_ylabel(pretty_param(y))
+        ax.set_title(f"{endpoint_title(ep)}\n(top pair: {pretty_param(x)}, {pretty_param(y)})", fontsize=12.0)
+        ax.set_xlabel(pretty_param(x), fontsize=11.6)
+        ax.set_ylabel(pretty_param(y), fontsize=11.6)
         style_axes(ax, "both", 0.25)
         cbar = fig.colorbar(p, ax=ax, fraction=0.045, pad=0.02)
-        cbar.set_label(endpoint_title(ep))
+        cbar.set_label(endpoint_title(ep), fontsize=10.8)
+        cbar.ax.tick_params(labelsize=9.8)
         sub_plot = sobol_plot_df[sobol_plot_df["endpoint"] == ep].set_index("parameter")
         st1 = float(sub_plot.loc[x, "ST_norm"]) if x in sub_plot.index else float("nan")
         st2 = float(sub_plot.loc[y, "ST_norm"]) if y in sub_plot.index else float("nan")
@@ -1121,13 +1168,13 @@ def fig4_top2_response_maps(
             transform=ax.transAxes,
             ha="left",
             va="top",
-            fontsize=8.0,
+            fontsize=9.6,
             color=COLORS["muted"],
         )
         add_panel_label(ax, chr(ord("F") + [e["key"] for e in ENDPOINTS].index(ep)))
     fig.suptitle(
         "Top-two driver maps: sampled runs colored by endpoint",
-        fontsize=13.2,
+        fontsize=15.6,
         fontweight="semibold",
     )
     save_figure(fig, out_dir, "figure_4_top2_response_maps")
@@ -1186,7 +1233,7 @@ def fig5_trajectory_bands(
                 transform=ax.transAxes,
                 ha="center",
                 va="center",
-                fontsize=9.6,
+                fontsize=11.0,
             )
             ax.set_title(endpoint_title(ep))
             continue
@@ -1205,7 +1252,7 @@ def fig5_trajectory_bands(
                 transform=ax.transAxes,
                 ha="center",
                 va="center",
-                fontsize=10,
+                fontsize=11.2,
             )
             ax.set_title(endpoint_title(ep))
             continue
@@ -1238,15 +1285,15 @@ def fig5_trajectory_bands(
             label=f"{pretty_param(top_param)} high quartile (n={len(y_high)})",
         )
         ax.set_title(endpoint_title(ep))
-        ax.set_xlabel("Day")
-        ax.set_ylabel(endpoint_short_ylabel(ep))
+        ax.set_xlabel("Day", fontsize=11.6)
+        ax.set_ylabel(endpoint_short_ylabel(ep), fontsize=11.6)
         style_axes(ax, "both", 0.25)
-        ax.legend(frameon=False, fontsize=7.8, loc="upper left")
+        ax.legend(frameon=False, fontsize=9.6, loc="upper left")
         add_panel_label(ax, chr(ord("I") + [e["key"] for e in ENDPOINTS].index(ep)))
 
     fig.suptitle(
         "Time-course shift by dominant sensitivity driver",
-        fontsize=13.2,
+        fontsize=15.6,
         fontweight="semibold",
     )
     save_figure(fig, out_dir, "figure_5_trajectory_quartiles")

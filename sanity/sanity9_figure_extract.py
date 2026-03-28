@@ -22,6 +22,14 @@ import matplotlib.pyplot as plt
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent
 
+JOURNAL_AXIS_LABEL_PT = 9
+JOURNAL_TICK_PT = 8
+JOURNAL_LEGEND_PT = 8
+JOURNAL_LINE_PT = 1.2
+JOURNAL_AXIS_LINE_PT = 1.0
+JOURNAL_MARKER_PT = 5.5
+JOURNAL_PANEL_LABEL_PT = 12
+
 DEFAULT_INPUT = SCRIPT_DIR / "out" / "sanity_check9"
 DEFAULT_OUT = DEFAULT_INPUT / "figure_extract_9"
 DEFAULT_RUNS = 10
@@ -216,14 +224,17 @@ plt.rcParams.update(
         "font.family": "DejaVu Serif",
         "axes.edgecolor": COLORS["ink"],
         "axes.labelcolor": COLORS["ink"],
-        "axes.linewidth": 0.9,
+        "axes.linewidth": JOURNAL_AXIS_LINE_PT,
         "axes.spines.top": False,
         "axes.spines.right": False,
         "axes.titlesize": 12.5,
         "axes.titleweight": "semibold",
-        "axes.labelsize": 10.5,
-        "xtick.labelsize": 9.5,
-        "ytick.labelsize": 9.5,
+        "axes.labelsize": JOURNAL_AXIS_LABEL_PT,
+        "xtick.labelsize": JOURNAL_TICK_PT,
+        "ytick.labelsize": JOURNAL_TICK_PT,
+        "legend.fontsize": JOURNAL_LEGEND_PT,
+        "lines.linewidth": JOURNAL_LINE_PT,
+        "lines.markersize": JOURNAL_MARKER_PT,
         "xtick.color": COLORS["ink"],
         "ytick.color": COLORS["ink"],
         "figure.facecolor": COLORS["bg"],
@@ -296,8 +307,8 @@ def parse_args() -> argparse.Namespace:
 
 def style_axes(ax: plt.Axes) -> None:
     ax.set_facecolor("white")
-    ax.tick_params(direction="out", length=4.0, width=0.8)
-    ax.grid(axis="y", color=COLORS["grid"], linewidth=0.7, alpha=0.35)
+    ax.tick_params(direction="out", length=4.0, width=JOURNAL_AXIS_LINE_PT)
+    ax.grid(axis="y", color=COLORS["grid"], linewidth=JOURNAL_LINE_PT, alpha=0.35)
 
 
 def save_figure(fig: plt.Figure, out_dir: Path, stem: str) -> None:

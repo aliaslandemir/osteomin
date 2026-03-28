@@ -16,6 +16,13 @@ import matplotlib.pyplot as plt
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 
+JOURNAL_AXIS_LABEL_PT = 9
+JOURNAL_TICK_PT = 8
+JOURNAL_LEGEND_PT = 8
+JOURNAL_LINE_PT = 1.2
+JOURNAL_AXIS_LINE_PT = 1.0
+JOURNAL_MARKER_PT = 5.5
+
 COLORS = {
     "ink": "#0f172a",
     "muted": "#64748b",
@@ -33,14 +40,17 @@ plt.rcParams.update(
         "font.family": "DejaVu Serif",
         "axes.edgecolor": COLORS["ink"],
         "axes.labelcolor": COLORS["ink"],
-        "axes.linewidth": 0.9,
+        "axes.linewidth": JOURNAL_AXIS_LINE_PT,
         "axes.spines.top": False,
         "axes.spines.right": False,
         "axes.titleweight": "semibold",
         "axes.titlesize": 12,
-        "axes.labelsize": 10,
-        "xtick.labelsize": 9,
-        "ytick.labelsize": 9,
+        "axes.labelsize": JOURNAL_AXIS_LABEL_PT,
+        "xtick.labelsize": JOURNAL_TICK_PT,
+        "ytick.labelsize": JOURNAL_TICK_PT,
+        "legend.fontsize": JOURNAL_LEGEND_PT,
+        "lines.linewidth": JOURNAL_LINE_PT,
+        "lines.markersize": JOURNAL_MARKER_PT,
         "xtick.color": COLORS["ink"],
         "ytick.color": COLORS["ink"],
         "figure.facecolor": "white",
@@ -84,13 +94,13 @@ def save_figure(fig: plt.Figure, out_dir: Path, stem: str) -> None:
 
 def style_axes(ax: plt.Axes, grid_axis: str | None = "y", grid_alpha: float = 0.45) -> None:
     ax.set_facecolor("white")
-    ax.tick_params(direction="out", length=4.0, width=0.8)
+    ax.tick_params(direction="out", length=4.0, width=JOURNAL_AXIS_LINE_PT)
     if grid_axis:
-        ax.grid(axis=grid_axis, color=COLORS["grid"], linewidth=0.8, alpha=grid_alpha)
+        ax.grid(axis=grid_axis, color=COLORS["grid"], linewidth=JOURNAL_LINE_PT, alpha=grid_alpha)
 
 
 def response_cmap() -> LinearSegmentedColormap:
-    return matplotlib.colormaps["RdBu_r"]
+    return matplotlib.colormaps["cividis"]
 
 
 def robust_abs_max(arrays: list[np.ndarray], q: float = 97.0, floor: float = 1.0) -> float:
@@ -257,8 +267,8 @@ def write_tables(df: pd.DataFrame, out_dir: Path) -> None:
 
 def export_assay_dose_curves(dex_df: pd.DataFrame, mk4_df: pd.DataFrame, out_dir: Path, assay_hours: dict[str, int]) -> None:
     fig, axes = plt.subplots(3, 2, figsize=(10.6, 9.5), sharex="col", sharey="row")
-    axes[0, 0].set_title("DEX-only", pad=4)
-    axes[0, 1].set_title("MK-4-only", pad=4)
+    axes[0, 0].set_title("DEX-only", pad=4, fontsize=13.5)
+    axes[0, 1].set_title("MK-4-only", pad=4, fontsize=13.5)
     rows = [
         ("assay_alp_pct_vs_vehicle", "assay_alp_pct_sd_vs_vehicle", f"ALP {assay_hours['alp']} h", COLORS["alp"]),
         ("assay_collagen_pct_vs_vehicle", "assay_collagen_pct_sd_vs_vehicle", f"Collagen {assay_hours['collagen']} h", COLORS["collagen"]),
@@ -279,7 +289,7 @@ def export_assay_dose_curves(dex_df: pd.DataFrame, mk4_df: pd.DataFrame, out_dir
             "peak window",
             ha="center",
             va="bottom",
-            fontsize=8.5,
+            fontsize=10.8,
             color=COLORS["muted"],
         )
 
@@ -331,11 +341,12 @@ def export_assay_dose_curves(dex_df: pd.DataFrame, mk4_df: pd.DataFrame, out_dir
         ax.axhline(0.0, color=COLORS["neutral"], lw=0.9, ls=(0, (4, 3)))
         ax.set_ylim(*y_lim)
         ax.set_xticks(dex_ticks, [f"{d:.4g}" for d in dex_ticks])
+        ax.tick_params(axis="both", labelsize=10.8)
         ax.yaxis.set_major_formatter(ScalarFormatter(useOffset=False))
-        ax.set_ylabel(f"{title}\n% vs vehicle")
+        ax.set_ylabel(f"{title}\n% vs vehicle", fontsize=11.8)
         add_peak_marker(ax, dex_peak_low, dex_peak_high, COLORS["dex"], y_peak)
         if ridx == 2:
-            ax.set_xlabel("Dex concentration (nM)")
+            ax.set_xlabel("Dex concentration (nM)", fontsize=11.8)
 
         ax = axes[ridx, 1]
         style_axes(ax, "both", grid_alpha=0.3)
@@ -357,12 +368,13 @@ def export_assay_dose_curves(dex_df: pd.DataFrame, mk4_df: pd.DataFrame, out_dir
         ax.axhline(0.0, color=COLORS["neutral"], lw=0.9, ls=(0, (4, 3)))
         ax.set_ylim(*y_lim)
         ax.set_xticks(mk4_ticks, [f"{d:.4g}" for d in mk4_ticks])
+        ax.tick_params(axis="both", labelsize=10.8)
         ax.yaxis.set_major_formatter(ScalarFormatter(useOffset=False))
         add_peak_marker(ax, mk4_peak_low, mk4_peak_high, COLORS["mk4"], y_peak)
         if ridx == 2:
-            ax.set_xlabel("MK-4 concentration (μM)")
+            ax.set_xlabel("MK-4 concentration (μM)", fontsize=11.8)
     fig.subplots_adjust(left=0.11, right=0.985, bottom=0.09, top=0.91, wspace=0.12, hspace=0.18)
-    fig.suptitle("Single-drug dose-response curves", fontsize=15, fontweight="semibold", y=0.975)
+    fig.suptitle("Single-drug dose-response curves", fontsize=17.5, fontweight="semibold", y=0.975)
     save_figure(fig, out_dir, "figure_1_dose_response_curves")
 
 

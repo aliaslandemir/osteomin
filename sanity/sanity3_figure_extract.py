@@ -8,6 +8,7 @@ from pathlib import Path
 import matplotlib
 import numpy as np
 import pandas as pd
+from matplotlib import gridspec
 from matplotlib.colors import LinearSegmentedColormap, Normalize, TwoSlopeNorm
 from matplotlib.cm import ScalarMappable
 
@@ -15,6 +16,13 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+
+JOURNAL_AXIS_LABEL_PT = 9
+JOURNAL_TICK_PT = 8
+JOURNAL_LEGEND_PT = 8
+JOURNAL_LINE_PT = 1.2
+JOURNAL_AXIS_LINE_PT = 1.0
+JOURNAL_MARKER_PT = 5.5
 
 COLORS = {
     "ink": "#0f172a",
@@ -34,14 +42,17 @@ plt.rcParams.update(
         "font.family": "DejaVu Serif",
         "axes.edgecolor": COLORS["ink"],
         "axes.labelcolor": COLORS["ink"],
-        "axes.linewidth": 0.9,
+        "axes.linewidth": JOURNAL_AXIS_LINE_PT,
         "axes.spines.top": False,
         "axes.spines.right": False,
         "axes.titleweight": "semibold",
         "axes.titlesize": 12,
-        "axes.labelsize": 10,
-        "xtick.labelsize": 9,
-        "ytick.labelsize": 9,
+        "axes.labelsize": JOURNAL_AXIS_LABEL_PT,
+        "xtick.labelsize": JOURNAL_TICK_PT,
+        "ytick.labelsize": JOURNAL_TICK_PT,
+        "legend.fontsize": JOURNAL_LEGEND_PT,
+        "lines.linewidth": JOURNAL_LINE_PT,
+        "lines.markersize": JOURNAL_MARKER_PT,
         "xtick.color": COLORS["ink"],
         "ytick.color": COLORS["ink"],
         "figure.facecolor": "white",
@@ -90,21 +101,17 @@ def save_figure(fig: plt.Figure, out_dir: Path, stem: str) -> None:
 
 def style_axes(ax: plt.Axes, grid_axis: str | None = "y") -> None:
     ax.set_facecolor("white")
-    ax.tick_params(direction="out", length=4.0, width=0.8)
+    ax.tick_params(direction="out", length=4.0, width=JOURNAL_AXIS_LINE_PT)
     if grid_axis:
-        ax.grid(axis=grid_axis, color=COLORS["grid"], linewidth=0.8, alpha=0.7)
+        ax.grid(axis=grid_axis, color=COLORS["grid"], linewidth=JOURNAL_LINE_PT, alpha=0.7)
 
 
 def response_cmap() -> LinearSegmentedColormap:
-    return matplotlib.colormaps["RdBu_r"]
+    return matplotlib.colormaps["cividis"]
 
 
 def sequential_cmap(name: str, base: str) -> LinearSegmentedColormap:
-    if name == "alp":
-        return LinearSegmentedColormap.from_list(name, ["#fff4ed", base])
-    if name == "collagen":
-        return LinearSegmentedColormap.from_list(name, ["#effcf5", base])
-    return LinearSegmentedColormap.from_list(name, ["#eef4ff", base])
+    return matplotlib.colormaps["cividis"]
 
 
 def row_at_hours(df: pd.DataFrame, hours: int) -> pd.Series:
@@ -362,37 +369,53 @@ def export_overview_heatmap(df: pd.DataFrame, out_dir: Path, assay_hours: dict[s
         ("assay_collagen_pct_vs_control", f"Collagen {assay_hours['collagen']} h"),
         ("assay_ha_pct_vs_control", f"HAp {assay_hours['ha']} h"),
     ]
-    ordered = df.sort_values(["mk4_conc_uM", "dex_conc_nM"]).reset_index(drop=True)
+    # Rank by composite osteogenic response and keep only the top 10 conditions.
+    ranked = df.copy()
+    ranked["overview_score"] = ranked[[m[0] for m in metrics]].mean(axis=1)
+    ordered = (
+        ranked.sort_values(
+            ["overview_score", "assay_ha_pct_vs_control", "assay_collagen_pct_vs_control", "assay_alp_pct_vs_control"],
+            ascending=[False, False, False, False],
+        )
+        .head(10)
+        .reset_index(drop=True)
+    )
+    ordered.to_csv(out_dir / "figure_3_top10_conditions.csv", index=False)
+
     values = ordered[[m[0] for m in metrics]].to_numpy(dtype=float)
     finite_vals = values[np.isfinite(values)]
     vmin = float(np.min(finite_vals)) if finite_vals.size else 0.0
-    # Robust upper bound keeps tones calm when a few conditions are very large.
-    vmax = float(np.nanpercentile(finite_vals, 92.0)) if finite_vals.size else 1.0
-    vmax = max(vmax, float(np.max(finite_vals)) * 0.55 if finite_vals.size else 1.0)
+    vmax = float(np.max(finite_vals)) if finite_vals.size else 1.0
     if vmax <= vmin:
         vmax = vmin + 1.0
 
-    calm_cmap = LinearSegmentedColormap.from_list(
-        "calm_blue",
-        ["#f9fbfd", "#edf4f8", "#ddeaf3", "#c7dceb", "#abc7de", "#86abc8"],
-    )
+    # Use a colorblind-safe sequential map for publication-ready readability.
+    plos_cmap = plt.get_cmap("cividis")
     norm = Normalize(vmin=vmin, vmax=vmax)
 
-    fig, ax = plt.subplots(figsize=(9.4, 8.6))
-    im = ax.imshow(
-        values,
-        aspect="auto",
-        cmap=calm_cmap,
-        norm=norm,
-    )
-    ax.set_xticks(np.arange(len(metrics)), [m[1] for m in metrics], rotation=15, ha="right")
     row_labels = [
         f"C{int(row.condition_index):02d} | D={row.dex_conc_nM:.4g} nM | K={row.mk4_conc_uM:.4g} uM"
         for row in ordered.itertuples()
     ]
-    ax.set_yticks(np.arange(len(row_labels)), row_labels)
-    ax.tick_params(axis="y", length=0)
-    ax.tick_params(axis="x", pad=8)
+
+    # Smarter split layout: dedicated label panel + wide heatmap panel.
+    fig = plt.figure(figsize=(10.2, 7.1))
+    gs = gridspec.GridSpec(1, 2, width_ratios=[0.78, 2.62], wspace=0.015)
+    ax_labels = fig.add_subplot(gs[0, 0])
+    ax = fig.add_subplot(gs[0, 1])
+
+    im = ax.imshow(values, aspect="auto", cmap=plos_cmap, norm=norm)
+    ax.set_xticks(
+        np.arange(len(metrics)),
+        [
+            f"ALP\n{assay_hours['alp']} h",
+            f"Collagen\n{assay_hours['collagen']} h",
+            f"HAp\n{assay_hours['ha']} h",
+        ],
+    )
+    ax.tick_params(axis="x", pad=9, labelsize=11.2)
+    ax.set_yticks([])
+
     # Subtle cell boundaries improve scanning in dense matrices.
     ax.set_xticks(np.arange(-0.5, values.shape[1], 1), minor=True)
     ax.set_yticks(np.arange(-0.5, values.shape[0], 1), minor=True)
@@ -400,21 +423,36 @@ def export_overview_heatmap(df: pd.DataFrame, out_dir: Path, assay_hours: dict[s
     ax.tick_params(which="minor", bottom=False, left=False)
     for i in range(values.shape[0]):
         for j in range(values.shape[1]):
-            val = values[i, j]
             ax.text(
                 j,
                 i,
-                f"{val:.1f}",
+                f"{values[i, j]:.1f}",
                 ha="center",
                 va="center",
-                fontsize=7.9,
+                fontsize=11.0,
                 color=COLORS["ink"],
             )
-    ax.set_title("Dose overview heatmap", pad=12)
-    cbar = fig.colorbar(im, ax=ax, fraction=0.032, pad=0.025)
-    cbar.set_label("% difference vs control")
-    cbar.ax.tick_params(labelsize=8.5)
-    fig.subplots_adjust(left=0.22, right=0.93, bottom=0.16, top=0.90)
+
+    # Long condition labels in a separate axis keep columns wide and readable.
+    ax_labels.set_xlim(0.0, 1.0)
+    ax_labels.set_ylim(values.shape[0] - 0.5, -0.5)
+    ax_labels.axis("off")
+    for i, lbl in enumerate(row_labels):
+        ax_labels.text(
+            0.01,
+            i,
+            lbl,
+            ha="left",
+            va="center",
+            fontsize=11.8,
+            color=COLORS["ink"],
+        )
+
+    ax.set_title("Top-10 dose response heatmap", pad=14, fontsize=15.5)
+    cbar = fig.colorbar(im, ax=ax, fraction=0.038, pad=0.035)
+    cbar.set_label("% difference vs control", fontsize=11.2)
+    cbar.ax.tick_params(labelsize=10.2)
+    fig.subplots_adjust(left=0.004, right=0.965, bottom=0.13, top=0.90)
     save_figure(fig, out_dir, "figure_3_ecm_overview_heatmap")
 
 

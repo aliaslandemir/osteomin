@@ -12,6 +12,7 @@ import json
 import shlex
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -161,17 +162,17 @@ PARAMETERS: list[dict[str, Any]] = [
     {"name": "ha_ro", "flag": "--ha-ro", "bounds": [0.075, 0.150], "baseline": 0.102, "label": "HAp osteogenic rate"},
     {"name": "ha_tau", "flag": "--ha-tau", "bounds": [288.0, 480.0], "baseline": 384.0, "label": "HAp Hill tau"},
     {"name": "ha_hill_n", "flag": "--ha-hill-n", "bounds": [1.5, 3.5], "baseline": 2.0, "label": "HAp Hill exponent"},
+    {"name": "ha_collagen_maturation_tau", "flag": "--ha-collagen-maturation-tau", "bounds": [24.0, 72.0], "baseline": 48.0, "label": "Collagen maturation tau (h)"},
+    {"name": "ha_collagen_km", "flag": "--ha-collagen-km", "bounds": [0.5, 2.0], "baseline": 1.0, "label": "Collagen support half-sat"},
     {"name": "commit_k", "flag": "--commit-k", "bounds": [0.0075, 0.0200], "baseline": 0.0125, "label": "Commitment k"},
     {"name": "apoptosis_prob", "flag": "--apoptosis-prob", "bounds": [0.0005, 0.0015], "baseline": 0.0010, "label": "Apoptosis probability"},
     {"name": "move_prob", "flag": "--move-prob", "bounds": [0.15, 0.40], "baseline": 0.27, "label": "Random-move probability"},
-    {"name": "aa0", "flag": "--aa0", "bounds": [35.0, 65.0], "baseline": 50.0, "label": "AA initial concentration"},
     {"name": "aa_half_life", "flag": "--aa-half-life", "bounds": [4.0, 12.0], "baseline": 8.0, "label": "AA half-life (h)"},
     {"name": "collagen_aa_km", "flag": "--collagen-aa-km", "bounds": [2.5, 8.0], "baseline": 5.0, "label": "Collagen AA half-sat"},
     {"name": "commit_delay", "flag": "--commit-delay", "bounds": [24.0, 72.0], "baseline": 48.0, "label": "Commitment delay (h)", "kind": "int"},
     {"name": "min_div_hours", "flag": "--min-div-hours", "bounds": [30.0, 46.0], "baseline": 38.0, "label": "Minimum division interval (h)", "kind": "int"},
     {"name": "div_gap_hours", "flag": None, "bounds": [8.0, 24.0], "baseline": 14.0, "label": "Division interval gap (h)", "kind": "int"},
     {"name": "proliferation_chance", "flag": "--proliferation-chance", "bounds": [0.75, 1.0], "baseline": 1.0, "label": "Division attempt chance"},
-    {"name": "ob_apoptosis_prob", "flag": "--apoptosis-osteo", "bounds": [0.0, 0.0010], "baseline": 0.0, "label": "OB apoptosis probability"},
     {"name": "osteo_induction_hours", "flag": "--osteo-induction-hours", "bounds": [48.0, 96.0], "baseline": 72.0, "label": "Osteogenic induction time (h)", "kind": "int"},
     {"name": "media_interval", "flag": "--media-interval", "bounds": [24.0, 72.0], "baseline": 48.0, "label": "Media interval (h)", "kind": "int"},
 ]
@@ -223,6 +224,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--out", type=Path, default=BASE_OUT, help="output root directory")
     parser.add_argument("--python", type=str, default=sys.executable, help="Python interpreter for main.py")
     parser.add_argument("--samples", type=int, default=1024, help="Sobol base sample size N (total runs ~= N*(2D+2))")
+    parser.add_argument("--jobs", type=int, default=1, help="number of parallel model runs to launch")
     parser.add_argument("--base-seed", type=int, default=12345, help="base random seed for model runs")
     parser.add_argument("--sobol-seed", type=int, default=24680, help="Sobol sampler seed")
     parser.add_argument("--overwrite", action="store_true", help="rerun simulations even if existing outputs are present")
@@ -235,6 +237,8 @@ def parse_args() -> argparse.Namespace:
     args = parser.parse_args()
     if args.samples <= 0:
         raise SystemExit("--samples must be >= 1")
+    if args.jobs <= 0:
+        raise SystemExit("--jobs must be >= 1")
     if args.samples & (args.samples - 1) != 0:
         print("[warn] --samples should preferably be a power of 2 (128, 256, 512, 1024, ...)")
     return args
@@ -435,11 +439,38 @@ def run_or_load_results(args: argparse.Namespace, samples: np.ndarray, out_dir: 
         return pd.read_csv(endpoint_path)
 
     results: list[dict[str, Any]] = []
-    for i, row in enumerate(samples, start=1):
-        print(f"[sanity_check6] run {i}/{len(samples)}")
-        results.append(run_sample(i, row, args, runs_dir))
+    total = len(samples)
+    if args.jobs == 1:
+        for i, row in enumerate(samples, start=1):
+            print(f"[sanity_check6] run {i}/{total}")
+            results.append(run_sample(i, row, args, runs_dir))
+    else:
+        print(f"[sanity_check6] parallel mode: jobs={args.jobs}, runs={total}")
+        completed = 0
+        with ThreadPoolExecutor(max_workers=args.jobs) as pool:
+            futures = {
+                pool.submit(run_sample, i, row, args, runs_dir): i
+                for i, row in enumerate(samples, start=1)
+            }
+            for fut in as_completed(futures):
+                idx = futures[fut]
+                try:
+                    row_out = fut.result()
+                except Exception as exc:
+                    row_out = {
+                        "sample_index": idx,
+                        "seed": int(args.base_seed + idx),
+                        "run_dir": str(runs_dir / f"s{idx:05d}"),
+                        "success": False,
+                        "returncode": -1,
+                        "command": "",
+                        "error": f"{type(exc).__name__}: {exc}",
+                    }
+                results.append(row_out)
+                completed += 1
+                print(f"[sanity_check6] run {completed}/{total}")
 
-    df = pd.DataFrame(results)
+    df = pd.DataFrame(results).sort_values("sample_index").reset_index(drop=True)
     df.to_csv(out_dir / "run_summary.csv", index=False)
 
     if args.dry_run:
