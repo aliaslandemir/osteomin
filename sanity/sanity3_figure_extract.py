@@ -398,8 +398,12 @@ def export_overview_heatmap(df: pd.DataFrame, out_dir: Path, assay_hours: dict[s
     if vmax <= vmin:
         vmax = vmin + 1.0
 
-    # Use a colorblind-safe sequential map for publication-ready readability.
-    plos_cmap = plt.get_cmap("cividis")
+    # Soft Reds gradient: sequential red tones with smooth, gentle transitions.
+    plos_cmap = LinearSegmentedColormap.from_list(
+        "soft_reds",
+        ["#fff7f3", "#fde0dd", "#fcbba1", "#fc9272", "#fb6a4a", "#de2d26"],
+        N=256,
+    )
     norm = Normalize(vmin=vmin, vmax=vmax)
 
     row_labels = [

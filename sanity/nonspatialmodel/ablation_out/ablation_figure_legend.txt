@@ -1,0 +1,14 @@
+Figure legend (sanity check 8: structural ablation study)
+
+Endpoint condition: C2
+Replicates per ablation case: n=5
+
+Panel A (ablation_heatmap_relative_change): Median endpoint fold-change relative to the full spatial model.
+Values are shown as log2 fold-change in color and fold-change text in each cell.
+Asterisks denote FDR-adjusted significance (Benjamini-Hochberg q<0.05) from two-sided Mann-Whitney U tests versus full spatial model.
+
+Panel B (dose_response_robustness): HAp day-28 dose-response robustness for C2 and C3 across selected spatial variants.
+Curves show median fold-change with 95% prediction band (2.5-97.5 percentiles).
+
+Panel C (conclusion_matrix): Categorical maintenance summary across endpoints (Yes/Partial/No) based on ratio thresholds.
+This panel is intended as a visual summary; quantitative interpretation should rely on Panel A and ablation_publication_summary.csv.

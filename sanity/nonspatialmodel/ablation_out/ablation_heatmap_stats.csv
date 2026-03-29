@@ -1,29 +1,25 @@
 variant,label,metric,reference_variant,value,reference_value,ratio,log2_fold_change
-spatial_reference_model,Spatial model (reference),alp_day10,spatial_reference_model,21422.00399999999,21422.00399999999,1.0,0.0
-full_model,Nonspatial model,alp_day10,spatial_reference_model,42268.699632523654,21422.00399999999,1.9731440453714635,0.9804962809258335
-no_osteogenic_commitment,No osteogenic commitment,alp_day10,spatial_reference_model,11443.100063045293,21422.00399999999,0.5341750502448462,-0.9046155014089606
-no_commit_delay,No commitment delay,alp_day10,spatial_reference_model,47462.81824443409,21422.00399999999,2.21561055839753,1.1477043187318805
-no_apoptosis,No apoptosis,alp_day10,spatial_reference_model,45687.79707554118,21422.00399999999,2.132750842336749,1.0927154333197666
-no_drug_modulation,No drug modulation,alp_day10,spatial_reference_model,42268.699632523654,21422.00399999999,1.9731440453714635,0.9804962809258335
-no_collagen_maturation,No collagen maturation delay,alp_day10,spatial_reference_model,42268.699632523654,21422.00399999999,1.9731440453714635,0.9804962809258335
-spatial_reference_model,Spatial model (reference),collagen_day14,spatial_reference_model,1204.264877721904,1204.264877721904,1.0,0.0
-full_model,Nonspatial model,collagen_day14,spatial_reference_model,1480.9494849948435,1204.264877721904,1.2297539456571556,0.29836968394587576
-no_osteogenic_commitment,No osteogenic commitment,collagen_day14,spatial_reference_model,774.5738710389545,1204.264877721904,0.643192278848328,-0.6366780069869498
-no_commit_delay,No commitment delay,collagen_day14,spatial_reference_model,1394.49611061053,1204.264877721904,1.1579646109487844,0.211591163181339
-no_apoptosis,No apoptosis,collagen_day14,spatial_reference_model,1593.4684929948382,1204.264877721904,1.323187715985861,0.40401774620545344
-no_drug_modulation,No drug modulation,collagen_day14,spatial_reference_model,1480.9494849948435,1204.264877721904,1.2297539456571556,0.29836968394587576
-no_collagen_maturation,No collagen maturation delay,collagen_day14,spatial_reference_model,1480.9494849948435,1204.264877721904,1.2297539456571556,0.29836968394587576
-spatial_reference_model,Spatial model (reference),hap_day28,spatial_reference_model,7154.122455616521,7154.122455616521,1.0,0.0
-full_model,Nonspatial model,hap_day28,spatial_reference_model,66.59562808734397,7154.122455616521,0.009308706763197968,-6.747203533195619
-no_osteogenic_commitment,No osteogenic commitment,hap_day28,spatial_reference_model,0.0,7154.122455616521,0.0,-39.86313713864835
-no_commit_delay,No commitment delay,hap_day28,spatial_reference_model,64.06225174443266,7154.122455616521,0.008954592564198982,-6.803156493878214
-no_apoptosis,No apoptosis,hap_day28,spatial_reference_model,71.45501437009305,7154.122455616521,0.009987949579196192,-6.6455957463382145
-no_drug_modulation,No drug modulation,hap_day28,spatial_reference_model,66.59562808734397,7154.122455616521,0.009308706763197968,-6.747203533195619
-no_collagen_maturation,No collagen maturation delay,hap_day28,spatial_reference_model,66.60335585695626,7154.122455616521,0.009309786947337985,-6.747036132295414
-spatial_reference_model,Spatial model (reference),cell_count_day28,spatial_reference_model,1082.0,1082.0,1.0,0.0
-full_model,Nonspatial model,cell_count_day28,spatial_reference_model,918.6868880174097,1082.0,0.8490636672988999,-0.23605535612376013
-no_osteogenic_commitment,No osteogenic commitment,cell_count_day28,spatial_reference_model,1039.986866952522,1082.0,0.9611708567028854,-0.057135189165764495
-no_commit_delay,No commitment delay,cell_count_day28,spatial_reference_model,840.5435330366824,1082.0,0.7768424519747528,-0.36430605327032933
-no_apoptosis,No apoptosis,cell_count_day28,spatial_reference_model,977.4871526037749,1082.0,0.9034077195968345,-0.1465508532654779
-no_drug_modulation,No drug modulation,cell_count_day28,spatial_reference_model,918.6868880174097,1082.0,0.8490636672988999,-0.23605535612376013
-no_collagen_maturation,No collagen maturation delay,cell_count_day28,spatial_reference_model,918.6868880174097,1082.0,0.8490636672988999,-0.23605535612376013
+full_model,Spatial model (reference),alp_day10,full_model,22325.607900000003,22325.607900000003,1.0,0.0
+no_osteogenic_commitment,No osteogenic commitment,alp_day10,full_model,10665.639200000003,22325.607900000003,0.47773118867683784,-1.0657290286693493
+no_commit_delay,No commitment delay,alp_day10,full_model,22446.030599999995,22325.607900000003,1.005393927033897,0.007760879739172473
+no_apoptosis,No apoptosis,alp_day10,full_model,26835.909100000008,22325.607900000003,1.2020236680766934,0.2654653032709801
+no_collagen_maturation,No collagen maturation delay,alp_day10,full_model,22325.607900000003,22325.607900000003,1.0,0.0
+nonspatial_model,Nonspatial model,alp_day10,full_model,40085.79638049738,22325.607900000003,1.7955074979390537,0.8443916776290838
+full_model,Spatial model (reference),collagen_day14,full_model,1185.674239267231,1185.674239267231,1.0,0.0
+no_osteogenic_commitment,No osteogenic commitment,collagen_day14,full_model,697.69728,1185.674239267231,0.5884392667847704,-0.7650345734722542
+no_commit_delay,No commitment delay,collagen_day14,full_model,1108.1855088388293,1185.674239267231,0.9346458513965089,-0.09750828092478687
+no_apoptosis,No apoptosis,collagen_day14,full_model,1320.0038986516097,1185.674239267231,1.1132939005804805,0.15483450277653685
+no_collagen_maturation,No collagen maturation delay,collagen_day14,full_model,1185.674239267231,1185.674239267231,1.0,0.0
+nonspatial_model,Nonspatial model,collagen_day14,full_model,1440.0676460543418,1185.674239267231,1.2145559027615633,0.2804288948982607
+full_model,Spatial model (reference),hap_day28,full_model,9600.709543752964,9600.709543752964,1.0,0.0
+no_osteogenic_commitment,No osteogenic commitment,hap_day28,full_model,2548.26,9600.709543752964,0.26542413228802597,-1.9136285487854987
+no_commit_delay,No commitment delay,hap_day28,full_model,9266.426141906311,9600.709543752964,0.9651813857795369,-0.05112800248175649
+no_apoptosis,No apoptosis,hap_day28,full_model,10206.617944801215,9600.709543752964,1.0631107938727826,0.08829195758533562
+no_collagen_maturation,No collagen maturation delay,hap_day28,full_model,9920.365580965714,9600.709543752964,1.0332950430128098,0.04725225450831307
+nonspatial_model,Nonspatial model,hap_day28,full_model,55.06250572726531,9600.709543752964,0.005735253782684599,-7.445926958330343
+full_model,Spatial model (reference),cell_count_day28,full_model,1081.0,1081.0,1.0,0.0
+no_osteogenic_commitment,No osteogenic commitment,cell_count_day28,full_model,1089.0,1081.0,1.007400555041628,0.01063743098225655
+no_commit_delay,No commitment delay,cell_count_day28,full_model,1081.0,1081.0,1.0,0.0
+no_apoptosis,No apoptosis,cell_count_day28,full_model,1089.0,1081.0,1.007400555041628,0.01063743098225655
+no_collagen_maturation,No collagen maturation delay,cell_count_day28,full_model,1081.0,1081.0,1.0,0.0
+nonspatial_model,Nonspatial model,cell_count_day28,full_model,921.284434945452,1081.0,0.852252021226135,-0.23064797897979572
