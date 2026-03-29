@@ -4,13 +4,13 @@ Test: Mann–Whitney U (two-sided)
 Multiple testing: Benjamini–Hochberg across C2-vs-target comparisons
 Alpha: 0.05
 
-Kruskal–Wallis across all conditions: H=14.87, p=0.03776
+Kruskal–Wallis across all conditions: H=8.292, p=0.3076
 
 Pairwise comparisons vs C2
   C1 vs C2: p_raw=1, p_adj=1
   C3 vs C2: p_raw=0.2222, p_adj=0.5185
   C4 vs C2: p_raw=0.3095, p_adj=0.5417
-  C5 vs C2: p_raw=0.007937, p_adj=0.05556
-  C6 vs C2: p_raw=1, p_adj=1
-  C7 vs C2: p_raw=0.8413, p_adj=1
-  C8 vs C2: p_raw=0.03175, p_adj=0.1111
+  C5 vs C2: p_raw=0.1508, p_adj=0.5185
+  C6 vs C2: p_raw=0.5476, p_adj=0.7667
+  C7 vs C2: p_raw=0.8413, p_adj=0.9815
+  C8 vs C2: p_raw=0.09524, p_adj=0.5185

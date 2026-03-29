@@ -343,7 +343,7 @@ def export_assay_dose_curves(dex_df: pd.DataFrame, mk4_df: pd.DataFrame, out_dir
         ax.set_xticks(dex_ticks, [f"{d:.4g}" for d in dex_ticks])
         ax.tick_params(axis="both", labelsize=10.8)
         ax.yaxis.set_major_formatter(ScalarFormatter(useOffset=False))
-        ax.set_ylabel(f"{title}\n% vs vehicle", fontsize=11.8)
+        ax.set_ylabel(f"{title}\n% vs osteogenic C2", fontsize=11.8)
         add_peak_marker(ax, dex_peak_low, dex_peak_high, COLORS["dex"], y_peak)
         if ridx == 2:
             ax.set_xlabel("Dex concentration (nM)", fontsize=11.8)

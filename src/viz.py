@@ -49,9 +49,9 @@ PLOT_STYLE = {
 }
 
 FIGURE_SIZE_MAP = (10.6, 9.2)
-MAP_AX_POS = [0.125, 0.045, 0.75, 0.895]
-CBAR_LEFT_POS = [0.055, 0.105, 0.022, 0.79]
-CBAR_RIGHT_POS = [0.915, 0.105, 0.022, 0.79]
+MAP_AX_POS = [0.14, 0.035, 0.70, 0.92]
+CBAR_LEFT_POS = [0.05, 0.095, 0.03, 0.81]
+CBAR_RIGHT_POS = [0.88, 0.095, 0.03, 0.81]
 SPATIAL_DEAD_COLOR = "#2f2f2f"
 COLLAGEN_BASE_COLOR = "#0f9d94"
 HAP_BASE_COLOR = "#c2185b"
@@ -117,8 +117,9 @@ def _set_map_header(
     *,
     title_y: float = 0.985,
     subtitle_y: float = 0.955,
+    title_size: float = 12,
 ) -> None:
-    fig.suptitle(title, fontsize=12, y=title_y)
+    fig.suptitle(title, fontsize=title_size, y=title_y)
     if subtitle:
         fig.text(
             0.5,
@@ -783,12 +784,8 @@ def _render_spatial_image(
     _set_map_header(
         fig,
         f"{title_label} — spatial cells",
-        (
-            f"Live: {n_preob + n_ob} | preOB: {n_preob} | OB: {n_ob} | "
-            f"Dead today: {n_da + n_do} | Dead cum: {dead_total_cum}"
-        ),
-        title_y=0.976,
-        subtitle_y=0.942,
+        title_y=0.958,
+        title_size=16,
     )
     legend_elems = [
         Patch(facecolor=COLORS["preob"], label=f"preOB ({n_preob})"),
@@ -796,7 +793,7 @@ def _render_spatial_image(
         Patch(facecolor=SPATIAL_DEAD_COLOR, label=f"Dead ({n_da + n_do})"),
     ]
     legend = ax.legend(
-        handles=legend_elems, frameon=True, loc="upper right", ncol=1, fontsize=8.5
+        handles=legend_elems, frameon=True, loc="upper right", ncol=1, fontsize=11.0
     )
     legend.get_frame().set_edgecolor("black")
     legend.get_frame().set_linewidth(0.6)
@@ -887,7 +884,12 @@ def _render_collagen_ha_overlay(
         )
         ax.set_xticks([])
         ax.set_yticks([])
-        _set_map_header(fig, f"{title_label} — collagen/HAp overlay", "No collagen or HAp yet")
+        _set_map_header(
+            fig,
+            f"{title_label} — collagen/HAp overlay",
+            title_y=0.958,
+            title_size=16,
+        )
         _save_snapshot_figure(fig, img_path)
         plt.close(fig)
         return
@@ -943,7 +945,7 @@ def _render_collagen_ha_overlay(
         legend = ax.legend(
             loc="upper right",
             frameon=True,
-            fontsize=9,
+            fontsize=11.5,
             borderpad=0.4,
             handletextpad=0.4,
         )
@@ -951,21 +953,11 @@ def _render_collagen_ha_overlay(
         legend.get_frame().set_linewidth(0.6)
     ax.set_xticks([])
     ax.set_yticks([])
-
-    stats_bits: list[str] = []
-    if n_preob is not None and n_ob is not None:
-        stats_bits.append(f"preOB: {n_preob}")
-        stats_bits.append(f"OB: {n_ob}")
-    if dead_today is not None:
-        stats_bits.append(f"Dead: {dead_today}")
-    if nodule_count is not None:
-        stats_bits.append(f"Nodules: {nodule_count}")
     _set_map_header(
         fig,
         f"{title_label} — collagen/HAp overlay",
-        " | ".join(stats_bits) if stats_bits else None,
-        title_y=0.976,
-        subtitle_y=0.942,
+        title_y=0.958,
+        title_size=16,
     )
 
     sm_col = plt.cm.ScalarMappable(norm=col_norm, cmap=COLLAGEN_CMAP)
@@ -974,13 +966,13 @@ def _render_collagen_ha_overlay(
     cbar_col = fig.colorbar(im_col, cax=cax_col)
     cbar_col.ax.yaxis.set_label_position("left")
     cbar_col.ax.yaxis.set_ticks_position("left")
-    cbar_col.set_label("Collagen-I (a.u.)", fontsize=9)
-    cbar_col.ax.tick_params(labelsize=8, colors="black")
+    cbar_col.set_label("Collagen-I (a.u.)", fontsize=13.5, labelpad=12)
+    cbar_col.ax.tick_params(labelsize=11.5, colors="black", width=0.9, length=4.0)
 
     cax_ha = fig.add_axes(CBAR_RIGHT_POS)
     cbar_ha = fig.colorbar(sm_ha, cax=cax_ha)
-    cbar_ha.set_label("Hydroxyapatite (a.u.)", fontsize=9)
-    cbar_ha.ax.tick_params(labelsize=8, colors="black")
+    cbar_ha.set_label("Hydroxyapatite (a.u.)", fontsize=13.5, labelpad=12)
+    cbar_ha.ax.tick_params(labelsize=11.5, colors="black", width=0.9, length=4.0)
 
     _save_snapshot_figure(fig, img_path)
     plt.close(fig)
@@ -1036,14 +1028,16 @@ def export_alp_field_snapshot(
     _set_map_header(
         fig,
         f"{title_label} — ALP field",
+        title_y=0.958,
+        title_size=16,
     )
     cax = fig.add_axes(CBAR_RIGHT_POS)
     cbar = fig.colorbar(im, cax=cax)
     tick_vals = np.linspace(0.0, vmax, 5)
     cbar.set_ticks(tick_vals)
     cbar.set_ticklabels([f"{int(round(v))}" for v in tick_vals])
-    cbar.set_label("ALP signal (a.u.)", fontsize=9)
-    cbar.ax.tick_params(labelsize=8, colors="black")
+    cbar.set_label("ALP signal (a.u.)", fontsize=13.5, labelpad=12)
+    cbar.ax.tick_params(labelsize=11.5, colors="black", width=0.9, length=4.0)
     _save_snapshot_figure(fig, img_path)
     plt.close(fig)
 

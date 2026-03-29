@@ -181,7 +181,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--days",
         type=int,
-        default=30,
+        default=28,
         help="legacy alias; multiplied by 24 if --hours is omitted",
     )
     p.add_argument(
@@ -402,13 +402,13 @@ def parse_args() -> argparse.Namespace:
         "--aa-half-life",
         "--aa-half-life-hours",
         type=float,
-        default=48.0,
+        default=8.0,
         help="AA half-life in hours for exponential decay between media refreshes",
     )
     p.add_argument(
         "--collagen-aa-km",
         type=float,
-        default=10.0,
+        default=5.0,
         help="half-saturation constant K_A^C for AA-gated collagen production",
     )
     p.add_argument(
@@ -455,7 +455,7 @@ def parse_args() -> argparse.Namespace:
         help="K_col half-saturation constant for matured-collagen mineral support",
     )
     p.add_argument(
-        "--seed", type=int, default=None, help="random seed for reproducibility"
+        "--seed", type=int, default=12345, help="random seed for reproducibility"
     )
 
     p.add_argument("--w", type=int, default=33, help="grid width")
@@ -640,7 +640,7 @@ def parse_args() -> argparse.Namespace:
         default="",
         help="explicit export days, comma-separated e.g. '0,5,10,20'",
     )
-    p.add_argument("--out", type=str, default="out", help="output directory")
+    p.add_argument("--out", type=str, default="main_out", help="output directory")
     p.add_argument(
         "--xlsx", dest="xlsx", action="store_true", help="write Excel timeseries"
     )
@@ -700,10 +700,25 @@ def parse_args() -> argparse.Namespace:
         help="create ALP field PDFs in out/alp_snapshots",
     )
     p.add_argument(
+        "--no-alp-snapshots",
+        dest="alp_snapshots",
+        action="store_false",
+        help="skip ALP field PDFs in out/alp_snapshots",
+    )
+    p.set_defaults(alp_snapshots=True)
+    p.add_argument(
         "--runtime",
+        dest="runtime",
         action="store_true",
         help="print low-overhead runtime progress during the simulation",
     )
+    p.add_argument(
+        "--no-runtime",
+        dest="runtime",
+        action="store_false",
+        help="disable low-overhead runtime progress during the simulation",
+    )
+    p.set_defaults(runtime=True)
     p.add_argument(
         "--runtime-every",
         type=int,

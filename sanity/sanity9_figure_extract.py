@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import random
 import shlex
@@ -32,15 +33,15 @@ JOURNAL_PANEL_LABEL_PT = 12
 
 DEFAULT_INPUT = SCRIPT_DIR / "out" / "sanity_check9"
 DEFAULT_OUT = DEFAULT_INPUT / "figure_extract_9"
-DEFAULT_RUNS = 10
+DEFAULT_RUNS = 20
+RANDOM_SEED_MAX = (1 << 63) - 1
 
 BASE_ARGS = [
     str(PROJECT_ROOT / "main.py"),
     "--out",
     "main_out",
     "--seed",
-    "0",
-    "--runtime",
+    "12345",
     "--hours",
     "672",
     "--cells",
@@ -159,9 +160,9 @@ BASE_ARGS = [
 ]
 
 MARKERS = [
-    {"column": "alp_total", "label": "ALP", "color": "#f28e2b", "max_hour": 240.0},
-    {"column": "collagen_total", "label": "Collagen", "color": "#59a14f", "max_hour": 336.0},
-    {"column": "ha_total", "label": "Mineral", "color": "#4e79a7", "max_hour": 672.0},
+    {"column": "alp_total", "label": "ALP", "color": "#D55E00", "max_hour": 240.0},
+    {"column": "collagen_total", "label": "Collagen", "color": "#009E73", "max_hour": 336.0},
+    {"column": "ha_total", "label": "Mineral", "color": "#3B5BA9", "max_hour": 672.0},
 ]
 
 COMPONENTS = [
@@ -169,35 +170,35 @@ COMPONENTS = [
         "column": "alp_preob_total",
         "label": "ALP preOB",
         "parent": "alp_total",
-        "color": "#f6b26b",
+        "color": "#E69F00",
         "max_hour": 240.0,
     },
     {
         "column": "alp_ob_total",
         "label": "ALP OB",
         "parent": "alp_total",
-        "color": "#f28e2b",
+        "color": "#D55E00",
         "max_hour": 240.0,
     },
     {
         "column": "collagen_preob_total",
         "label": "Collagen preOB",
         "parent": "collagen_total",
-        "color": "#90c987",
+        "color": "#56B4E9",
         "max_hour": 336.0,
     },
     {
         "column": "collagen_ob_total",
         "label": "Collagen OB",
         "parent": "collagen_total",
-        "color": "#59a14f",
+        "color": "#009E73",
         "max_hour": 336.0,
     },
     {
         "column": "mineral_ob_total",
         "label": "Mineral",
         "parent": "ha_total",
-        "color": "#4e79a7",
+        "color": "#3B5BA9",
         "max_hour": 672.0,
     },
 ]
@@ -206,17 +207,6 @@ COLORS = {
     "ink": "#0f172a",
     "grid": "#d8dee9",
     "bg": "#ffffff",
-}
-
-CI_COLORS = {
-    "alp_total": "#f8c792",
-    "collagen_total": "#bfe0bc",
-    "ha_total": "#bfd7ef",
-    "alp_preob_total": "#f9d9b5",
-    "alp_ob_total": "#f8c792",
-    "collagen_preob_total": "#d4ecd0",
-    "collagen_ob_total": "#bfe0bc",
-    "mineral_ob_total": "#bfd7ef",
 }
 
 plt.rcParams.update(
@@ -287,6 +277,10 @@ def parse_args() -> argparse.Namespace:
         default=sys.executable,
         help="Python interpreter for optional model reruns",
     )
+    parser.add_argument("--jobs", type=int, default=1, help="number of parallel model runs when launching")
+    parser.add_argument("--runtime", dest="runtime", action="store_true", help="pass --runtime to main.py for progress logging")
+    parser.add_argument("--no-runtime", dest="runtime", action="store_false", help="disable --runtime passthrough to main.py")
+    parser.set_defaults(runtime=True)
     parser.add_argument(
         "--run-missing",
         action="store_true",
@@ -308,7 +302,7 @@ def parse_args() -> argparse.Namespace:
 def style_axes(ax: plt.Axes) -> None:
     ax.set_facecolor("white")
     ax.tick_params(direction="out", length=4.0, width=JOURNAL_AXIS_LINE_PT)
-    ax.grid(axis="y", color=COLORS["grid"], linewidth=JOURNAL_LINE_PT, alpha=0.35)
+    ax.grid(True, color=COLORS["grid"], linewidth=JOURNAL_LINE_PT, alpha=0.22)
 
 
 def save_figure(fig: plt.Figure, out_dir: Path, stem: str) -> None:
@@ -332,12 +326,32 @@ def build_run_command(python_bin: str, run_out: Path, seed: int) -> list[str]:
     return cmd
 
 
+def launch_run(
+    python_bin: str,
+    run_idx: int,
+    run_dir: Path,
+    seed: int,
+    runtime: bool,
+    dry_run: bool,
+) -> Path:
+    cmd = build_run_command(python_bin, run_dir, seed)
+    if runtime:
+        cmd.append("--runtime")
+    print(f"[run] {run_idx:02d}: {' '.join(shlex.quote(part) for part in cmd)}")
+    if not dry_run:
+        run_dir.mkdir(parents=True, exist_ok=True)
+        subprocess.run(cmd, check=True, cwd=PROJECT_ROOT)
+    return run_dir / "timeseries.csv"
+
+
 def ensure_runs(args: argparse.Namespace) -> list[Path]:
     run_dirs = [args.input / f"run_{idx:02d}" for idx in range(args.runs)]
-    csv_paths: list[Path] = []
+    csv_paths = [run_dir / "timeseries.csv" for run_dir in run_dirs]
+    csv_paths_by_index: dict[int, Path] = {idx: path for idx, path in enumerate(csv_paths)}
     rng = random.SystemRandom()
+    run_specs: list[tuple[int, Path, int]] = []
     for idx, run_dir in enumerate(run_dirs):
-        csv_path = run_dir / "timeseries.csv"
+        csv_path = csv_paths[idx]
         needs_run = args.overwrite or not csv_path.exists()
         if needs_run:
             if not args.run_missing and not args.overwrite:
@@ -346,16 +360,43 @@ def ensure_runs(args: argparse.Namespace) -> list[Path]:
                     f"Use --run-missing to launch the missing model runs."
                 )
             if args.seed_mode == "random":
-                seed = int(rng.randrange(1, 2**31 - 1))
+                seed = int(rng.randrange(1, RANDOM_SEED_MAX + 1))
             else:
                 seed = int(args.base_seed + idx)
-            cmd = build_run_command(args.python, run_dir, seed)
-            print(f"[run] {idx:02d}: {' '.join(shlex.quote(part) for part in cmd)}")
-            if not args.dry_run:
-                run_dir.mkdir(parents=True, exist_ok=True)
-                subprocess.run(cmd, check=True, cwd=PROJECT_ROOT)
-        csv_paths.append(csv_path)
-    return csv_paths
+            run_specs.append((idx, run_dir, seed))
+
+    if args.jobs == 1:
+        for idx, run_dir, seed in run_specs:
+            csv_paths_by_index[idx] = launch_run(
+                args.python, idx, run_dir, seed, args.runtime, args.dry_run
+            )
+    else:
+        if run_specs:
+            print(
+                f"[sanity9_figure_extract] parallel mode: {len(run_specs)} runs with jobs={args.jobs}"
+            )
+        with ThreadPoolExecutor(max_workers=args.jobs) as pool:
+            futures = {
+                pool.submit(
+                    launch_run,
+                    args.python,
+                    idx,
+                    run_dir,
+                    seed,
+                    args.runtime,
+                    args.dry_run,
+                ): idx
+                for idx, run_dir, seed in run_specs
+            }
+            done = 0
+            for fut in as_completed(futures):
+                idx = futures[fut]
+                csv_paths_by_index[idx] = fut.result()
+                done += 1
+                print(
+                    f"[sanity9_figure_extract] completed run {done}/{len(run_specs)} (run_{idx:02d})"
+                )
+    return [csv_paths_by_index[idx] for idx in range(args.runs)]
 
 
 def load_run_timeseries(csv_path: Path) -> pd.DataFrame:
@@ -427,29 +468,10 @@ def summarize_runs(
     summary: dict[str, dict[str, np.ndarray]] = {}
     raw_summary: dict[str, dict[str, np.ndarray]] = {}
     normalized_runs: dict[str, np.ndarray] = {}
-    n = len(run_frames)
-    # Two-sided 95% t critical values for small n used in sanity_check9.
-    t_975_by_df = {
-        1: 12.706204736432095,
-        2: 4.302652729696142,
-        3: 3.182446305284264,
-        4: 2.7764451051977987,
-        5: 2.570581835636314,
-        6: 2.4469118511449692,
-        7: 2.3646242515927844,
-        8: 2.306004135204166,
-        9: 2.2621571628540993,
-        10: 2.2281388519649385,
-        11: 2.200985160082949,
-        12: 2.1788128296634177,
-    }
-    t_crit = t_975_by_df.get(max(1, n - 1), 1.959963984540054)
     denom_by_marker: dict[str, float] = {}
-    total_matrices: dict[str, np.ndarray] = {}
     for marker in MARKERS:
         column = marker["column"]
         raw_matrix = np.vstack([frame[column].to_numpy(dtype=float) for frame in run_frames])
-        total_matrices[column] = raw_matrix
         max_hour = float(marker["max_hour"])
         visible = hours <= max_hour
         denom = (
@@ -464,30 +486,24 @@ def summarize_runs(
         column = spec["column"]
         raw_matrix = np.vstack([frame[column].to_numpy(dtype=float) for frame in run_frames])
         mean_raw = raw_matrix.mean(axis=0)
-        if n > 1:
-            sem_raw = raw_matrix.std(axis=0, ddof=1) / np.sqrt(float(n))
-            delta_raw = t_crit * sem_raw
-        else:
-            delta_raw = np.zeros_like(mean_raw)
+        lower_raw = np.quantile(raw_matrix, 0.05, axis=0)
+        upper_raw = np.quantile(raw_matrix, 0.95, axis=0)
         parent = str(spec.get("parent", column))
         denom = float(denom_by_marker[parent])
         norm_matrix = raw_matrix / denom
         normalized_runs[column] = norm_matrix.copy()
         mean_norm = norm_matrix.mean(axis=0)
-        if n > 1:
-            sem_norm = norm_matrix.std(axis=0, ddof=1) / np.sqrt(float(n))
-            delta_norm = t_crit * sem_norm
-        else:
-            delta_norm = np.zeros_like(mean_norm)
+        lower_norm = np.quantile(norm_matrix, 0.05, axis=0)
+        upper_norm = np.quantile(norm_matrix, 0.95, axis=0)
         raw_summary[column] = {
             "mean": mean_raw,
-            "lower": np.clip(mean_raw - delta_raw, 0.0, None),
-            "upper": np.clip(mean_raw + delta_raw, 0.0, None),
+            "lower": np.clip(lower_raw, 0.0, None),
+            "upper": np.clip(upper_raw, 0.0, None),
         }
         summary[column] = {
             "mean": mean_norm,
-            "lower": np.clip(mean_norm - delta_norm, 0.0, None),
-            "upper": np.clip(mean_norm + delta_norm, 0.0, None),
+            "lower": np.clip(lower_norm, 0.0, None),
+            "upper": np.clip(upper_norm, 0.0, None),
             "scale_max_raw": float(denom),
         }
     return hours, summary, raw_summary, normalized_runs
@@ -514,18 +530,20 @@ def export_metadata(args: argparse.Namespace, csv_paths: list[Path], out_dir: Pa
         "n_runs": int(len(csv_paths)),
         "input_root": str(args.input),
         "run_files": [str(path) for path in csv_paths],
-        "main_figure": "representative_differentiation_trajectories shows normalized ALP, collagen, and mineral contributions on one shared plot with continuous 95% CI bands",
+        "main_figure": "representative_differentiation_trajectories shows normalized ALP, collagen, and mineral contributions on one shared plot with continuous 5-95% bands",
         "normalization": (
             "for each marker (ALP, collagen, mineral/ARS proxy), each run is normalized "
             "by one shared marker-specific maximum across all runs within that marker's "
-            "assay window, then mean and 95% CI are computed from the normalized runs"
+            "assay window, then mean and 5-95% bands are computed from the normalized runs"
         ),
-        "confidence_interval": "95% CI computed continuously at each time point as mean +/- t_(0.975, n-1) * SEM across runs",
+        "uncertainty_band": "5-95% prediction band computed at each time point from the empirical run distribution",
         "companion_raw_variability_figure": "representative_differentiation_trajectories_raw_variability",
         "colors": {
-            "alp": "#f28e2b",
-            "collagen": "#59a14f",
-            "mineral": "#4e79a7",
+            "alp_preob": "#E69F00",
+            "alp_ob": "#D55E00",
+            "collagen_preob": "#56B4E9",
+            "collagen_ob": "#009E73",
+            "mineral": "#3B5BA9",
         },
     }
     out_path = out_dir / "representative_differentiation_trajectories_metadata.json"
@@ -542,47 +560,27 @@ def export_figure(
     fig, ax = plt.subplots(figsize=(8.6, 5.6))
     style_axes(ax)
     days = hours / 24.0
+    _ = normalized_runs  # Kept for compatibility with previous call signature.
     legend_handles: list[object] = []
-    assay_guides = [
-        (10.0, "#f28e2b"),
-        (14.0, "#59a14f"),
-        (28.0, "#4e79a7"),
-    ]
-    for xpos, color in assay_guides:
-        ax.axvline(
-            xpos,
-            color=color,
-            linewidth=0.8,
-            linestyle=(0, (2.2, 2.2)),
-            alpha=0.12,
-            zorder=0,
-        )
+    lw_curve = 1.7
+    lw_mineral = 1.95
+    band_alpha = 0.28
+    endpoint_days = (10.0, 14.0, 28.0)
     for spec in COMPONENTS:
         stats = summary[spec["column"]]
-        run_matrix = normalized_runs[spec["column"]]
         mask = hours <= float(spec["max_hour"])
         x = days[mask]
         mean = stats["mean"][mask]
         lower = stats["lower"][mask]
         upper = stats["upper"][mask]
         color = spec["color"]
-        ci_fill = CI_COLORS.get(spec["column"], "#d7dee8")
-        for run_vals in run_matrix:
-            ax.plot(
-                x,
-                run_vals[mask],
-                color="#475569",
-                linewidth=0.38,
-                alpha=0.16,
-                solid_capstyle="round",
-                zorder=1.4,
-            )
+        line_width = lw_mineral if spec["column"] == "mineral_ob_total" else lw_curve
         ax.fill_between(
             x,
             lower,
             upper,
-            color=ci_fill,
-            alpha=0.52,
+            color=color,
+            alpha=band_alpha,
             linewidth=0.0,
             zorder=1,
         )
@@ -590,72 +588,66 @@ def export_figure(
             x,
             mean,
             color=color,
-            linewidth=1.35,
-            alpha=1.0,
+            linewidth=line_width,
+            alpha=0.98,
             solid_capstyle="round",
             label=spec["label"],
             zorder=3,
         )
-        if x.size:
-            ax.plot(
-                [float(x[-1])],
-                [float(mean[-1])],
-                marker="o",
-                markersize=5.8,
-                markerfacecolor=color,
-                markeredgecolor=color,
-                markeredgewidth=1.0,
-                linestyle="None",
-                zorder=4,
-            )
         legend_handles.append(
-            Line2D([0], [0], color=color, lw=2.0, solid_capstyle="round", label=spec["label"])
+            Line2D([0], [0], color=color, lw=line_width, solid_capstyle="round", label=spec["label"])
         )
 
-    ax.set_xlim(float(days.min()), float(days.max()) + 0.35)
-    ax.set_xticks([0, 5, 10, 14, 20, 25, 28])
+    for endpoint_day in endpoint_days:
+        ax.axvline(
+            endpoint_day,
+            color="#475569",
+            linestyle="--",
+            linewidth=1.2,
+            alpha=0.9,
+            zorder=2,
+        )
+
+    ax.set_xlim(0.0, 28.0)
+    ax.set_xticks([0, 5, 10, 14, 18, 20, 25, 28])
     ax.set_ylim(0.0, 1.02)
-    ax.set_xlabel("Simulation time (days)")
-    ax.set_ylabel("Normalized marker value")
-    ax.set_title("Osteogenic differentiation trajectories by cell-state contribution")
-    legend_handles.append(
-        Patch(facecolor="#d7dee8", edgecolor="none", alpha=0.55, label="95% CI")
+    ax.set_xlabel("Simulation time (days)", fontsize=11.8)
+    ax.set_ylabel("Normalized marker value", fontsize=11.8)
+    ax.tick_params(axis="both", labelsize=10.2)
+    ax.set_title(
+        "Cell-state contributions define osteogenic differentiation trajectories",
+        fontsize=13.0,
+        fontweight="bold",
+        pad=6.0,
     )
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
     legend_handles.append(
         Line2D(
             [0],
             [0],
-            color="#94a3b8",
-            lw=1.0,
-            linestyle=(0, (2.2, 2.2)),
-            label="Assay day",
+            color="#475569",
+            linestyle="--",
+            linewidth=1.2,
+            label="Endpoint assay day",
         )
     )
     legend_handles.append(
-        Line2D(
-            [0],
-            [0],
-            marker="o",
-            markersize=6.0,
-            markerfacecolor="#475569",
-            markeredgecolor="#475569",
-            markeredgewidth=1.0,
-            linestyle="None",
-            label="Endpoint",
-        )
+        Patch(facecolor="#475569", edgecolor="none", alpha=band_alpha, label="5-95% band")
     )
     ax.legend(
         handles=legend_handles,
         loc="upper center",
-        bbox_to_anchor=(0.5, -0.21),
-        ncol=5,
+        bbox_to_anchor=(0.5, -0.14),
+        ncol=4,
         frameon=False,
-        columnspacing=1.4,
+        columnspacing=1.0,
         handlelength=2.0,
-        handletextpad=0.6,
+        handletextpad=0.5,
         borderaxespad=0.0,
+        fontsize=9.8,
     )
-    fig.subplots_adjust(bottom=0.32)
+    fig.subplots_adjust(bottom=0.29, top=0.90)
 
     save_figure(fig, out_dir, "representative_differentiation_trajectories")
     return out_dir / "representative_differentiation_trajectories.pdf"
@@ -696,7 +688,7 @@ def export_ci_band_figure(
         ax.set_ylim(max(0.0, ymin - pad), min(1.02, ymax + pad))
         ax.set_xlim(float(x.min()), float(x.max()))
         ax.set_ylabel("Normalized\nvalue")
-        ax.set_title(f"{marker['label']} with continuous 95% CI", loc="left", fontsize=11.5)
+        ax.set_title(f"{marker['label']} with continuous 5-95% band", loc="left", fontsize=11.5)
 
     axes[-1].set_xlabel("Simulation time (days)")
     fig.suptitle("Representative differentiation trajectories", y=0.995, fontsize=14, fontweight="semibold")
@@ -725,7 +717,7 @@ def export_raw_variability_figure(
         ax.plot(x, mean, color=color, linewidth=2.2, zorder=3)
         ax.set_xlim(float(x.min()), float(x.max()))
         ax.set_ylabel(f"{marker['label']}\nraw total")
-        ax.set_title(f"{marker['label']} raw variability (mean ± 95% CI)", loc="left", fontsize=11.0, color=color)
+        ax.set_title(f"{marker['label']} raw variability (mean with 5-95% band)", loc="left", fontsize=11.0, color=color)
     axes[-1].set_xlabel("Simulation time (days)")
     fig.suptitle("Representative differentiation trajectories: raw variability", y=0.995, fontsize=14, fontweight="semibold")
     fig.tight_layout()
@@ -737,6 +729,8 @@ def main() -> None:
     args = parse_args()
     if args.runs <= 0:
         raise SystemExit("--runs must be >= 1")
+    if args.jobs <= 0:
+        raise SystemExit("--jobs must be >= 1")
     args.out.mkdir(parents=True, exist_ok=True)
 
     csv_paths = ensure_runs(args)
@@ -754,7 +748,7 @@ def main() -> None:
     print(f"[ok] summary CSV: {summary_csv}")
     print(f"[ok] metadata JSON: {metadata_json}")
     print(f"[ok] figure PDF: {figure_pdf}")
-    print(f"[ok] CI-band PDF: {ci_band_pdf}")
+    print(f"[ok] 5-95 band PDF: {ci_band_pdf}")
     print(f"[ok] raw-variability PDF: {raw_variability_pdf}")
 
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import random
 import shlex
@@ -14,15 +15,15 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent
 BASE_OUT = SCRIPT_DIR / "out" / "sanity_check9"
-N_RUNS = 10
+N_RUNS = 20
+RANDOM_SEED_MAX = (1 << 32) - 1
 
 BASE_ARGS = [
     str(PROJECT_ROOT / "main.py"),
     "--out",
     "main_out",
     "--seed",
-    "0",
-    "--runtime",
+    "12345",
     "--hours",
     "672",
     "--cells",
@@ -149,6 +150,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--out", type=Path, default=BASE_OUT, help="output directory")
     parser.add_argument("--python", type=str, default=sys.executable, help="Python interpreter for main.py")
     parser.add_argument("--runs", type=int, default=N_RUNS, help="number of stochastic simulations")
+    parser.add_argument("--jobs", type=int, default=1, help="number of parallel model runs")
     parser.add_argument(
         "--seed-mode",
         choices=["random", "sequence"],
@@ -161,6 +163,9 @@ def parse_args() -> argparse.Namespace:
         default=12345,
         help="starting seed when --seed-mode sequence is used",
     )
+    parser.add_argument("--runtime", dest="runtime", action="store_true", help="pass --runtime to main.py for progress logging")
+    parser.add_argument("--no-runtime", dest="runtime", action="store_false", help="disable --runtime passthrough to main.py")
+    parser.set_defaults(runtime=True)
     parser.add_argument("--overwrite", action="store_true", help="rerun simulations even if timeseries.csv already exists")
     parser.add_argument("--dry-run", action="store_true", help="print commands without launching simulations")
     return parser.parse_args()
@@ -177,6 +182,8 @@ def build_run_command(args: argparse.Namespace, run_out: Path, seed: int) -> lis
     cmd = [args.python] + list(BASE_ARGS)
     cmd = replace_flag_value(cmd, "--out", str(run_out))
     cmd = replace_flag_value(cmd, "--seed", str(seed))
+    if args.runtime:
+        cmd.append("--runtime")
     return cmd
 
 
@@ -201,8 +208,10 @@ def run_model(args: argparse.Namespace, run_idx: int, run_out: Path, seed: int) 
 def write_metadata(args: argparse.Namespace, run_records: list[dict[str, object]]) -> Path:
     payload = {
         "n_runs": int(args.runs),
+        "jobs": int(args.jobs),
         "seed_mode": str(args.seed_mode),
         "base_seed": int(args.base_seed),
+        "runtime": bool(args.runtime),
         "control_condition": {"dex_conc_nM": 0.0, "mk4_conc_uM": 0.0},
         "run_dirs": [str(Path(str(rec["run_dir"]))) for rec in run_records],
         "run_seeds": [
@@ -225,19 +234,43 @@ def main() -> None:
     args = parse_args()
     if args.runs <= 0:
         raise SystemExit("--runs must be >= 1")
+    if args.jobs <= 0:
+        raise SystemExit("--jobs must be >= 1")
 
     args.out.mkdir(parents=True, exist_ok=True)
     run_dirs = [args.out / f"run_{idx:02d}" for idx in range(args.runs)]
     rng = random.SystemRandom()
-    csv_paths: list[Path] = []
-    run_records: list[dict[str, object]] = []
+    run_specs: list[tuple[int, Path, int]] = []
     for idx, run_out in enumerate(run_dirs):
         if args.seed_mode == "random":
-            seed = int(rng.randrange(1, 2**31 - 1))
+            seed = int(rng.randrange(1, RANDOM_SEED_MAX + 1))
         else:
             seed = int(args.base_seed + idx)
-        csv_paths.append(run_model(args, idx, run_out, seed))
-        run_records.append({"run_index": idx, "seed": seed, "run_dir": run_out})
+        run_specs.append((idx, run_out, seed))
+
+    csv_paths_by_index: dict[int, Path] = {}
+    if args.jobs == 1:
+        for idx, run_out, seed in run_specs:
+            csv_paths_by_index[idx] = run_model(args, idx, run_out, seed)
+    else:
+        print(f"[sanity_check9] parallel mode: {len(run_specs)} runs with jobs={args.jobs}")
+        with ThreadPoolExecutor(max_workers=args.jobs) as pool:
+            futures = {
+                pool.submit(run_model, args, idx, run_out, seed): idx
+                for idx, run_out, seed in run_specs
+            }
+            done = 0
+            for fut in as_completed(futures):
+                idx = futures[fut]
+                csv_paths_by_index[idx] = fut.result()
+                done += 1
+                print(f"[sanity_check9] completed run {done}/{len(run_specs)} (run_{idx:02d})")
+
+    csv_paths = [csv_paths_by_index[idx] for idx in range(args.runs)]
+    run_records = [
+        {"run_index": idx, "seed": seed, "run_dir": run_out}
+        for idx, run_out, seed in run_specs
+    ]
 
     if args.dry_run:
         return

@@ -69,11 +69,11 @@ def apply_pub_rcparams() -> None:
             "savefig.bbox": "tight",
             "pdf.fonttype": 42,
             "ps.fonttype": 42,
-            "font.size": 10,
-            "axes.titlesize": 11,
-            "axes.labelsize": 10,
-            "xtick.labelsize": 9,
-            "ytick.labelsize": 9,
+            "font.size": 12.5,
+            "axes.titlesize": 14.0,
+            "axes.labelsize": 13.0,
+            "xtick.labelsize": 12.0,
+            "ytick.labelsize": 12.0,
             "axes.linewidth": 0.8,
             "lines.linewidth": 1.0,
             "grid.linewidth": 0.6,
@@ -324,7 +324,7 @@ def plot_fig2_tags_violin_delta_sig(
         axT.text(
             0.5, i, cond_id_to_tag(c),
             ha="center", va="center",
-            fontsize=10.2, color="#1a1a1a",
+            fontsize=13.5, color="#1a1a1a",
             linespacing=1.05,
         )
     for s in axT.spines.values():
@@ -370,11 +370,12 @@ def plot_fig2_tags_violin_delta_sig(
 
     axV.set_xlim(*xlim)
     axV.set_xlabel("")
-    axV.set_title(xlab, pad=title_pad)
+    axV.set_title(xlab, pad=title_pad, fontsize=14.5)
     axV.grid(axis="x", alpha=0.05, linewidth=0.45)
     axV.set_yticks([])
     axV.yaxis.set_major_formatter(NullFormatter())
     axV.tick_params(axis="y", length=0, labelsize=11)
+    axV.tick_params(axis="x", labelsize=12.2)
     for s in axV.spines.values():
         s.set_visible(False)
 
@@ -388,19 +389,19 @@ def plot_fig2_tags_violin_delta_sig(
     axS.axvspan(-0.6, 0.6, color="0.0", alpha=0.008, zorder=0)
 
     axS.text(0.5, -0.09, "vs C2", transform=axS.transAxes,
-             ha="center", va="top", fontsize=8.5, color="0.45")
+             ha="center", va="top", fontsize=11.5, color="0.45")
 
     for i, c in enumerate(conds):
         if c == "C1":
-            axS.text(0.0, i, "ref", ha="center", va="center", fontsize=10.5, color=STAR_COLOR_A)
+            axS.text(0.0, i, "ref", ha="center", va="center", fontsize=13.5, color=STAR_COLOR_A)
         else:
             st = star_from_p(famA.get(c, {}).get("p_adj", np.nan))
-            axS.text(0.0, i, st, ha="center", va="center", fontsize=9.5, color=STAR_COLOR_A)
+            axS.text(0.0, i, st, ha="center", va="center", fontsize=12.5, color=STAR_COLOR_A)
 
     for s in axS.spines.values():
         s.set_visible(False)
 
-    fig.suptitle(suptitle, fontsize=14, y=0.955)
+    fig.suptitle(suptitle, fontsize=18, y=0.955)
     return fig
 
 
