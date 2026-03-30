@@ -64,19 +64,19 @@ PARAM_LABELS = {
     "collagen_rb": "Collagen basal production rate",
     "collagen_ro": "Collagen osteogenic production rate",
     "ha_ro": "HAp osteogenic deposition rate",
-    "ha_tau": "HAp activation timescale (tau_H)",
-    "ha_hill_n": "HAp Hill exponent (n_H)",
+    "ha_tau": "Mineral Hill n",
+    "ha_hill_n": "Mineral Hill function n",
     "ha_collagen_maturation_tau": "Collagen maturation timescale (tau_col)",
     "ha_collagen_km": "Collagen support half-saturation (K_col)",
-    "commit_k": "Commitment hazard (k_commit)",
+    "commit_k": "Commitment rate",
     "apoptosis_prob": "PreOB apoptosis probability",
     "move_prob": "Cell motility probability",
-    "aa0": "Ascorbate initial concentration (A0)",
+    "aa0": "Ascorbate concentration",
     "aa_half_life": "Ascorbate half-life",
     "collagen_aa_km": "AA half-saturation for collagen (K_A^C)",
     "commit_delay": "Commitment delay",
     "min_div_hours": "Minimum division interval",
-    "div_gap_hours": "Division interval gap",
+    "div_gap_hours": "Division period",
     "proliferation_chance": "Division attempt probability",
     "ob_apoptosis_prob": "OB apoptosis probability",
     "osteo_induction_hours": "Osteogenic induction time",
@@ -278,7 +278,7 @@ def endpoint_panel_title(key: str) -> str:
     mapping = {
         "alp_240h": "ALP activity endpoint (Day 10)",
         "collagen_336h": "Collagen endpoint (Day 14)",
-        "ars_672h": "HAp proxy endpoint (Day 28)",
+        "ars_672h": "Mineral endpoint (Day 28)",
     }
     return mapping.get(key, endpoint_title(key))
 
@@ -401,26 +401,27 @@ def fig2_s1_vs_st(
     sobol_df: pd.DataFrame, out_dir: Path, *, clip_for_display: bool, top_n: int
 ) -> None:
     short_alias = {
-        "alp_rb": "ALP basal rate",
-        "alp_ro": "ALP osteo rate",
-        "collagen_rb": "Coll basal rate",
-        "collagen_ro": "Coll osteo rate",
-        "ha_ro": "HAp osteo rate",
-        "ha_collagen_maturation_tau": "tau_col",
-        "ha_collagen_km": "K_col",
-        "collagen_aa_km": "K_A^C",
-        "ha_hill_n": "n_H",
-        "ha_tau": "tau_H",
-        "osteo_induction_hours": "induction",
-        "min_div_hours": "min div",
-        "div_gap_hours": "div gap",
-        "proliferation_chance": "div prob",
-        "apoptosis_prob": "apoptosis",
-        "aa_half_life": "AA t1/2",
-        "media_interval": "media int",
-        "commit_delay": "commit delay",
-        "commit_k": "k_commit",
-        "move_prob": "motility",
+        "alp_rb": "ALP basal prod.",
+        "alp_ro": "ALP osteogenic prod.",
+        "collagen_rb": "Collagen basal prod.",
+        "collagen_ro": "Collagen osteogenic prod.",
+        "ha_ro": "HAp osteogenic dep.",
+        "ha_collagen_maturation_tau": "Collagen maturation tau",
+        "ha_collagen_km": "Collagen support K",
+        "collagen_aa_km": "Collagen AA K",
+        "ha_hill_n": "Mineral Hill function n",
+        "ha_tau": "Mineral Hill n",
+        "osteo_induction_hours": "Osteogenic induction",
+        "min_div_hours": "Min division interval",
+        "div_gap_hours": "Division period",
+        "proliferation_chance": "Division attempt prob.",
+        "apoptosis_prob": "PreOB apoptosis prob.",
+        "aa_half_life": "Ascorbate half-life",
+        "media_interval": "Media refresh interval",
+        "commit_delay": "Commitment delay",
+        "commit_k": "Commitment rate",
+        "aa0": "Ascorbate conc.",
+        "move_prob": "Cell motility prob.",
     }
 
     def short_param(p: str) -> str:
@@ -428,22 +429,10 @@ def fig2_s1_vs_st(
 
     legend_handles = None
     global_x_min = 0.0
-    global_x_max = 1.0
-    fig_h = max(7.8, 0.36 * top_n + 1.9)
-    fig = plt.figure(figsize=(18.8, fig_h), constrained_layout=False)
-    gs = fig.add_gridspec(
-        1,
-        6,
-        width_ratios=[0.68, 1.52, 0.68, 1.52, 0.68, 1.52],
-        wspace=0.11,
-    )
-    label_axes = [fig.add_subplot(gs[0, i]) for i in [0, 2, 4]]
-    axes = [fig.add_subplot(gs[0, i]) for i in [1, 3, 5]]
-    fig.subplots_adjust(left=0.055, right=0.985, top=0.86, bottom=0.105)
-
-    for idx, (label_ax, ax, ep) in enumerate(
-        zip(label_axes, axes, [e["key"] for e in ENDPOINTS])
-    ):
+    panel_data: dict[str, tuple[list[str], pd.DataFrame]] = {}
+    max_seen = 0.0
+    endpoint_keys = [e["key"] for e in ENDPOINTS]
+    for ep in endpoint_keys:
         params = top_parameters_for_endpoint(sobol_df, ep, top_n)
         sub = (
             sobol_df[sobol_df["endpoint"] == ep]
@@ -451,6 +440,39 @@ def fig2_s1_vs_st(
             .loc[params]
             .reset_index()
         )
+        panel_data[ep] = (params, sub)
+        if not sub.empty:
+            s1 = sub["S1_plot"].clip(lower=0.0, upper=1.0).to_numpy(float)
+            st = sub["ST_plot"].clip(lower=0.0, upper=1.0).to_numpy(float)
+            s1c = sub["S1_conf_plot"].to_numpy(float)
+            stc = sub["ST_conf_plot"].to_numpy(float)
+            local_max = float(
+                np.nanmax(
+                    np.concatenate(
+                        [s1, st, s1 + s1c, st + stc, np.array([0.0], dtype=float)]
+                    )
+                )
+            )
+            max_seen = max(max_seen, local_max)
+
+    x_upper = min(1.0, max(0.20, max_seen * 1.12))
+    tick_step = 0.05 if x_upper <= 0.35 else (0.10 if x_upper <= 0.70 else 0.20)
+    x_upper = min(1.0, float(np.ceil(x_upper / tick_step) * tick_step))
+
+    fig_h = max(7.8, 0.36 * top_n + 1.9)
+    fig = plt.figure(figsize=(21.0, fig_h), constrained_layout=False)
+    gs = fig.add_gridspec(
+        1,
+        6,
+        width_ratios=[0.90, 1.45, 0.90, 1.45, 0.90, 1.45],
+        wspace=0.10,
+    )
+    label_axes = [fig.add_subplot(gs[0, i]) for i in [0, 2, 4]]
+    axes = [fig.add_subplot(gs[0, i]) for i in [1, 3, 5]]
+    fig.subplots_adjust(left=0.040, right=0.992, top=0.86, bottom=0.105)
+
+    for idx, (label_ax, ax, ep) in enumerate(zip(label_axes, axes, endpoint_keys)):
+        params, sub = panel_data[ep]
         y = np.arange(len(params))
         s1 = sub["S1_plot"].clip(lower=0.0, upper=1.0).to_numpy(float)
         st = sub["ST_plot"].clip(lower=0.0, upper=1.0).to_numpy(float)
@@ -476,9 +498,10 @@ def fig2_s1_vs_st(
                 short_param(str(p)),
                 ha="right",
                 va="center",
-                fontsize=11.4,
+                fontsize=10.5,
                 fontweight="semibold",
                 color=COLORS["ink"],
+                clip_on=False,
             )
         ax.hlines(y, s1, st, color="#475569", lw=6.0, alpha=0.34, zorder=1)
         h1 = ax.errorbar(
@@ -510,14 +533,14 @@ def fig2_s1_vs_st(
             alpha=0.92,
         )
         ax.axvline(0.0, color="#334155", lw=1.4, zorder=1)
-        ax.set_xlim(global_x_min, global_x_max)
+        ax.set_xlim(global_x_min, x_upper)
         ax.set_ylim(len(params) - 0.5, -0.5)
         ax.set_title(endpoint_panel_title(ep), fontsize=12.0, pad=7.0)
         ax.set_xlabel("Sobol index", fontsize=12.0)
         ax.set_yticks(y)
         ax.set_yticklabels([])
         style_axes(ax, "x", 0.28)
-        ax.set_xticks(np.arange(0.0, 1.01, 0.2))
+        ax.set_xticks(np.arange(0.0, x_upper + 1e-9, tick_step))
         ax.tick_params(axis="x", labelsize=11.2, width=1.0)
         ax.tick_params(axis="y", pad=1, length=0)
         if legend_handles is None:
@@ -654,12 +677,12 @@ def fig7_integrated_sobol_final(
         "collagen_rb": "Collagen basal rate",
         "alp_ro": "ALP osteogenic rate",
         "alp_rb": "ALP basal rate",
-        "ha_hill_n": "HAp Hill exponent",
-        "ha_tau": "HAp tau_H",
-        "commit_k": "Commitment k",
+        "ha_hill_n": "Mineral Hill function n",
+        "ha_tau": "Mineral Hill n",
+        "commit_k": "Commitment rate",
         "commit_delay": "Commitment delay",
         "move_prob": "Motility probability",
-        "aa0": "AA initial concentration",
+        "aa0": "Ascorbate concentration",
     }
 
     def short_label(name: str, max_len: int = 18) -> str:
