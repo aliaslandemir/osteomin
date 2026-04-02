@@ -547,16 +547,76 @@ def supplement_metric_text(metrics: pd.Series) -> str:
     )
 
 
-def scatter_label_offsets(points: np.ndarray) -> list[tuple[float, float]]:
-    offsets: list[tuple[float, float]] = []
-    for i, (x, y) in enumerate(points):
-        dx = 0.035 if i % 2 == 0 else -0.10
-        dy = 0.055 if i % 3 == 0 else (-0.06 if i % 3 == 1 else 0.015)
-        for ox, oy in offsets:
-            if abs((x + dx) - ox) < 0.12 and abs((y + dy) - oy) < 0.12:
-                dy += 0.08 if dy <= 0 else -0.08
-        offsets.append((x + dx, y + dy))
-    return [(ox - x, oy - y) for (x, y), (ox, oy) in zip(points, offsets)]
+def scatter_label_offsets(
+    points: np.ndarray, axis_limit: float | None = None
+) -> list[tuple[float, float]]:
+    if points.size == 0:
+        return []
+    x_span = max(float(np.ptp(points[:, 0])), 1e-6)
+    y_span = max(float(np.ptp(points[:, 1])), 1e-6)
+    scale = max(x_span, y_span, float(axis_limit) if axis_limit else 0.65, 0.65)
+
+    r1 = 0.050 * scale
+    r2 = 0.072 * scale
+    angles = np.deg2rad(np.arange(0, 360, 30, dtype=float))
+    candidates = [(r * float(np.cos(a)), r * float(np.sin(a))) for r in (r1, r2) for a in angles]
+
+    n = len(points)
+    pairwise = np.linalg.norm(points[:, None, :] - points[None, :, :], axis=2)
+    np.fill_diagonal(pairwise, np.inf)
+    crowd_order = np.argsort(np.min(pairwise, axis=1))
+
+    chosen = np.zeros((n, 2), dtype=float)
+    placed_xy: list[tuple[float, float]] = []
+    lim = float(axis_limit) if axis_limit else None
+    edge_margin = 0.03 * scale
+
+    for idx in crowd_order:
+        x, y = float(points[idx, 0]), float(points[idx, 1])
+        best_dx, best_dy = candidates[0]
+        best_score = -np.inf
+        for dx, dy in candidates:
+            lx = x + dx
+            ly = y + dy
+            score = 0.0
+            if placed_xy:
+                min_label_dist = min(np.hypot(lx - px, ly - py) for px, py in placed_xy)
+                score += 2.4 * min_label_dist
+            # keep labels away from nearby points (other than self)
+            point_dist = np.hypot(lx - points[:, 0], ly - points[:, 1])
+            point_dist[idx] = np.inf
+            score += 1.8 * float(np.min(point_dist))
+            # avoid excessive offset
+            score -= 0.25 * np.hypot(dx, dy)
+            if lim is not None:
+                if lx > (lim - edge_margin):
+                    score -= 8.0 * (lx - (lim - edge_margin))
+                if lx < (-lim + edge_margin):
+                    score -= 8.0 * ((-lim + edge_margin) - lx)
+                if ly > (lim - edge_margin):
+                    score -= 8.0 * (ly - (lim - edge_margin))
+                if ly < (-lim + edge_margin):
+                    score -= 8.0 * ((-lim + edge_margin) - ly)
+            if score > best_score:
+                best_score = score
+                best_dx, best_dy = dx, dy
+        chosen[idx, :] = (best_dx, best_dy)
+        placed_xy.append((x + best_dx, y + best_dy))
+    return [(float(dx), float(dy)) for dx, dy in chosen]
+
+
+def parity_metric_text(metrics: pd.Series) -> str:
+    n_points = int(metrics["n_conditions"]) if "n_conditions" in metrics else 8
+    directionality = metrics["direction_agreement"] if "direction_agreement" in metrics else float("nan")
+    directionality_txt = (
+        f"{directionality:.0%}" if np.isfinite(float(directionality)) else "NA"
+    )
+    return (
+        f"τ = {metrics['kendall_tau']:.2f}\n"
+        f"ρ = {metrics['spearman_rho']:.2f}\n"
+        f"n = {n_points:d}\n"
+        f"Directionality = {directionality_txt}"
+    )
 
 
 def plot_profile_panel(
@@ -791,135 +851,110 @@ def export_main_figure(
 def export_discrete_condition_figure(
     assay_frames: dict[str, pd.DataFrame], metrics_df: pd.DataFrame, out_dir: Path
 ) -> None:
-    fig, axes = plt.subplots(
-        1, 3, figsize=(12.4, 4.4), sharey=True, constrained_layout=True
+    fig, axes = plt.subplots(1, 3, figsize=(11.4, 3.9), constrained_layout=True)
+    panel_titles = {
+        "alp": "ALP",
+        "collagen": "Collagen",
+        "ars": "Mineralization",
+    }
+    global_values = np.concatenate(
+        [
+            assay_frames["alp"]["exp_rel_effect"].to_numpy(dtype=float),
+            assay_frames["alp"]["sim_rel_effect"].to_numpy(dtype=float),
+            assay_frames["collagen"]["exp_rel_effect"].to_numpy(dtype=float),
+            assay_frames["collagen"]["sim_rel_effect"].to_numpy(dtype=float),
+            assay_frames["ars"]["exp_rel_effect"].to_numpy(dtype=float),
+            assay_frames["ars"]["sim_rel_effect"].to_numpy(dtype=float),
+        ]
     )
-    sim_color = "#B2182B"
+    shared_limit = max(0.35, 1.05 * float(np.max(np.abs(global_values))))
+
     for idx, assay in enumerate(("alp", "collagen", "ars")):
         ax = axes[idx]
-        style_axes(ax, "y", grid_alpha=0.32)
+        style_axes(ax, None, grid_alpha=0.0)
         frame = assay_frames[assay]
         metrics = metrics_df.loc[metrics_df["assay"] == assay].iloc[0]
         spec = ASSAY_SPECS[assay]
-        x = np.arange(len(frame), dtype=float)
-        x_exp = x - 0.10
-        x_sim = x + 0.10
+        exp_rel = frame["exp_rel_effect"].to_numpy(dtype=float)
+        sim_rel = frame["sim_rel_effect"].to_numpy(dtype=float)
 
-        ax.axhline(0.0, color=COLORS["muted"], lw=0.9, ls=(0, (4, 3)), zorder=1)
-        # light connecting trends for condition ordering
         ax.plot(
-            x_exp,
-            frame["exp_rel_effect"].to_numpy(dtype=float),
-            color=COLORS["exp_line"],
-            lw=1.5,
-            alpha=0.55,
-            ls=(0, (4, 2)),
-            zorder=2,
+            [-shared_limit, shared_limit],
+            [-shared_limit, shared_limit],
+            color="0.65",
+            lw=1.0,
+            ls="--",
+            zorder=1,
         )
-        ax.plot(
-            x_sim,
-            frame["sim_rel_effect"].to_numpy(dtype=float),
-            color=sim_color,
-            lw=1.8,
-            alpha=0.9,
-            ls="-",
-            zorder=2,
-        )
-        ax.errorbar(
-            x_exp,
-            frame["exp_rel_effect"].to_numpy(dtype=float),
-            yerr=frame["exp_rel_effect_sd"].to_numpy(dtype=float),
-            fmt=spec["marker"],
-            color=COLORS["exp_line"],
-            markersize=5.4,
-            markeredgecolor="white",
-            markeredgewidth=0.8,
-            elinewidth=0.9,
-            capsize=2.0,
-            capthick=0.8,
-            lw=0,
+        ax.axhline(0.0, lw=0.6, color="0.88", zorder=0)
+        ax.axvline(0.0, lw=0.6, color="0.88", zorder=0)
+        ax.scatter(
+            exp_rel,
+            sim_rel,
+            s=58,
+            color=spec["color"],
+            marker=spec["marker"],
+            edgecolors="#111111",
+            linewidths=0.55,
             zorder=3,
-            label="Experiment",
         )
-        ax.errorbar(
-            x_sim,
-            frame["sim_rel_effect"].to_numpy(dtype=float),
-            yerr=frame["sim_rel_effect_sd"].to_numpy(dtype=float),
-            fmt="D",
-            color=sim_color,
-            markersize=5.0,
-            markerfacecolor="white",
-            markeredgewidth=0.8,
-            markeredgecolor=sim_color,
-            elinewidth=0.9,
-            capsize=1.8,
-            capthick=0.7,
-            lw=0,
-            zorder=2,
-            alpha=0.95,
-            label="Simulation",
+        offsets = scatter_label_offsets(
+            np.column_stack([exp_rel, sim_rel]), axis_limit=shared_limit
         )
+        for (_, row), (dx, dy) in zip(frame.iterrows(), offsets):
+            ax.text(
+                float(row["exp_rel_effect"]) + dx,
+                float(row["sim_rel_effect"]) + dy,
+                str(row["condition_code"]),
+                fontsize=11.0,
+                color=COLORS["ink"],
+                zorder=4,
+                bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.8, "pad": 0.15},
+            )
 
-        ax.set_title(spec["title"], pad=8, fontsize=13.2)
         ax.text(
-            0.98,
+            -0.16,
+            1.06,
+            chr(65 + idx),
+            transform=ax.transAxes,
+            ha="left",
+            va="bottom",
+            fontsize=JOURNAL_PANEL_LABEL_PT,
+            fontweight="bold",
+            color=COLORS["ink"],
+        )
+        ax.text(
+            0.02,
+            1.03,
+            panel_titles[assay],
+            transform=ax.transAxes,
+            ha="left",
+            va="bottom",
+            fontsize=11.0,
+            fontweight="semibold",
+            color=COLORS["ink"],
+        )
+        ax.text(
+            0.97,
             0.05,
-            main_panel_metric_text(metrics),
+            parity_metric_text(metrics),
             transform=ax.transAxes,
             ha="right",
             va="bottom",
-            fontsize=10.1,
-            bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.8, "pad": 1.0},
+            fontsize=8.8,
+            color=COLORS["ink"],
+            bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.9, "pad": 1.0},
         )
-        tick_labels = [condition_tick_label(c) for c in frame["condition_code"]]
-        ax.set_xticks(x, tick_labels)
-        ax.set_xlim(-0.5, len(frame) - 0.5)
-        if idx == 0:
-            ax.set_ylabel("Reference-centered effect: (x - x_ref) / (x + x_ref)")
-        ax.set_xlabel("")
+        ax.set_xlim(-shared_limit, shared_limit)
+        ax.set_ylim(-shared_limit, shared_limit)
+        ax.set_aspect("equal", adjustable="box")
+        ax.xaxis.set_major_locator(MaxNLocator(nbins=5))
+        ax.yaxis.set_major_locator(MaxNLocator(nbins=5))
+        ax.set_xlabel("Experimental relative effect", fontsize=JOURNAL_AXIS_LABEL_PT)
+        ax.set_ylabel("Simulated relative effect", fontsize=JOURNAL_AXIS_LABEL_PT)
+        ax.yaxis.labelpad = 6
+        ax.tick_params(axis="both", labelsize=JOURNAL_TICK_PT)
 
-    handles = [
-        Line2D(
-            [0],
-            [0],
-            color=COLORS["exp_line"],
-            marker="o",
-            lw=1.5,
-            alpha=0.65,
-            ls=(0, (4, 2)),
-            markersize=5.8,
-            markeredgecolor="white",
-            markeredgewidth=0.8,
-            label="Experiment",
-        ),
-        Line2D(
-            [0],
-            [0],
-            color=sim_color,
-            marker="D",
-            lw=1.8,
-            ls="-",
-            markersize=5.4,
-            markerfacecolor="white",
-            markeredgecolor=sim_color,
-            markeredgewidth=0.9,
-            label="Simulation",
-        ),
-    ]
-    fig.legend(
-        handles=handles,
-        loc="upper right",
-        bbox_to_anchor=(0.985, 1.045),
-        ncol=1,
-        frameon=False,
-        fontsize=10.5,
-    )
-    fig.suptitle(
-        "Condition-Wise Relative Effect Comparison",
-        fontsize=14.2,
-        fontweight="semibold",
-        y=1.07,
-    )
     save_figure(fig, out_dir, "sanity5_discrete_condition_comparison")
 
 

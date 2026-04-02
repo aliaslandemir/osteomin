@@ -39,17 +39,9 @@ CONDITIONS = list(COND_CODE.keys())
 FAM_A_REF = "C2"
 FAM_A_TARGETS = ["C1", "C3", "C4", "C5", "C6", "C7", "C8"]  # vs C2
 
-# Palette
-COND_COLORS = {
-    "C1": "#A6BDDB",
-    "C2": "#67A9CF",
-    "C3": "#A8DDB5",
-    "C4": "#FDDC8C",
-    "C5": "#F4A7A1",
-    "C6": "#CDB7E6",
-    "C7": "#9ECAE1",
-    "C8": "#D8C9A8",
-}
+# Assay colors (journal style, colorblind-safe)
+BAR_COLOR = "#0072B2"
+POINT_COLOR = "#1F4E79"
 
 # Plot colors
 MEAN_COLOR = "#B22222"
@@ -297,10 +289,10 @@ def plot_fig2_tags_bar_delta_sig(
             x[i],
             mean,
             width=0.40,
-            color=COND_COLORS.get(c, "#B3B3B3"),
-            edgecolor="#222222",
+            color=BAR_COLOR,
+            edgecolor="#444444",
             linewidth=0.8,
-            alpha=0.45,
+            alpha=0.28,
             zorder=2,
         )
         if np.isfinite(mean):
@@ -310,28 +302,28 @@ def plot_fig2_tags_bar_delta_sig(
                     mean,
                     yerr=sd,
                     fmt="none",
-                    ecolor="#202020",
-                    elinewidth=1.25,
+                    ecolor="#222222",
+                    elinewidth=1.0,
                     capsize=4.0,
-                    capthick=1.25,
+                    capthick=1.0,
                     zorder=4,
                 )
             xj = x[i] + rng.normal(0, 0.020, size=vals.size)
             axB.scatter(
                 xj,
                 vals,
-                s=30,
+                s=32,
                 marker="o",
-                color="white",
-                edgecolor=COND_COLORS.get(c, "#202020"),
-                linewidth=1.15,
-                alpha=0.86,
+                color=POINT_COLOR,
+                edgecolor="white",
+                linewidth=0.6,
+                alpha=0.9,
                 zorder=5,
             )
             axB.scatter(
                 x[i],
                 mean,
-                s=48,
+                s=55,
                 marker="o",
                 color="#111111",
                 edgecolor="white",
@@ -537,7 +529,7 @@ def main():
     else:
         xlab = r"Field area ($\mu m^2$)"
 
-    suptitle = f"ARS area fraction / 672 hours"
+    suptitle = "ARS area fraction / Day 28"
 
     rpt = args.out_dir / f"{args.out_prefix}_{value_col}_stats.txt"
     with open(rpt, "w", encoding="utf-8") as f:

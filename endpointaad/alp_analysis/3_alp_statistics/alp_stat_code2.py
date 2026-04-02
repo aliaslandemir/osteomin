@@ -59,16 +59,13 @@ CONDITIONS = ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8"]
 
 FAM_A_REF = "C2"
 FAM_A_TARGETS = ["C1", "C3", "C4", "C5", "C6", "C7", "C8"]  # vs C2
-COND_COLORS = {
-    "C1": "#A6BDDB",
-    "C2": "#67A9CF",
-    "C3": "#A8DDB5",
-    "C4": "#FDDC8C",
-    "C5": "#F4A7A1",
-    "C6": "#CDB7E6",
-    "C7": "#9ECAE1",
-    "C8": "#D8C9A8",
+ASSAY_COLORS = {
+    "alp": "#D55E00",
+    "collagen": "#009E73",
+    "mineralization": "#0072B2",
 }
+USE_REFERENCE_GREY = False
+REFERENCE_COLOR = "#374151"
 
 MEAN_COLOR = "#8b1e1e"
 SD_COLOR = "#5a5a5a"
@@ -222,6 +219,9 @@ def plot_figure2_tags_bar_delta_sig(
             means.append(np.nan)
             sds.append(np.nan)
             continue
+        bar_color = ASSAY_COLORS["alp"]
+        if USE_REFERENCE_GREY and c == FAM_A_REF:
+            bar_color = REFERENCE_COLOR
         mean, sd = _mean_sd(vals)
         means.append(mean)
         sds.append(sd)
@@ -229,10 +229,10 @@ def plot_figure2_tags_bar_delta_sig(
             x[i],
             mean,
             width=0.40,
-            color=COND_COLORS.get(c, "#444444"),
-            edgecolor="#222222",
+            color=bar_color,
+            edgecolor="#444444",
             linewidth=0.8,
-            alpha=0.45,
+            alpha=0.28,
             zorder=2,
         )
         if np.isfinite(mean):
@@ -252,18 +252,18 @@ def plot_figure2_tags_bar_delta_sig(
             axB.scatter(
                 xj,
                 vals,
-                s=30,
+                s=32,
                 marker="o",
-                color="white",
-                edgecolor=COND_COLORS.get(c, "#202020"),
-                linewidth=1.15,
-                alpha=0.86,
+                color="#8B3A0E",
+                edgecolor="white",
+                linewidth=0.9,
+                alpha=0.9,
                 zorder=5,
             )
             axB.scatter(
                 x[i],
                 mean,
-                s=48,
+                s=60,
                 marker="o",
                 color="#111111",
                 edgecolor="white",
@@ -296,7 +296,7 @@ def plot_figure2_tags_bar_delta_sig(
     axB.spines["left"].set_linewidth(0.8)
     axB.spines["bottom"].set_linewidth(0.8)
 
-    y_sig = 1.43
+    y_sig = 1.50
     for i, c in enumerate(conds):
         st = "ref" if c == "C2" else star_from_p(famA.get(c, {}).get("p_adj", np.nan))
         axB.text(x[i], y_sig, st, ha="center", va="center", fontsize=13.8, color=STAR_COLOR_A)
@@ -389,7 +389,7 @@ def main():
         conds=conds,
         famA=famA,
         famB=famB,
-        suptitle="ALP activity / 240 hours",
+        suptitle="ALP activity / Day 10",
         xlab=r"ALP activity (mU·mL$^{-1}$)",
         seed=args.seed,
     )

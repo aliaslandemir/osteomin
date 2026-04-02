@@ -35,17 +35,9 @@ CONDITIONS = list(COND_CODE.keys())
 FAM_A_REF = "C2"
 FAM_A_TARGETS = ["C1", "C3", "C4", "C5", "C6", "C7", "C8"]  # vs C2
 
-# Colors
-COND_COLORS = {
-    "C1": "#A6BDDB",
-    "C2": "#67A9CF",
-    "C3": "#A8DDB5",
-    "C4": "#FDDC8C",
-    "C5": "#F4A7A1",
-    "C6": "#CDB7E6",
-    "C7": "#9ECAE1",
-    "C8": "#D8C9A8",
-}
+# Assay colors (journal style, colorblind-safe)
+BAR_COLOR = "#009E73"
+POINT_COLOR = "#0A6F55"
 
 # Plot colors
 MEAN_COLOR = "#B22222"
@@ -285,10 +277,10 @@ def plot_tags_bar_delta_sig(
             x[i],
             mean,
             width=0.40,
-            color=COND_COLORS.get(c, "#B3B3B3"),
-            edgecolor="#222222",
+            color=BAR_COLOR,
+            edgecolor="#444444",
             linewidth=0.8,
-            alpha=0.45,
+            alpha=0.28,
             zorder=2,
         )
         if np.isfinite(mean):
@@ -298,28 +290,28 @@ def plot_tags_bar_delta_sig(
                     mean,
                     yerr=sd,
                     fmt="none",
-                    ecolor="#202020",
-                    elinewidth=1.25,
+                    ecolor="#222222",
+                    elinewidth=1.0,
                     capsize=4.0,
-                    capthick=1.25,
+                    capthick=1.0,
                     zorder=4,
                 )
             xj = x[i] + rng.normal(0, 0.020, size=vals.size)
             axB.scatter(
                 xj,
                 vals,
-                s=30,
+                s=32,
                 marker="o",
-                color="white",
-                edgecolor=COND_COLORS.get(c, "#202020"),
-                linewidth=1.15,
-                alpha=0.86,
+                color=POINT_COLOR,
+                edgecolor="white",
+                linewidth=0.6,
+                alpha=0.9,
                 zorder=5,
             )
             axB.scatter(
                 x[i],
                 mean,
-                s=48,
+                s=55,
                 marker="o",
                 color="#111111",
                 edgecolor="white",
@@ -433,7 +425,7 @@ def main():
         return out
 
     plot_specs = [
-        ("M1_field", "Collagen density per field / 336 hours", "Mean collagen intensity per pixel"),
+        ("M1_field", "Collagen density per field / Day 14", "Mean collagen intensity per pixel"),
         (
             "M2_cov",
             "Collagen per DAPI-positive area",

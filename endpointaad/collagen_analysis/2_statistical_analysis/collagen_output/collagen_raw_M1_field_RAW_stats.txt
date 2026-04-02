@@ -1,4 +1,4 @@
-Collagen density per field / 336 hours (RAW)
+Collagen density per field / Day 14 (RAW)
 Metric column: M1_field
 Test: Mann–Whitney U (two-sided)
 Multiple testing: Benjamini–Hochberg across C2-vs-target comparisons

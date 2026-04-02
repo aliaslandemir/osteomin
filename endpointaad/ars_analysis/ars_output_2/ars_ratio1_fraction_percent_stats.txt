@@ -1,4 +1,4 @@
-ARS area fraction / 672 hours
+ARS area fraction / Day 28
 Metric column: fraction_percent
 Score: R/(G+B)
 Thresholding: Fixed threshold on R/(G+B): 0.55
