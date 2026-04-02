@@ -41,7 +41,7 @@ class FieldManager:
         aa_initial: float = 1.0,
         aa_half_life_hours: float = 6.0,
         collagen_aa_half_sat: float = 1.0,
-        ha_model: str = "minimal",
+        ha_model: str = "ha",
         ha_initial: float = 2.34,
         ha_osteo_rate: float = 0.102,
         ha_dex_ref_conc: float = 46.6,
@@ -89,7 +89,9 @@ class FieldManager:
         self.aa_initial = max(0.0, float(aa_initial))
         self.aa_half_life_hours = max(1e-9, float(aa_half_life_hours))
         self.collagen_aa_half_sat = max(1e-9, float(collagen_aa_half_sat))
-        self.ha_model = str(ha_model).lower().strip()
+        model_name = str(ha_model).lower().strip()
+        # Backward-compatible alias: previous docs/CLI used "minimal".
+        self.ha_model = "ha" if model_name == "minimal" else model_name
         self.ha_initial = max(0.0, float(ha_initial))
         self.ha_osteo_rate = float(ha_osteo_rate)
         self.ha_dex_ref_conc = max(1e-12, float(ha_dex_ref_conc))
@@ -313,7 +315,7 @@ class FieldManager:
 
         self._update_collagen_maturation(dt)
 
-        if self.ha_model != "minimal":
+        if self.ha_model != "ha":
             return
         if self._ob_commit_hours is None:
             return

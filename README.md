@@ -1,35 +1,44 @@
 # OsteoMin
 
-OsteoMin is a 2D lattice-based model for osteogenic cell culture simulations. It couples cell-state updates on an hourly grid with accumulated field production for ALP, collagen, and hydroxyapatite-like mineral output.
+OsteoMin is a 2D lattice-based simulator for osteogenic culture dynamics. It couples an on-lattice agent-based model (ABM) of cell behavior with field-level accumulation of ALP, collagen, and hydroxyapatite-like mineral output.
 
-The codebase is organized around three practical tasks:
+The repository is designed for three complementary tasks:
 
-- running the spatial model from `main.py`
-- analyzing experimental endpoint data in `endpointaad/`
-- fitting rate and dose-response parameters in `parameterfit/`
+- running osteogenic simulations (`main.py`)
+- analyzing endpoint assay datasets (`endpointaad/`)
+- fitting model parameters and dose-response terms (`parameterfit/`)
+
+## Scientific scope
+
+OsteoMin represents osteogenic progression at hourly resolution on a fixed lattice.
+
+- Cell dynamics: pre-osteoblast seeding, motility, proliferation, commitment to osteoblast state, and apoptosis.
+- Matrix dynamics: ALP and collagen deposition plus mineral accumulation through the HA model.
+- Environmental control: osteogenic induction timing, media refresh interval, ascorbic acid (AA) decay, and endpoint-specific Dex/MK-4 modulation.
+
+The model is intended for comparative in silico experiments under controlled protocol-like conditions rather than direct patient-level prediction.
 
 ## Repository layout
 
 ```text
 .
 ├── main.py
-├── README.md
-├── result_report.md
 ├── src/
 ├── endpointaad/
 ├── parameterfit/
-└── sanity/
+├── sanity/
+├── result_report.md
+└── README.md
 ```
 
-### Main folders
+### Folder guide
 
-- `src/`: simulation code, configuration objects, model logic, field dynamics, and plotting.
-- `endpointaad/`: experimental endpoint analysis scripts and associated image/data assets.
-- `parameterfit/`: scripts and metadata used to estimate rate parameters and dose modifiers.
-- `sanity/`: scenario-based sanity checks and figure extraction helpers.
-- `main_out/`: generated model outputs. This is run output, not source.
+- `src/`: core simulation code (ABM engine, field manager, configuration, visualization, I/O).
+- `endpointaad/`: endpoint analysis pipelines (ALP, collagen, ARS, DAPI, overlays).
+- `parameterfit/`: parameter estimation scripts, fitted outputs, and metadata.
+- `sanity/`: sanity/regression scenarios for model-change checks.
 
-## Setup
+## Installation
 
 ```bash
 python3 -m venv .venv
@@ -37,164 +46,111 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## Running the model
+## Default osteogenic run (public reference)
 
-The entry point is `main.py`. A run writes tables, figures, and metadata to the directory passed with `--out`.
-
-### Baseline osteogenic run
+Use the following run as the default osteogenic reference condition:
 
 ```bash
 python main.py \
+  --out main_out \
+  --seed 12345 \
+  --runtime \
+  \
   --hours 672 \
   --cells 72 \
-  --seed-mode random \
-  --seed 12345 \
-  --w 33 --h 33 \
-  --nodules 40n \
-  --dex-conc 0 \
-  --mk4-conc 0 \
-  --alp-rb 0.001 \
-  --alp-ro 0.002 \
-  --dex-a 0.08 \
-  --dex-b 0.08 \
-  --alp-dex-ref 20 \
-  --alp-a-k 0.06 \
-  --alp-b-k 0.06 \
-  --collagen-rb 0.001 \
-  --collagen-ro 0.002 \
-  --collagen-dex-ref 90 \
-  --collagen-a-k 0.06 \
-  --collagen-b-k 0.06 \
-  --ha-model minimal \
-  --ha-ro 0.075 \
-  --ars-dex-ref 50 \
-  --ha-a-k 0.06 \
-  --ha-b-k 0.06 \
-  --ha-tau 384 \
-  --ha-hill-n 4 \
+  \
+  --w 33 \
+  --h 33 \
   --boundary-mode periodic \
+  --seed-mode random \
+  --nodules 40n \
+  \
   --media-interval 48 \
-  --random-move --move-prob 0.27 --max-moves 1 \
-  --proliferation --ob-div-prob 0.0 \
-  --apoptosis --apoptosis-prob 0.00042 \
+  --secretion \
+  --aa0 50.0 \
+  --aa-half-life 8 \
+  --collagen-aa-km 5.0 \
+  \
+  --random-move \
+  --move-prob 0.27 \
+  --max-moves 1 \
+  --proliferation \
+  --ob-div-prob 0.0 \
+  --min-div-hours 38 \
+  --max-div-hours 52 \
+  --apoptosis \
+  --apoptosis-prob 0.0010 \
+  --apoptosis-osteo 0.0 \
+  \
   --osteogenic-commitment \
   --osteo-induction-hours 72 \
-  --commit-delay 72 \
+  --commit-delay 48 \
   --commit-k 0.0125 \
-  --aa0 1.0 \
-  --aa-half-life 6 \
-  --collagen-aa-km 1.0 \
-  --min-div-hours 38 --max-div-hours 52 \
-  --secretion \
-  --spatial-every 1 \
-  --out main_out \
-  --alp-plot-hours 240 \
-  --collagen-plot-hours 336 \
-  --mineral-plot-hours 672 \
-  --no-hourly-exports \
-  --runtime
-```
-
-### Basal run
-
-```bash
-python main.py \
-  --hours 672 \
-  --cells 72 \
-  --seed-mode random \
-  --seed 12345 \
-  --w 33 --h 33 \
-  --nodules 40n \
+  \
   --dex-conc 0 \
   --mk4-conc 0 \
-  --alp-rb 0.001 \
-  --alp-ro 0.002 \
-  --dex-a 0.08 \
-  --dex-b 0.08 \
-  --alp-dex-ref 20 \
-  --alp-a-k 0.06 \
-  --alp-b-k 0.06 \
-  --collagen-rb 0.001 \
-  --collagen-ro 0.002 \
-  --collagen-dex-ref 90 \
-  --collagen-a-k 0.06 \
-  --collagen-b-k 0.06 \
-  --ha-model minimal \
-  --ha-ro 0.075 \
-  --ars-dex-ref 50 \
-  --ha-a-k 0.06 \
-  --ha-b-k 0.06 \
+  \
+  --alp-rb 0.0949 \
+  --alp-ro 0.810 \
+  --collagen-rb 0.00336 \
+  --collagen-ro 0.0130 \
+  --ha-ro 0.102 \
+  \
+  --alp-dex-ref 22.7 \
+  --collagen-dex-ref 6.22 \
+  --ars-dex-ref 46.6 \
+  --alp-a-d 3.72 \
+  --alp-b-d 1.75 \
+  --collagen-a-d 2.69 \
+  --collagen-b-d 2.04 \
+  --ha-a-d 1.22 \
+  --ha-b-d 0.679 \
+  \
+  --alp-mk4-ref 0.784 \
+  --collagen-mk4-ref 0.349 \
+  --ars-mk4-ref 0.667 \
+  --alp-a-k 1.10 \
+  --alp-b-k 1.06 \
+  --collagen-a-k 4.66 \
+  --collagen-b-k 2.15 \
+  --ha-a-k 4.66 \
+  --ha-b-k 2.15 \
+  \
+  --ha-model ha \
+  --ha-collagen-maturation-tau 48 \
+  --ha-collagen-km 1.0 \
   --ha-tau 384 \
-  --ha-hill-n 4 \
-  --boundary-mode periodic \
-  --media-interval 48 \
-  --random-move --move-prob 0.27 --max-moves 1 \
-  --proliferation --ob-div-prob 0.0 \
-  --apoptosis --apoptosis-prob 0.00042 \
-  --no-osteogenic-commitment \
-  --osteo-induction-hours 72 \
-  --commit-delay 72 \
-  --commit-k 0.0125 \
-  --aa0 0.0 \
-  --aa-half-life 6 \
-  --collagen-aa-km 1.0 \
-  --min-div-hours 38 --max-div-hours 52 \
-  --secretion \
-  --spatial-every 1 \
-  --out main_out \
+  --ha-hill-n 2 \
+  \
+  --spatial-every 24 \
   --alp-plot-hours 240 \
   --collagen-plot-hours 336 \
   --mineral-plot-hours 672 \
   --no-hourly-exports \
-  --runtime
+  --alp-snapshots
 ```
 
-The two commands above provide a simple starting pair: one with osteogenic commitment and AA support, and one without osteogenic commitment and with `aa0=0`.
+## Run outputs
 
-## What the model produces
+A run writes to `--out` (default `main_out/`). Core artifacts include:
 
-Typical outputs include:
+- `run.json`: complete runtime metadata and parameter configuration.
+- `timeseries.xlsx`: daily simulation summary metrics.
+- `cell_history.xlsx`: per-cell history export (when unique-ID tracking is enabled).
+- figure panel (`*.png` + `figures_pdf/*.pdf`): counts, events, motility, field totals, nodules, modulation summary.
+- spatial assets: daily `.npy` grids, collagen/HA overlays, and ALP snapshots (depending on export flags).
 
-- `run.json`
-- `timeseries.xlsx` and optional CSV output
-- summary figures in PNG and PDF
-- daily spatial cell maps
-- collagen/mineral overlays
-- raw grid snapshots when enabled
+## Quick validation
 
-The default figure set covers cell counts, daily and cumulative events, motility, field totals, nodules, ascorbate scheduling, and mineral accumulation.
-
-## Analysis folders
-
-### `endpointaad/`
-
-This folder contains scripts for experimental endpoint analysis. It includes analysis code for ALP, ARS, DAPI, and overlay workflows, together with image data used in those pipelines.
-
-### `parameterfit/`
-
-This folder contains parameter estimation scripts for:
-
-- ALP rates
-- collagen and AA-linked collagen rates
-- mineral or ARS-linked rates
-- dexamethasone modulation
-- MK-4 modulation
-
-Supporting metadata tables and condition maps are stored under `parameterfit/metadata/`.
-
-### `sanity/`
-
-This folder contains model sanity checks and helper scripts for extracting figures from those runs. The sanity checks are useful after changing transition rules, rates, or output logic.
-
-Run a check with:
+To verify that major model pathways remain stable after changes:
 
 ```bash
 python3 sanity/sanity_check1.py
 ```
 
-## Notes for a clean GitHub repository
+## Parameter fitting and endpoint analysis
 
-- Keep generated outputs such as `main_out/` out of commits unless they are intentionally being shared.
-- Treat `endpointaad/` as the home for endpoint analysis code and raw analysis assets.
-- Treat `parameterfit/` as the source of fitted parameters, not as runtime output.
-- Use `result_report.md` for the current reference run description rather than burying run details in commit messages.
+- `parameterfit/` contains scripts and fitted outputs for rate calibration and Dex/MK-4 endpoint modifiers.
+- `endpointaad/` contains endpoint-focused pipelines for ALP, collagen, ARS, DAPI, and overlay analyses.
+
+These modules are separate from runtime simulation execution and support model calibration and experimental comparison workflows.

@@ -70,7 +70,7 @@ python main.py \
   --ha-a-k 4.66 \
   --ha-b-k 2.15 \
   \
-  --ha-model minimal \
+  --ha-model ha \
   --ha-collagen-maturation-tau 48 \
   --ha-collagen-km 1.0 \
   --ha-tau 384 \
@@ -414,9 +414,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--ha-model",
         type=str,
-        choices=["minimal"],
-        default="minimal",
-        help="HAp production model for OsteoMin field dynamics",
+        choices=["ha", "minimal"],
+        default="ha",
+        help="HAp production model (use 'ha'; 'minimal' is kept as a legacy alias)",
     )
     p.add_argument(
         "--ha-ro",
@@ -434,13 +434,13 @@ def parse_args() -> argparse.Namespace:
         "--ha-tau",
         type=float,
         default=384.0,
-        help="tau (hours) for minimal HAp Hill activation",
+        help="tau (hours) for HAp Hill activation",
     )
     p.add_argument(
         "--ha-hill-n",
         type=float,
         default=2.0,
-        help="Hill exponent n for minimal HAp activation",
+        help="Hill exponent n for HAp activation",
     )
     p.add_argument(
         "--ha-collagen-maturation-tau",

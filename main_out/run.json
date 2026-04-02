@@ -57,7 +57,7 @@
     "aa_initial": 50.0,
     "aa_half_life_hours": 8.0,
     "collagen_aa_half_sat": 5.0,
-    "ha_model": "minimal",
+    "ha_model": "ha",
     "ha_initial": 2.34,
     "ha_osteo_rate": 0.102,
     "ha_dex_ref_conc": 46.6,
@@ -152,17 +152,17 @@
     "initial_cell_count": 0
   },
   "timing": {
-    "started_utc": "2026-03-29T22:19:56.228091+00:00",
-    "finished_utc": "2026-03-29T22:20:17.495933+00:00"
+    "started_utc": "2026-04-02T09:43:49.385576+00:00",
+    "finished_utc": "2026-04-02T09:44:10.598503+00:00"
   },
   "performance": {
-    "wallclock_seconds": 21.266167234000022,
-    "wallclock_minutes": 0.354436120566667,
-    "wallclock_hours": 0.005907268676111117,
+    "wallclock_seconds": 21.209342763000677,
+    "wallclock_minutes": 0.3534890460500113,
+    "wallclock_hours": 0.005891484100833522,
     "simulated_hours": 672.0,
     "simulated_days": 28.0,
-    "simulated_hours_per_wallclock_second": 31.599488173196377,
-    "simulated_hours_per_wallclock_hour": 113758.15742350696,
-    "simulated_days_per_wallclock_hour": 4739.923225979457
+    "simulated_hours_per_wallclock_second": 31.684150117668526,
+    "simulated_hours_per_wallclock_hour": 114062.94042360669,
+    "simulated_days_per_wallclock_hour": 4752.6225176502785
   }
 }

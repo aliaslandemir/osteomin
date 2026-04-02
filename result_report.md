@@ -35,7 +35,7 @@ python main.py \
   --collagen-b-d 0.08 \
   --collagen-a-k 0.06 \
   --collagen-b-k 0.06 \
-  --ha-model minimal \
+  --ha-model ha \
   --ha-ro 0.075 \
   --ha-a-d 0.08 \
   --ha-b-d 0.08 \
@@ -91,7 +91,7 @@ python main.py \
   --collagen-b-d 0.08 \
   --collagen-a-k 0.06 \
   --collagen-b-k 0.06 \
-  --ha-model minimal \
+  --ha-model ha \
   --ha-ro 0.075 \
   --ha-a-d 0.08 \
   --ha-b-d 0.08 \
@@ -166,4 +166,3 @@ If snapshots are enabled, the grid and overlay folders provide the spatial reado
 - `endpointaad/`: endpoint image and assay analysis
 - `parameterfit/`: parameter calibration and dose-response fitting
 - `sanity/`: sanity and regression-style scenario checks
-
