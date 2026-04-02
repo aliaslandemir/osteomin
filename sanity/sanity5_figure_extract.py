@@ -22,24 +22,35 @@ BOOTSTRAP_SEED = 12345
 REFERENCE_PREFERENCE = ("C2", "C1")
 RELATIVE_EPS = 1e-9
 
-JOURNAL_AXIS_LABEL_PT = 9
-JOURNAL_TICK_PT = 8
-JOURNAL_LEGEND_PT = 8
+JOURNAL_AXIS_LABEL_PT = 11
+JOURNAL_TICK_PT = 10
+JOURNAL_LEGEND_PT = 10
 JOURNAL_LINE_PT = 1.2
 JOURNAL_AXIS_LINE_PT = 1.0
-JOURNAL_MARKER_PT = 5.5
-JOURNAL_PANEL_LABEL_PT = 12
+JOURNAL_MARKER_PT = 6.2
+JOURNAL_PANEL_LABEL_PT = 14
 
 CONDITION_ORDER = ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8"]
 CONDITION_LABELS = {
     "C1": "Basal",
-    "C2": "AA+beta-GP",
-    "C3": "D_L K_L",
-    "C4": "D_L K_H",
-    "C5": "D_H K_L",
-    "C6": "D_H K_H",
-    "C7": "D_H K_0",
-    "C8": "D_0 K_H",
+    "C2": "Osteo",
+    "C3": "Osteo + D_LK_L",
+    "C4": "Osteo + D_LK_H",
+    "C5": "Osteo + D_HK_L",
+    "C6": "Osteo + D_HK_H",
+    "C7": "Osteo + D_HK_0",
+    "C8": "Osteo + D_0K_H",
+}
+
+CONDITION_TICK_LABELS = {
+    "C1": "Basal",
+    "C2": "Osteo",
+    "C3": "Osteo\n$D_LK_L$",
+    "C4": "Osteo\n$D_LK_H$",
+    "C5": "Osteo\n$D_HK_L$",
+    "C6": "Osteo\n$D_HK_H$",
+    "C7": "Osteo\n$D_HK_0$",
+    "C8": "Osteo\n$D_0K_H$",
 }
 
 ASSAY_SPECS = {
@@ -99,7 +110,7 @@ plt.rcParams.update(
         "axes.linewidth": JOURNAL_AXIS_LINE_PT,
         "axes.spines.top": False,
         "axes.spines.right": False,
-        "axes.titlesize": 12.5,
+        "axes.titlesize": 14.0,
         "axes.titleweight": "semibold",
         "axes.labelsize": JOURNAL_AXIS_LABEL_PT,
         "xtick.labelsize": JOURNAL_TICK_PT,
@@ -184,6 +195,10 @@ def style_axes(
     ax.tick_params(direction="out", length=4.5, width=JOURNAL_AXIS_LINE_PT)
     if grid_axis:
         ax.grid(axis=grid_axis, color=COLORS["grid"], linewidth=JOURNAL_LINE_PT, alpha=grid_alpha)
+
+
+def condition_tick_label(code: str) -> str:
+    return CONDITION_TICK_LABELS.get(str(code), str(code))
 
 
 def zscore(values: pd.Series) -> pd.Series:
@@ -626,7 +641,8 @@ def plot_profile_panel(
         color=COLORS["ink"],
         bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.82, "pad": 1.0},
     )
-    ax.set_xticks(x, frame["condition_code"])
+    tick_labels = [condition_tick_label(c) for c in frame["condition_code"]]
+    ax.set_xticks(x, tick_labels)
     ax.set_xlim(-0.5, len(frame) - 0.5)
     ax.set_ylabel("Reference-centered effect: (x - x_ref) / (x + x_ref)")
     ax.yaxis.set_major_locator(MaxNLocator(nbins=5))
@@ -736,7 +752,7 @@ def export_main_figure(
         frame = assay_frames[assay]
         metrics = metrics_df.loc[metrics_df["assay"] == assay].iloc[0]
         plot_profile_panel(axes[idx], frame, metrics, assay, chr(65 + idx))
-        axes[idx].set_xlabel(f"Condition (ref = {metrics['reference_condition']})")
+        axes[idx].set_xlabel("")
     legend_handles = [
         Line2D(
             [0],
@@ -762,10 +778,10 @@ def export_main_figure(
             label="Simulation",
         ),
     ]
-    fig.legend(handles=legend_handles, loc="upper center", bbox_to_anchor=(0.5, 0.97), frameon=False, fontsize=9.0, ncol=2)
+    fig.legend(handles=legend_handles, loc="upper center", bbox_to_anchor=(0.5, 0.97), frameon=False, fontsize=10.5, ncol=2)
     fig.suptitle(
         "Condition-Wise Relative Effect Profiles vs Reference",
-        fontsize=12.8,
+        fontsize=14.2,
         fontweight="semibold",
         y=1.03,
     )
@@ -844,7 +860,7 @@ def export_discrete_condition_figure(
             label="Simulation",
         )
 
-        ax.set_title(spec["title"], pad=8, fontsize=11.5)
+        ax.set_title(spec["title"], pad=8, fontsize=13.2)
         ax.text(
             0.98,
             0.05,
@@ -852,14 +868,15 @@ def export_discrete_condition_figure(
             transform=ax.transAxes,
             ha="right",
             va="bottom",
-            fontsize=8.6,
+            fontsize=10.1,
             bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.8, "pad": 1.0},
         )
-        ax.set_xticks(x, frame["condition_code"])
+        tick_labels = [condition_tick_label(c) for c in frame["condition_code"]]
+        ax.set_xticks(x, tick_labels)
         ax.set_xlim(-0.5, len(frame) - 0.5)
         if idx == 0:
             ax.set_ylabel("Reference-centered effect: (x - x_ref) / (x + x_ref)")
-        ax.set_xlabel("Condition")
+        ax.set_xlabel("")
 
     handles = [
         Line2D(
@@ -895,11 +912,11 @@ def export_discrete_condition_figure(
         bbox_to_anchor=(0.985, 1.045),
         ncol=1,
         frameon=False,
-        fontsize=9.0,
+        fontsize=10.5,
     )
     fig.suptitle(
         "Condition-Wise Relative Effect Comparison",
-        fontsize=12.5,
+        fontsize=14.2,
         fontweight="semibold",
         y=1.07,
     )

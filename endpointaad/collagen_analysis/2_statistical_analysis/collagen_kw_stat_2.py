@@ -11,8 +11,6 @@ import tifffile as tf
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from scipy import stats
-from matplotlib.gridspec import GridSpec
-from matplotlib.ticker import NullFormatter
 
 
 # ---------------- defaults ----------------
@@ -25,12 +23,12 @@ COLLAGEN_CHANNEL = 2
 COND_CODE = {
     "C1": "Basal",
     "C2": "Osteo",
-    "C3": "Osteo+D/MK4 (L/L)",
-    "C4": "Osteo+D/MK4 (L/H)",
-    "C5": "Osteo+D/MK4 (H/L)",
-    "C6": "Osteo+D/MK4 (H/H)",
-    "C7": "Osteo+Dex (H)",
-    "C8": "Osteo+MK-4 (H)",
+    "C3": "Osteo + D_LK_L",
+    "C4": "Osteo + D_LK_H",
+    "C5": "Osteo + D_HK_L",
+    "C6": "Osteo + D_HK_H",
+    "C7": "Osteo + D_HK_0",
+    "C8": "Osteo + D_0K_H",
 }
 CONDITIONS = list(COND_CODE.keys())
 
@@ -39,14 +37,14 @@ FAM_A_TARGETS = ["C1", "C3", "C4", "C5", "C6", "C7", "C8"]  # vs C2
 
 # Colors
 COND_COLORS = {
-    "C1": "#BDCC16",
-    "C2": "#1F5AA6",
-    "C3": "#1B7F5A",
-    "C4": "#C97A00",
-    "C5": "#A65C8A",
-    "C6": "#B24C1A",
-    "C7": "#6AAED6",
-    "C8": "#7A6A3A",
+    "C1": "#A6BDDB",
+    "C2": "#67A9CF",
+    "C3": "#A8DDB5",
+    "C4": "#FDDC8C",
+    "C5": "#F4A7A1",
+    "C6": "#CDB7E6",
+    "C7": "#9ECAE1",
+    "C8": "#D8C9A8",
 }
 
 # Plot colors
@@ -81,13 +79,13 @@ def apply_pub_rcparams() -> None:
 def two_line_label(name: str) -> str:
     m = {
         "Basal": "Basal",
-        "Osteo": r"AA+$\beta$-GP",
-        "Osteo+D/MK4 (L/L)": r"AA+$\beta$-GP" + "\n" + r"$D_LK_L$",
-        "Osteo+D/MK4 (L/H)": r"AA+$\beta$-GP" + "\n" + r"$D_LK_H$",
-        "Osteo+D/MK4 (H/L)": r"AA+$\beta$-GP" + "\n" + r"$D_HK_L$",
-        "Osteo+D/MK4 (H/H)": r"AA+$\beta$-GP" + "\n" + r"$D_HK_H$",
-        "Osteo+Dex (H)": r"AA+$\beta$-GP" + "\n" + r"$D_HK_0$",
-        "Osteo+MK-4 (H)": r"AA+$\beta$-GP" + "\n" + r"$D_0K_H$",
+        "Osteo": "Osteo",
+        "Osteo + D_LK_L": r"Osteo" + "\n" + r"$D_LK_L$",
+        "Osteo + D_LK_H": r"Osteo" + "\n" + r"$D_LK_H$",
+        "Osteo + D_HK_L": r"Osteo" + "\n" + r"$D_HK_L$",
+        "Osteo + D_HK_H": r"Osteo" + "\n" + r"$D_HK_H$",
+        "Osteo + D_HK_0": r"Osteo" + "\n" + r"$D_HK_0$",
+        "Osteo + D_0K_H": r"Osteo" + "\n" + r"$D_0K_H$",
     }
     return m.get(name, name)
 
@@ -250,7 +248,7 @@ def pairwise_vs_ref_BH(
 # =========================
 # ALP-STYLE FIGURE (generic)
 # =========================
-def plot_tags_violin_delta_sig(
+def plot_tags_bar_delta_sig(
     df: pd.DataFrame,
     value_col: str,
     conds: List[str],
@@ -267,147 +265,100 @@ def plot_tags_violin_delta_sig(
         for c in conds
     ]
 
-    nonempty = [v for v in data if v.size > 0]
-    if nonempty:
-        allv = np.concatenate(nonempty)
-        xmin = float(np.min(allv))
-        xmax = float(np.max(allv))
-        xr = (xmax - xmin) if xmax > xmin else (abs(xmax) if xmax != 0 else 1.0)
-        pad = 0.10 * xr
-        xlim = (xmin - pad, xmax + pad)
-    else:
-        xlim = (0.0, 1.0)
+    fig, axB = plt.subplots(figsize=(6.2, 6.0))
+    fig.subplots_adjust(left=0.10, right=0.99, bottom=0.305, top=0.885)
 
-    fig = plt.figure(figsize=(8.6, 6.0))
-    fig.subplots_adjust(left=0.03, right=0.995, bottom=0.12, top=0.835, wspace=0.08)
+    x_step = 0.56
+    x = np.arange(len(conds), dtype=float) * x_step
 
-    gs = GridSpec(
-        1,
-        3,
-        width_ratios=[0.78, 2.70, 0.45],
-        wspace=0.05,
-        figure=fig,
-    )
-
-    axT = fig.add_subplot(gs[0, 0])
-    axV = fig.add_subplot(gs[0, 1], sharey=axT)
-    axS = fig.add_subplot(gs[0, 2], sharey=axT)
-
-    y = np.arange(len(conds))
-    axT.set_ylim(len(conds) - 0.5, -0.5)
-
-    row_color, row_alpha, row_lw = "#000000", 0.10, 0.8
-    for yy in y:
-        for ax in (axT, axV, axS):
-            ax.axhline(yy, color=row_color, alpha=row_alpha, linewidth=row_lw, zorder=0)
-
-    title_pad = 4
-
-    axT.set_xlim(0, 1)
-    axT.set_xticks([])
-    axT.set_yticks(y)
-    axT.set_yticklabels([])
-    axT.set_title("Condition", pad=title_pad)
-
-    for i, c in enumerate(conds):
-        axT.text(
-            0.5,
-            i,
-            cond_id_to_tag(c),
-            ha="center",
-            va="center",
-            fontsize=13.5,
-            color="#1a1a1a",
-            linespacing=1.05,
-        )
-    for s in axT.spines.values():
-        s.set_visible(False)
-
+    means: List[float] = []
+    sds: List[float] = []
     for i, (c, vals) in enumerate(zip(conds, data)):
         if vals.size == 0:
+            means.append(np.nan)
+            sds.append(np.nan)
             continue
-        yj = i + rng.normal(0, 0.022, size=vals.size)
-        axV.scatter(
-            vals,
-            yj,
-            s=24,
-            color=COND_COLORS.get(c, "#444444"),
-            edgecolor="white",
-            linewidth=0.7,
-            alpha=0.9,
-            zorder=4,
-        )
         mean, sd = _mean_sd(vals)
+        means.append(mean)
+        sds.append(sd)
+        axB.bar(
+            x[i],
+            mean,
+            width=0.40,
+            color=COND_COLORS.get(c, "#B3B3B3"),
+            edgecolor="#222222",
+            linewidth=0.8,
+            alpha=0.45,
+            zorder=2,
+        )
         if np.isfinite(mean):
-            if np.isfinite(sd):
-                lo = mean - sd
-                hi = mean + sd
-                axV.hlines(i, lo, hi, color=SD_COLOR, linewidth=1.2, alpha=0.24, zorder=2)
-                axV.scatter(
-                    [lo, hi],
-                    [i, i],
-                    marker="|",
-                    s=105,
-                    color=SD_COLOR,
-                    alpha=0.24,
-                    linewidths=1.4,
-                    zorder=2,
+            if np.isfinite(sd) and sd > 0.0:
+                axB.errorbar(
+                    x[i],
+                    mean,
+                    yerr=sd,
+                    fmt="none",
+                    ecolor="#202020",
+                    elinewidth=1.25,
+                    capsize=4.0,
+                    capthick=1.25,
+                    zorder=4,
                 )
-            axV.scatter(
-                mean,
-                i,
-                s=96,
+            xj = x[i] + rng.normal(0, 0.020, size=vals.size)
+            axB.scatter(
+                xj,
+                vals,
+                s=30,
                 marker="o",
-                color=COND_COLORS.get(c, MEAN_COLOR),
-                edgecolor="black",
-                linewidth=0.9,
+                color="white",
+                edgecolor=COND_COLORS.get(c, "#202020"),
+                linewidth=1.15,
+                alpha=0.86,
                 zorder=5,
             )
-
-    axV.set_xlim(*xlim)
-    axV.set_xlabel("")
-    axV.set_title(xlab, pad=title_pad, fontsize=14.5)
-    axV.grid(axis="x", alpha=0.05, linewidth=0.45)
-    axV.set_yticks([])
-    axV.yaxis.set_major_formatter(NullFormatter())
-    axV.tick_params(axis="y", length=0, labelsize=11)
-    axV.tick_params(axis="x", labelsize=12.2)
-    for s in axV.spines.values():
-        s.set_visible(False)
-
-    axS.set_xlim(-0.45, 0.45)
-    axS.set_yticks([])
-    axS.yaxis.set_major_formatter(NullFormatter())
-    axS.tick_params(axis="y", length=0)
-    axS.set_xticks([])
-
-    axS.set_title("Significance", pad=title_pad)
-    axS.axvspan(-0.6, 0.6, color="0.0", alpha=0.008, zorder=0)
-
-    axS.text(
-        0.5,
-        -0.09,
-        "vs C2",
-        transform=axS.transAxes,
-        ha="center",
-        va="top",
-        fontsize=11.5,
-        color="0.45",
-    )
-
-    for i, c in enumerate(conds):
-        if c == "C1":
-            axS.text(0.0, i, "ref", ha="center", va="center", fontsize=13.5, color=STAR_COLOR_A)
-        else:
-            st = star_from_p(famA.get(c, {}).get("p_adj", np.nan))
-            axS.text(
-                0.0, i, st, ha="center", va="center", fontsize=12.5, color=STAR_COLOR_A
+            axB.scatter(
+                x[i],
+                mean,
+                s=48,
+                marker="o",
+                color="#111111",
+                edgecolor="white",
+                linewidth=0.5,
+                zorder=6,
             )
 
-    for s in axS.spines.values():
-        s.set_visible(False)
+    finite_vals = np.concatenate([vals[np.isfinite(vals)] for vals in data if vals.size])
+    finite_means = np.asarray([v for v in means if np.isfinite(v)], dtype=float)
+    finite_sds = np.asarray([v for v in sds if np.isfinite(v)], dtype=float)
+    ymax = 1.0
+    if finite_vals.size and finite_means.size:
+        ymax = max(
+            float(np.max(finite_vals)),
+            float(np.max(finite_means) + np.max(finite_sds) if finite_sds.size else np.max(finite_means)),
+        )
+    ypad_top = max(ymax * 0.22, 0.12)
+    axB.set_ylim(0.0, ymax + ypad_top)
+    axB.set_xlim(x[0] - 0.25, x[-1] + 0.25)
 
-    fig.suptitle(suptitle, fontsize=18, y=0.955)
+    labels = [two_line_label(cond_id_to_pretty_name(c)) for c in conds]
+    axB.set_xticks(x)
+    axB.set_xticklabels(labels, rotation=0, ha="center")
+    axB.set_ylabel(xlab, fontsize=15.5)
+    axB.set_xlabel("")
+    axB.grid(False)
+    axB.tick_params(axis="x", labelsize=12.0, pad=8)
+    axB.tick_params(axis="y", labelsize=13.5)
+    axB.spines["top"].set_visible(False)
+    axB.spines["right"].set_visible(False)
+    axB.spines["left"].set_linewidth(0.8)
+    axB.spines["bottom"].set_linewidth(0.8)
+
+    y_sig = ymax + ypad_top * 0.60
+    for i, c in enumerate(conds):
+        st = "ref" if c == "C2" else star_from_p(famA.get(c, {}).get("p_adj", np.nan))
+        axB.text(x[i], y_sig, st, ha="center", va="center", fontsize=13.8, color=STAR_COLOR_A)
+
+    fig.suptitle(suptitle, fontsize=20, y=0.965)
     return fig
 
 
@@ -437,22 +388,30 @@ def main():
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
     paths = sorted(list(args.input.glob("*.tif")) + list(args.input.glob("*.tiff")))
-    if not paths:
-        print("No images found in", args.input)
-        return
-
-    rows = []
-    for pth in paths:
-        try:
-            rows.append(compute_row(pth))
-        except Exception as e:
-            print(f"[warn] {pth.name}: {e}")
-
-    df = pd.DataFrame(rows)
-    df = df[df["condition"].isin(CONDITIONS)].copy()
-    if df.empty:
-        print("No valid C1–C8 images after filtering.")
-        return
+    if paths:
+        rows = []
+        for pth in paths:
+            try:
+                rows.append(compute_row(pth))
+            except Exception as e:
+                print(f"[warn] {pth.name}: {e}")
+        df = pd.DataFrame(rows)
+        df = df[df["condition"].isin(CONDITIONS)].copy()
+        if df.empty:
+            print("No valid C1–C8 images after filtering.")
+            return
+    else:
+        csv_path = args.out_dir / f"{args.out_prefix}_metrics_RAW.csv"
+        if not csv_path.exists():
+            print("No images found in", args.input)
+            print("No fallback CSV found at", csv_path)
+            return
+        df = pd.read_csv(csv_path)
+        df = df[df["condition"].isin(CONDITIONS)].copy()
+        if df.empty:
+            print("Fallback CSV has no valid C1–C8 rows:", csv_path)
+            return
+        print(f"Loaded fallback metrics CSV: {csv_path}")
 
     conds = [c for c in CONDITIONS if (df["condition"] == c).any()]
     print("Conditions present:", conds)
@@ -518,7 +477,7 @@ def main():
                     f"p_adj={famA.get(c, {}).get('p_adj', np.nan):.4g}\n"
                 )
 
-        fig = plot_tags_violin_delta_sig(
+        fig = plot_tags_bar_delta_sig(
             df=df,
             value_col=col,
             conds=conds,

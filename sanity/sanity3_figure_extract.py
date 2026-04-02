@@ -398,22 +398,22 @@ def export_overview_heatmap(df: pd.DataFrame, out_dir: Path, assay_hours: dict[s
     if vmax <= vmin:
         vmax = vmin + 1.0
 
-    # Soft Reds gradient: sequential red tones with smooth, gentle transitions.
+    # Pastel sequential gradient for a softer, publication-style overview panel.
     plos_cmap = LinearSegmentedColormap.from_list(
-        "soft_reds",
-        ["#fff7f3", "#fde0dd", "#fcbba1", "#fc9272", "#fb6a4a", "#de2d26"],
+        "pastel_blush",
+        ["#fff9f7", "#fbe7e2", "#f6d0c9", "#efb3a9", "#e38f82", "#d36e62"],
         N=256,
     )
     norm = Normalize(vmin=vmin, vmax=vmax)
 
     row_labels = [
-        f"C{int(row.condition_index):02d} | D={row.dex_conc_nM:.4g} nM | K={row.mk4_conc_uM:.4g} uM"
+        f"D={row.dex_conc_nM:.4g} nM | K={row.mk4_conc_uM:.4g} uM"
         for row in ordered.itertuples()
     ]
 
     # Smarter split layout: dedicated label panel + wide heatmap panel.
     fig = plt.figure(figsize=(10.2, 7.1))
-    gs = gridspec.GridSpec(1, 2, width_ratios=[0.72, 2.32], wspace=0.02)
+    gs = gridspec.GridSpec(1, 2, width_ratios=[0.72, 2.32], wspace=0.004)
     ax_labels = fig.add_subplot(gs[0, 0])
     ax = fig.add_subplot(gs[0, 1])
 
@@ -426,7 +426,7 @@ def export_overview_heatmap(df: pd.DataFrame, out_dir: Path, assay_hours: dict[s
             f"HAp\n{assay_hours['ha']} h",
         ],
     )
-    ax.tick_params(axis="x", pad=9, labelsize=11.2)
+    ax.tick_params(axis="x", pad=9, labelsize=13.2)
     ax.set_yticks([])
 
     # Subtle cell boundaries improve scanning in dense matrices.
@@ -442,30 +442,30 @@ def export_overview_heatmap(df: pd.DataFrame, out_dir: Path, assay_hours: dict[s
                 f"{values[i, j]:.1f}",
                 ha="center",
                 va="center",
-                fontsize=11.0,
+                fontsize=12.8,
                 color=COLORS["ink"],
             )
 
     # Long condition labels in a separate axis keep columns wide and readable.
-    ax_labels.set_xlim(0.0, 1.35)
+    ax_labels.set_xlim(0.0, 1.0)
     ax_labels.set_ylim(values.shape[0] - 0.5, -0.5)
     ax_labels.axis("off")
     for i, lbl in enumerate(row_labels):
         ax_labels.text(
-            0.0,
+            0.99,
             i,
             lbl,
-            ha="left",
+            ha="right",
             va="center",
-            fontsize=11.8,
+            fontsize=13.6,
             color=COLORS["ink"],
             clip_on=False,
         )
 
-    ax.set_title("Top-10 dose response heatmap", pad=14, fontsize=15.5)
+    ax.set_title("Top-10 dose response heatmap", pad=14, fontsize=17.0)
     cbar = fig.colorbar(im, ax=ax, fraction=0.038, pad=0.035)
-    cbar.set_label("% difference vs control", fontsize=11.2)
-    cbar.ax.tick_params(labelsize=10.2)
+    cbar.set_label("% difference vs control", fontsize=13.2)
+    cbar.ax.tick_params(labelsize=12.0)
     fig.subplots_adjust(left=0.01, right=0.965, bottom=0.13, top=0.90)
     save_figure(fig, out_dir, "figure_3_ecm_overview_heatmap")
 

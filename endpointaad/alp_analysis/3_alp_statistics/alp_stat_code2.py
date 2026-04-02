@@ -25,8 +25,6 @@ import pandas as pd
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from scipy import stats
-from matplotlib.gridspec import GridSpec
-from matplotlib.ticker import NullFormatter
 
 from pipeline import parse_metadata, read_values_xlsx
 
@@ -62,14 +60,14 @@ CONDITIONS = ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8"]
 FAM_A_REF = "C2"
 FAM_A_TARGETS = ["C1", "C3", "C4", "C5", "C6", "C7", "C8"]  # vs C2
 COND_COLORS = {
-    "C1": "#7a7a7a",
-    "C2": "#3b6fb6",
-    "C3": "#2a9d8f",
-    "C4": "#e0a100",
-    "C5": "#b565a7",
-    "C6": "#c84c3a",
-    "C7": "#6aaed6",
-    "C8": "#8c6d31",
+    "C1": "#A6BDDB",
+    "C2": "#67A9CF",
+    "C3": "#A8DDB5",
+    "C4": "#FDDC8C",
+    "C5": "#F4A7A1",
+    "C6": "#CDB7E6",
+    "C7": "#9ECAE1",
+    "C8": "#D8C9A8",
 }
 
 MEAN_COLOR = "#8b1e1e"
@@ -84,13 +82,13 @@ STAR_COLOR_A = "#000000"
 def two_line_label(name: str) -> str:
     m = {
         "Basal": "Basal",
-        "Osteo": r"AA+$\beta$-GP",
-        "Osteo+D/MK4 (L/L)": r"AA+$\beta$-GP" + "\n" + r"$D_LK_L$",
-        "Osteo+D/MK4 (L/H)": r"AA+$\beta$-GP" + "\n" + r"$D_LK_H$",
-        "Osteo+D/MK4 (H/L)": r"AA+$\beta$-GP" + "\n" + r"$D_HK_L$",
-        "Osteo+D/MK4 (H/H)": r"AA+$\beta$-GP" + "\n" + r"$D_HK_H$",
-        "Osteo+Dex (H)": r"AA+$\beta$-GP" + "\n" + r"$D_HK_0$",
-        "Osteo+MK-4 (H)": r"AA+$\beta$-GP" + "\n" + r"$D_0K_H$",
+        "Osteo": "Osteo",
+        "Osteo + D_LK_L": r"Osteo" + "\n" + r"$D_LK_L$",
+        "Osteo + D_LK_H": r"Osteo" + "\n" + r"$D_LK_H$",
+        "Osteo + D_HK_L": r"Osteo" + "\n" + r"$D_HK_L$",
+        "Osteo + D_HK_H": r"Osteo" + "\n" + r"$D_HK_H$",
+        "Osteo + D_HK_0": r"Osteo" + "\n" + r"$D_HK_0$",
+        "Osteo + D_0K_H": r"Osteo" + "\n" + r"$D_0K_H$",
     }
     return m.get(name, name)
 
@@ -99,18 +97,19 @@ def cond_id_to_pretty_name(c: str) -> str:
     m = {
         "C1": "Basal",
         "C2": "Osteo",
-        "C3": "Osteo+D/MK4 (L/L)",
-        "C4": "Osteo+D/MK4 (L/H)",
-        "C5": "Osteo+D/MK4 (H/L)",
-        "C6": "Osteo+D/MK4 (H/H)",
-        "C7": "Osteo+Dex (H)",
-        "C8": "Osteo+MK-4 (H)",
+        "C3": "Osteo + D_LK_L",
+        "C4": "Osteo + D_LK_H",
+        "C5": "Osteo + D_HK_L",
+        "C6": "Osteo + D_HK_H",
+        "C7": "Osteo + D_HK_0",
+        "C8": "Osteo + D_0K_H",
     }
     return m.get(c, c)
 
 
 def cond_id_to_tag(c: str) -> str:
-    return two_line_label(cond_id_to_pretty_name(c))
+    label_letter = chr(ord("a") + int(c[1:]) - 1) if c.startswith("C") else "?"
+    return f"({label_letter}) " + two_line_label(cond_id_to_pretty_name(c))
 
 
 # =========================
@@ -193,7 +192,7 @@ def _mean_sd(
     return mean, sd
 
 
-def plot_figure2_tags_violin_delta_sig(
+def plot_figure2_tags_bar_delta_sig(
     df: pd.DataFrame,
     value_col: str,
     conds: List[str],
@@ -210,168 +209,99 @@ def plot_figure2_tags_violin_delta_sig(
         for c in conds
     ]
 
-    fig = plt.figure(figsize=(8.6, 6.0))
-    fig.subplots_adjust(left=0.03, right=0.995, bottom=0.12, top=0.835, wspace=0.08)
+    fig, axB = plt.subplots(figsize=(6.2, 6.0))
+    fig.subplots_adjust(left=0.10, right=0.99, bottom=0.305, top=0.885)
 
-    gs = GridSpec(
-        1,
-        3,
-        width_ratios=[0.78, 2.70, 0.45],
-        wspace=0.05,
-        figure=fig,
-    )
+    x_step = 0.56
+    x = np.arange(len(conds), dtype=float) * x_step
 
-    axT = fig.add_subplot(gs[0, 0])
-    axV = fig.add_subplot(gs[0, 1], sharey=axT)
-    axS = fig.add_subplot(gs[0, 2], sharey=axT)
-
-    y = np.arange(len(conds))
-    axT.set_ylim(len(conds) - 0.5, -0.5)
-
-    row_color, row_alpha, row_lw = "#000000", 0.10, 0.8
-    for yy in y:
-        for ax in (axT, axV, axS):
-            ax.axhline(yy, color=row_color, alpha=row_alpha, linewidth=row_lw, zorder=0)
-
-    title_pad = 4
-
-    axT.set_xlim(0, 1)
-    axT.set_xticks([])
-    axT.set_yticks(y)
-    axT.set_yticklabels([])
-    axT.set_title("Condition", pad=title_pad)
-
-    for i, c in enumerate(conds):
-        axT.text(
-            0.5,
-            i,
-            cond_id_to_tag(c),
-            ha="center",
-            va="center",
-            fontsize=13.5,
-            color="#1a1a1a",
-            linespacing=1.05,
-        )
-    for s in axT.spines.values():
-        s.set_visible(False)
-
+    means: List[float] = []
+    sds: List[float] = []
     for i, (c, vals) in enumerate(zip(conds, data)):
         if vals.size == 0:
+            means.append(np.nan)
+            sds.append(np.nan)
             continue
-        yj = i + rng.normal(0, 0.022, size=vals.size)
-        axV.scatter(
-            vals,
-            yj,
-            s=24,
-            color=COND_COLORS.get(c, "#444444"),
-            edgecolor="white",
-            linewidth=0.7,
-            alpha=0.9,
-            zorder=4,
-        )
         mean, sd = _mean_sd(vals)
+        means.append(mean)
+        sds.append(sd)
+        axB.bar(
+            x[i],
+            mean,
+            width=0.40,
+            color=COND_COLORS.get(c, "#444444"),
+            edgecolor="#222222",
+            linewidth=0.8,
+            alpha=0.45,
+            zorder=2,
+        )
         if np.isfinite(mean):
-            if np.isfinite(sd):
-                lo = mean - sd
-                hi = mean + sd
-                axV.hlines(
-                    i, lo, hi, color=SD_COLOR, linewidth=1.2, alpha=0.24, zorder=2
-                )
-                axV.scatter(
-                    [lo, hi],
-                    [i, i],
-                    marker="|",
-                    s=105,
-                    color=SD_COLOR,
-                    alpha=0.24,
-                    linewidths=1.4,
-                    zorder=2,
-                )
-                axV.scatter(
+            if np.isfinite(sd) and sd > 0.0:
+                axB.errorbar(
+                    x[i],
                     mean,
-                    i,
-                    s=96,
-                    marker="o",
-                    color=COND_COLORS.get(c, MEAN_COLOR),
-                    edgecolor="black",
-                    linewidth=0.9,
-                    zorder=5,
+                    yerr=sd,
+                    fmt="none",
+                    ecolor="#202020",
+                    elinewidth=1.25,
+                    capsize=4.0,
+                    capthick=1.25,
+                    zorder=4,
                 )
-            else:
-                axV.scatter(
-                    mean,
-                    i,
-                    s=90,
-                    marker="o",
-                    color=COND_COLORS.get(c, MEAN_COLOR),
-                    edgecolor="black",
-                    linewidth=0.9,
-                    alpha=0.95,
-                    zorder=5,
-                )
+            xj = x[i] + rng.normal(0, 0.020, size=vals.size)
+            axB.scatter(
+                xj,
+                vals,
+                s=30,
+                marker="o",
+                color="white",
+                edgecolor=COND_COLORS.get(c, "#202020"),
+                linewidth=1.15,
+                alpha=0.86,
+                zorder=5,
+            )
+            axB.scatter(
+                x[i],
+                mean,
+                s=48,
+                marker="o",
+                color="#111111",
+                edgecolor="white",
+                linewidth=0.5,
+                zorder=6,
+            )
 
-    finite_vals = np.concatenate(
-        [vals[np.isfinite(vals)] for vals in data if vals.size]
-    )
-    if finite_vals.size:
-        xmin = float(np.min(finite_vals))
-        xmax = float(np.max(finite_vals))
-        xspan = max(xmax - xmin, 1e-6)
-        xpad = xspan * 0.10
-        axV.set_xlim(xmin - xpad, xmax + xpad)
+    finite_vals = np.concatenate([vals[np.isfinite(vals)] for vals in data if vals.size])
+    finite_means = np.asarray([v for v in means if np.isfinite(v)], dtype=float)
+    finite_sds = np.asarray([v for v in sds if np.isfinite(v)], dtype=float)
+    ymax = 1.0
+    if finite_vals.size and finite_means.size:
+        ymax = max(
+            float(np.max(finite_vals)),
+            float(np.max(finite_means) + np.max(finite_sds) if finite_sds.size else np.max(finite_means)),
+        )
+    axB.set_ylim(0.0, 1.5)
+    axB.set_xlim(x[0] - 0.25, x[-1] + 0.25)
 
-    axV.set_xlabel("")
-    axV.set_title(xlab, pad=title_pad, fontsize=14.5)
-    axV.grid(axis="x", alpha=0.05, linewidth=0.45)
-    axV.set_yticks([])
-    axV.yaxis.set_major_formatter(NullFormatter())
-    axV.tick_params(axis="y", length=0, labelsize=11)
-    axV.tick_params(axis="x", labelsize=12.2)
-    for s in axV.spines.values():
-        s.set_visible(False)
+    labels = [two_line_label(cond_id_to_pretty_name(c)) for c in conds]
+    axB.set_xticks(x)
+    axB.set_xticklabels(labels, rotation=0, ha="center")
+    axB.set_ylabel(xlab, fontsize=15.5)
+    axB.set_xlabel("")
+    axB.grid(False)
+    axB.tick_params(axis="x", labelsize=12.0, pad=8)
+    axB.tick_params(axis="y", labelsize=13.5)
+    axB.spines["top"].set_visible(False)
+    axB.spines["right"].set_visible(False)
+    axB.spines["left"].set_linewidth(0.8)
+    axB.spines["bottom"].set_linewidth(0.8)
 
-    axS.set_xlim(-0.45, 0.45)
-    axS.set_yticks([])
-    axS.yaxis.set_major_formatter(NullFormatter())
-    axS.tick_params(axis="y", length=0)
-    axS.set_xticks([])
-
-    axS.set_title("Significance", pad=title_pad)
-
-    axS.axvspan(-0.6, 0.6, color="0.0", alpha=0.008, zorder=0)
-
-    axS.text(
-        0.5,
-        -0.09,
-        "vs C2",
-        transform=axS.transAxes,
-        ha="center",
-        va="top",
-        fontsize=11.5,
-        color="0.45",
-    )
-
+    y_sig = 1.43
     for i, c in enumerate(conds):
-        if c == "C1":
-            axS.text(
-                0.0,
-                i,
-                "ref",
-                ha="center",
-                va="center",
-                fontsize=13.5,
-                color=STAR_COLOR_A,
-            )
-        else:
-            st = star_from_p(famA.get(c, {}).get("p_adj", np.nan))
-            axS.text(
-                0.0, i, st, ha="center", va="center", fontsize=12.5, color=STAR_COLOR_A
-            )
+        st = "ref" if c == "C2" else star_from_p(famA.get(c, {}).get("p_adj", np.nan))
+        axB.text(x[i], y_sig, st, ha="center", va="center", fontsize=13.8, color=STAR_COLOR_A)
 
-    for s in axS.spines.values():
-        s.set_visible(False)
-
-    fig.suptitle(suptitle, fontsize=18, y=0.955)
+    fig.suptitle(suptitle, fontsize=20, y=0.965)
     return fig
 
 
@@ -380,7 +310,7 @@ def plot_figure2_tags_violin_delta_sig(
 # =========================
 def parse_args():
     p = argparse.ArgumentParser(
-        description="ALP Figure 2 only (condition tags + violins + significance)."
+        description="ALP Figure 2 only (condition tags + bar plot + significance)."
     )
     p.add_argument("--metadata", required=True, help="Metadata text file.")
     p.add_argument("--data", required=True, help="Raw ALP data xlsx.")
@@ -453,7 +383,7 @@ def main():
     )
     famB: Dict[str, Dict[str, float]] = {}
 
-    fig2 = plot_figure2_tags_violin_delta_sig(
+    fig2 = plot_figure2_tags_bar_delta_sig(
         df=df,
         value_col="ALP_mU_mL",
         conds=conds,
@@ -464,8 +394,8 @@ def main():
         seed=args.seed,
     )
 
-    out_pdf = args.out_dir / f"{args.out_prefix}_ALP_fig2_tags_violin_delta_sig.pdf"
-    out_png = args.out_dir / f"{args.out_prefix}_ALP_fig2_tags_violin_delta_sig.png"
+    out_pdf = args.out_dir / f"{args.out_prefix}_ALP_fig2_tags_bar_delta_sig.pdf"
+    out_png = args.out_dir / f"{args.out_prefix}_ALP_fig2_tags_bar_delta_sig.png"
     fig2.savefig(out_pdf)
     fig2.savefig(out_png)
     plt.close(fig2)

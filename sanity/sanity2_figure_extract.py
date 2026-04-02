@@ -865,6 +865,7 @@ def _render_state_thumb(
     ha: np.ndarray,
     vmax: float,
     title: str | None = None,
+    title_fontsize: float = 8.2,
 ) -> None:
     ax.imshow(ha, origin="upper", cmap="viridis", vmin=0.0, vmax=vmax)
     ax.set_xticks([])
@@ -873,13 +874,14 @@ def _render_state_thumb(
     for spine in ax.spines.values():
         spine.set_visible(False)
     if title:
-        ax.set_title(title, loc="left", fontsize=8.2, pad=2.5)
+        ax.set_title(title, loc="left", fontsize=title_fontsize, pad=2.5)
 
 
 def _render_initial_state_thumb(
     ax: plt.Axes,
     state: np.ndarray,
     title: str | None = None,
+    title_fontsize: float = 11.0,
 ) -> None:
     ys, xs = np.nonzero(state > 0)
     h, w = state.shape
@@ -904,7 +906,7 @@ def _render_initial_state_thumb(
         spine.set_linewidth(0.8)
         spine.set_edgecolor("#e2e8f0")
     if title:
-        ax.set_title(title, loc="left", fontsize=11.0, pad=4.0)
+        ax.set_title(title, loc="left", fontsize=title_fontsize, pad=4.0)
 
 
 def export_spatial_gallery(
@@ -938,15 +940,20 @@ def export_spatial_gallery(
     fig_h = 3.25 * nrows
     fig = plt.figure(figsize=(18.8, fig_h))
     gallery_gs = gridspec.GridSpec(nrows, ncols, figure=fig, wspace=0.12, hspace=0.18)
+    tile_label_fontsize = 16.8 if mode == "initial" else 8.2
 
     for idx, label in enumerate(labels):
         r = idx // ncols
         c = idx % ncols
         gax = fig.add_subplot(gallery_gs[r, c])
         if mode == "initial":
-            _render_initial_state_thumb(gax, states[idx], title=label)
+            _render_initial_state_thumb(
+                gax, states[idx], title=label, title_fontsize=tile_label_fontsize
+            )
         else:
-            _render_state_thumb(gax, has[idx], vmax_ha, title=label)
+            _render_state_thumb(
+                gax, has[idx], vmax_ha, title=label, title_fontsize=tile_label_fontsize
+            )
         if int(ordered.iloc[idx]["condition_index"]) == 1:
             for spine in gax.spines.values():
                 spine.set_visible(True)
