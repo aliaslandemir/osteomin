@@ -606,7 +606,6 @@ def scatter_label_offsets(
 
 
 def parity_metric_text(metrics: pd.Series) -> str:
-    n_points = int(metrics["n_conditions"]) if "n_conditions" in metrics else 8
     directionality = metrics["direction_agreement"] if "direction_agreement" in metrics else float("nan")
     directionality_txt = (
         f"{directionality:.0%}" if np.isfinite(float(directionality)) else "NA"
@@ -614,7 +613,6 @@ def parity_metric_text(metrics: pd.Series) -> str:
     return (
         f"τ = {metrics['kendall_tau']:.2f}\n"
         f"ρ = {metrics['spearman_rho']:.2f}\n"
-        f"n = {n_points:d}\n"
         f"Directionality = {directionality_txt}"
     )
 
@@ -851,11 +849,17 @@ def export_main_figure(
 def export_discrete_condition_figure(
     assay_frames: dict[str, pd.DataFrame], metrics_df: pd.DataFrame, out_dir: Path
 ) -> None:
-    fig, axes = plt.subplots(1, 3, figsize=(11.4, 3.9), constrained_layout=True)
+    fig, axes = plt.subplots(1, 3, figsize=(13.6, 4.8), constrained_layout=True, sharey=True)
     panel_titles = {
         "alp": "ALP",
         "collagen": "Collagen",
         "ars": "Mineralization",
+    }
+    # Match endpoint palette used in endpoint figures.
+    panel_colors = {
+        "alp": "#E69F00",
+        "collagen": "#009E73",
+        "ars": "#C0392B",
     }
     global_values = np.concatenate(
         [
@@ -891,11 +895,11 @@ def export_discrete_condition_figure(
         ax.scatter(
             exp_rel,
             sim_rel,
-            s=58,
-            color=spec["color"],
+            s=96,
+            color=panel_colors[assay],
             marker=spec["marker"],
             edgecolors="#111111",
-            linewidths=0.55,
+            linewidths=0.8,
             zorder=3,
         )
         offsets = scatter_label_offsets(
@@ -906,7 +910,7 @@ def export_discrete_condition_figure(
                 float(row["exp_rel_effect"]) + dx,
                 float(row["sim_rel_effect"]) + dy,
                 str(row["condition_code"]),
-                fontsize=11.0,
+                fontsize=14.5,
                 color=COLORS["ink"],
                 zorder=4,
                 bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.8, "pad": 0.15},
@@ -919,7 +923,7 @@ def export_discrete_condition_figure(
             transform=ax.transAxes,
             ha="left",
             va="bottom",
-            fontsize=JOURNAL_PANEL_LABEL_PT,
+            fontsize=24.0,
             fontweight="bold",
             color=COLORS["ink"],
         )
@@ -930,7 +934,7 @@ def export_discrete_condition_figure(
             transform=ax.transAxes,
             ha="left",
             va="bottom",
-            fontsize=11.0,
+            fontsize=22.0,
             fontweight="semibold",
             color=COLORS["ink"],
         )
@@ -941,7 +945,7 @@ def export_discrete_condition_figure(
             transform=ax.transAxes,
             ha="right",
             va="bottom",
-            fontsize=8.8,
+            fontsize=12.0,
             color=COLORS["ink"],
             bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.9, "pad": 1.0},
         )
@@ -950,10 +954,14 @@ def export_discrete_condition_figure(
         ax.set_aspect("equal", adjustable="box")
         ax.xaxis.set_major_locator(MaxNLocator(nbins=5))
         ax.yaxis.set_major_locator(MaxNLocator(nbins=5))
-        ax.set_xlabel("Experimental relative effect", fontsize=JOURNAL_AXIS_LABEL_PT)
-        ax.set_ylabel("Simulated relative effect", fontsize=JOURNAL_AXIS_LABEL_PT)
+        ax.set_xlabel("Experimental relative effect", fontsize=19.0)
+        if idx == 0:
+            ax.set_ylabel("Simulated relative effect", fontsize=19.0)
+        else:
+            ax.set_ylabel("")
+            ax.tick_params(axis="y", labelleft=False)
         ax.yaxis.labelpad = 6
-        ax.tick_params(axis="both", labelsize=JOURNAL_TICK_PT)
+        ax.tick_params(axis="both", labelsize=14.5, length=7.0, width=1.2)
 
     save_figure(fig, out_dir, "sanity5_discrete_condition_comparison")
 

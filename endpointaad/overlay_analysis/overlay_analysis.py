@@ -10,7 +10,7 @@ python overlay_analysis.py \
   --input ../confocal \
   --out overlay_output \
   --pix 0.21 \
-  --scalebar_um 100 \
+  --scalebar_um 50 \
   --pdf
 
 """
@@ -74,7 +74,7 @@ def parse_args():
     ap.add_argument("--actin", type=int, default=1)
     ap.add_argument("--collagen", type=int, default=2)
     ap.add_argument("--pix", type=float, default=PIX_CONVERSION, help="µm per pixel")
-    ap.add_argument("--scalebar_um", type=float, default=None)
+    ap.add_argument("--scalebar_um", type=float, default=50.0)
     ap.add_argument("--pdf", action="store_true", help="Also export 300 DPI PDF versions of the overlays")
     ap.add_argument("--pdf-dpi", type=int, default=300, metavar="DPI", help="DPI for PDF exports (default 300)")
     return ap.parse_args()
@@ -217,23 +217,38 @@ def add_scale_bar_pil(im: Image.Image, pix_um: float, bar_um: float = None, colo
         nice = np.array([5, 10, 20, 25, 50, 100, 200, 500, 1000], dtype=float)
         bar_um = float(nice[np.argmin(np.abs(nice - target_um))])
     bar_px = max(int(round(bar_um / pix_um)), 1)
-    pad = 24
-    height_px = 10
+    pad = max(24, int(round(0.05 * W)))
+    bottom_pad = max(24, int(round(0.05 * H)))
+    height_px = max(10, int(round(0.012 * H)))
     x0 = pad
-    y0 = H - pad - height_px
+    y0 = H - bottom_pad - height_px
     draw = ImageDraw.Draw(im)
-    draw.rectangle([x0, y0, x0 + bar_px, y0 + height_px], fill=color)
+    draw.rectangle(
+        [x0, y0, x0 + bar_px, y0 + height_px],
+        fill=color,
+        outline=(0, 0, 0),
+        width=max(1, height_px // 6),
+    )
     txt = f"{int(bar_um) if float(bar_um).is_integer() else bar_um} µm"
     try:
-        font = ImageFont.truetype("DejaVuSans.ttf", 18)
+        font = ImageFont.truetype("DejaVuSans-Bold.ttf", max(18, int(round(0.04 * H))))
     except Exception:
         font = ImageFont.load_default()
     try:
         bbox = draw.textbbox((0, 0), txt, font=font)
         tw = bbox[2] - bbox[0]
+        th = bbox[3] - bbox[1]
     except AttributeError:
-        tw = font.getsize(txt)[0]
-    _draw_outlined_text(draw, (x0 + bar_px / 2 - tw / 2, y0 - 24), txt, font=font, width=1.2)
+        tw, th = font.getsize(txt)
+    label_gap = max(10, int(round(0.018 * H)))
+    text_y = max(0, y0 - label_gap - th)
+    _draw_outlined_text(
+        draw,
+        (x0 + bar_px / 2 - tw / 2, text_y),
+        txt,
+        font=font,
+        width=max(2.0, 0.12 * font.size),
+    )
     return im
 
 

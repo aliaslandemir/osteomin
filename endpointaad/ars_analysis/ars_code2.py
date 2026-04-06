@@ -40,12 +40,12 @@ FAM_A_REF = "C2"
 FAM_A_TARGETS = ["C1", "C3", "C4", "C5", "C6", "C7", "C8"]  # vs C2
 
 # Assay colors (journal style, colorblind-safe)
-BAR_COLOR = "#0072B2"
-POINT_COLOR = "#1F4E79"
+BAR_COLOR = "#C0392B"
+POINT_COLOR = "#7F1D1D"
 
 # Plot colors
-MEAN_COLOR = "#B22222"
-SD_COLOR = "#5A5A5A"
+MEAN_COLOR = "#111111"
+SD_COLOR = "#1f2937"
 STAR_COLOR_A = "#000000"  # vs C2
  
 # =========================
@@ -277,6 +277,8 @@ def plot_fig2_tags_bar_delta_sig(
 
     means: List[float] = []
     sds: List[float] = []
+    lower_bounds: List[float] = []
+    upper_bounds: List[float] = []
     for i, (c, vals) in enumerate(zip(conds, data)):
         if vals.size == 0:
             means.append(np.nan)
@@ -285,63 +287,75 @@ def plot_fig2_tags_bar_delta_sig(
         mean, sd = _mean_sd(vals)
         means.append(mean)
         sds.append(sd)
+        if np.isfinite(sd) and sd > 0.0:
+            low = max(mean - sd, 0.0)
+            high = mean + sd
+        else:
+            low = 0.0
+            high = mean
+        lower_bounds.append(low)
+        upper_bounds.append(high)
         axB.bar(
             x[i],
-            mean,
-            width=0.40,
+            high - low,
+            bottom=low,
+            width=0.42,
             color=BAR_COLOR,
-            edgecolor="#444444",
-            linewidth=0.8,
-            alpha=0.28,
+            edgecolor="#1f2937",
+            linewidth=1.15,
+            alpha=0.48,
             zorder=2,
         )
         if np.isfinite(mean):
-            if np.isfinite(sd) and sd > 0.0:
-                axB.errorbar(
-                    x[i],
-                    mean,
-                    yerr=sd,
-                    fmt="none",
-                    ecolor="#222222",
-                    elinewidth=1.0,
-                    capsize=4.0,
-                    capthick=1.0,
-                    zorder=4,
-                )
             xj = x[i] + rng.normal(0, 0.020, size=vals.size)
             axB.scatter(
                 xj,
                 vals,
-                s=32,
+                s=36,
                 marker="o",
                 color=POINT_COLOR,
-                edgecolor="white",
-                linewidth=0.6,
-                alpha=0.9,
+                edgecolor="#111111",
+                linewidth=0.45,
+                alpha=0.95,
                 zorder=5,
+            )
+            axB.hlines(
+                mean,
+                x[i] - 0.16,
+                x[i] + 0.16,
+                color=MEAN_COLOR,
+                linewidth=1.6,
+                zorder=6,
             )
             axB.scatter(
                 x[i],
                 mean,
-                s=55,
+                s=58,
                 marker="o",
-                color="#111111",
+                color=MEAN_COLOR,
                 edgecolor="white",
-                linewidth=0.5,
-                zorder=6,
+                linewidth=0.65,
+                zorder=7,
             )
 
     finite_vals = np.concatenate([vals[np.isfinite(vals)] for vals in data if vals.size])
-    finite_means = np.asarray([v for v in means if np.isfinite(v)], dtype=float)
-    finite_sds = np.asarray([v for v in sds if np.isfinite(v)], dtype=float)
+    ymin = 0.0
     ymax = 1.0
-    if finite_vals.size and finite_means.size:
+    finite_lower = np.asarray([v for v in lower_bounds if np.isfinite(v)], dtype=float)
+    finite_upper = np.asarray([v for v in upper_bounds if np.isfinite(v)], dtype=float)
+    if finite_vals.size:
+        ymin = float(np.min(finite_vals))
         ymax = max(
             float(np.max(finite_vals)),
-            float(np.max(finite_means) + np.max(finite_sds) if finite_sds.size else np.max(finite_means)),
+            float(np.max(finite_upper) if finite_upper.size else np.max(finite_vals)),
         )
-    ypad_top = max(ymax * 0.22, 0.12)
-    axB.set_ylim(0.0, ymax + ypad_top)
+        if finite_lower.size:
+            ymin = min(ymin, float(np.min(finite_lower)))
+    yrange = max(ymax - ymin, 1e-9)
+    pad = max(0.12 * yrange, 0.02 * max(abs(ymax), 1.0))
+    ylo = max(0.0, ymin - 0.60 * pad)
+    yhi = ymax + pad
+    axB.set_ylim(ylo, yhi)
     axB.set_xlim(x[0] - 0.25, x[-1] + 0.25)
 
     labels = [two_line_label(cond_id_to_pretty_name(c)) for c in conds]
@@ -354,15 +368,15 @@ def plot_fig2_tags_bar_delta_sig(
     axB.tick_params(axis="y", labelsize=13.5)
     axB.spines["top"].set_visible(False)
     axB.spines["right"].set_visible(False)
-    axB.spines["left"].set_linewidth(0.8)
-    axB.spines["bottom"].set_linewidth(0.8)
+    axB.spines["left"].set_linewidth(1.0)
+    axB.spines["bottom"].set_linewidth(1.0)
 
-    y_sig = ymax + ypad_top * 0.60
+    y_sig = ymax + pad * 0.45
     for i, c in enumerate(conds):
         st = "ref" if c == "C2" else star_from_p(famA.get(c, {}).get("p_adj", np.nan))
         axB.text(x[i], y_sig, st, ha="center", va="center", fontsize=13.8, color=STAR_COLOR_A)
 
-    fig.suptitle(suptitle, fontsize=20, y=0.965)
+    fig.suptitle(suptitle, fontsize=18.5, y=0.965)
     return fig
 
 

@@ -129,6 +129,33 @@ def _grid_seed_coords(w: int, h: int, spacing: int) -> list[tuple[int, int]]:
     return coords
 
 
+def _load_seed_coords(path: Path, w: int, h: int) -> list[tuple[int, int]]:
+    import csv
+
+    if not path.exists():
+        raise SystemExit(f"seed coordinate file not found: {path}")
+    coords: list[tuple[int, int]] = []
+    with path.open("r", encoding="utf-8", newline="") as fh:
+        reader = csv.DictReader(fh)
+        cols = reader.fieldnames or []
+        if "x" not in cols or "y" not in cols:
+            raise SystemExit("seed coordinate file must contain x,y columns")
+        for row in reader:
+            try:
+                x = int(round(float(row["x"])))
+                y = int(round(float(row["y"])))
+            except Exception as exc:
+                raise SystemExit(f"invalid seed coordinate row in {path}: {row}") from exc
+            if not (0 <= x < w and 0 <= y < h):
+                raise SystemExit(
+                    f"seed coordinate {(x, y)} outside grid bounds 0..{w - 1}, 0..{h - 1}"
+                )
+            coords.append((x, y))
+    if not coords:
+        raise SystemExit(f"seed coordinate file is empty: {path}")
+    return list(dict.fromkeys(coords))
+
+
 def _export_alp_snapshots(
     cond_outdir: Path, model: OsteoModel, total_days: int
 ) -> None:
@@ -198,6 +225,12 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=3,
         help="grid spacing (n) for grid seeding; one candidate site per n×n block",
+    )
+    p.add_argument(
+        "--seed-coords",
+        type=Path,
+        default=None,
+        help="optional CSV with explicit x,y seed coordinates; overrides --seed-mode/--cells",
     )
     p.add_argument(
         "--media-interval",
@@ -948,7 +981,10 @@ def main() -> None:
             nodule_connectivity=args.nodules,
         )
 
-        if args.seed_mode == "random":
+        if args.seed_coords is not None:
+            coords = _load_seed_coords(Path(args.seed_coords), abm_cfg.width, abm_cfg.height)
+            model.abm.seed_from_coords(coords, day0=0)
+        elif args.seed_mode == "random":
             model.seed_random(args.cells, abm_cfg.width, abm_cfg.height)
         else:
             sites = _grid_seed_coords(abm_cfg.width, abm_cfg.height, args.grid_spacing)

@@ -1,0 +1,67 @@
+{
+  "parameters": [
+    {
+      "name": "osteo_induction_hours",
+      "flag": "--osteo-induction-hours",
+      "bounds": [48.0, 96.0],
+      "baseline": 72.0,
+      "kind": "int",
+      "label": "Osteogenic induction time (h)",
+      "source": "sanity_check6"
+    },
+    {
+      "name": "commit_delay",
+      "flag": "--commit-delay",
+      "bounds": [24.0, 72.0],
+      "baseline": 48.0,
+      "kind": "int",
+      "label": "Commitment delay (h)",
+      "source": "sanity_check6"
+    },
+    {
+      "name": "commit_k",
+      "flag": "--commit-k",
+      "bounds": [0.0075, 0.02],
+      "baseline": 0.0125,
+      "kind": "float",
+      "label": "Commitment rate k (h^-1)",
+      "source": "sanity_check6"
+    },
+    {
+      "name": "move_prob",
+      "flag": "--move-prob",
+      "bounds": [0.15, 0.4],
+      "baseline": 0.27,
+      "kind": "float",
+      "label": "Random-move probability",
+      "source": "sanity_check6"
+    },
+    {
+      "name": "min_div_hours",
+      "flag": "--min-div-hours",
+      "bounds": [30.0, 46.0],
+      "baseline": 38.0,
+      "kind": "int",
+      "label": "Minimum division interval (h)",
+      "source": "sanity_check6"
+    },
+    {
+      "name": "div_gap_hours",
+      "flag": null,
+      "bounds": [8.0, 24.0],
+      "baseline": 14.0,
+      "kind": "int",
+      "label": "Division interval gap (h)",
+      "source": "sanity_check6"
+    },
+    {
+      "name": "apoptosis_prob",
+      "flag": "--apoptosis-prob",
+      "bounds": [0.0005, 0.0015],
+      "baseline": 0.001,
+      "kind": "float",
+      "label": "PreOB apoptosis probability",
+      "source": "sanity_check6"
+    }
+  ]
+}
