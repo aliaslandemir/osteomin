@@ -49,12 +49,17 @@ PLOT_STYLE = {
 }
 
 FIGURE_SIZE_MAP = (10.6, 9.2)
-MAP_AX_POS = [0.14, 0.035, 0.70, 0.92]
-CBAR_LEFT_POS = [0.05, 0.095, 0.03, 0.81]
-CBAR_RIGHT_POS = [0.88, 0.095, 0.03, 0.81]
+MAP_AX_POS = [0.13, 0.035, 0.74, 0.92]
+CBAR_LEFT_POS = [0.098, 0.095, 0.026, 0.81]
+CBAR_RIGHT_POS = [0.875, 0.095, 0.026, 0.81]
 SPATIAL_DEAD_COLOR = "#2f2f2f"
 COLLAGEN_BASE_COLOR = "#0f9d94"
 HAP_BASE_COLOR = "#c2185b"
+SNAPSHOT_TEXT_SCALE = 1.5
+
+
+def _snap_fs(size: float) -> float:
+    return float(size) * SNAPSHOT_TEXT_SCALE
 
 
 def _sequential_map(name: str, color: str) -> LinearSegmentedColormap:
@@ -119,7 +124,7 @@ def _set_map_header(
     subtitle_y: float = 0.955,
     title_size: float = 12,
 ) -> None:
-    fig.suptitle(title, fontsize=title_size, y=title_y)
+    fig.suptitle(title, fontsize=_snap_fs(title_size), y=title_y)
     if subtitle:
         fig.text(
             0.5,
@@ -127,7 +132,7 @@ def _set_map_header(
             subtitle,
             ha="center",
             va="center",
-            fontsize=10,
+            fontsize=_snap_fs(10),
             color=COLORS["text"],
         )
 
@@ -793,7 +798,11 @@ def _render_spatial_image(
         Patch(facecolor=SPATIAL_DEAD_COLOR, label=f"Dead ({n_da + n_do})"),
     ]
     legend = ax.legend(
-        handles=legend_elems, frameon=True, loc="upper right", ncol=1, fontsize=11.0
+        handles=legend_elems,
+        frameon=True,
+        loc="upper right",
+        ncol=1,
+        fontsize=_snap_fs(11.0),
     )
     legend.get_frame().set_edgecolor("black")
     legend.get_frame().set_linewidth(0.6)
@@ -880,7 +889,12 @@ def _render_collagen_ha_overlay(
         ax = fig.add_axes(MAP_AX_POS)
         _set_white(ax)
         ax.text(
-            0.5, 0.5, "No collagen or HAp yet", ha="center", va="center", fontsize=14
+            0.5,
+            0.5,
+            "No collagen or HAp yet",
+            ha="center",
+            va="center",
+            fontsize=_snap_fs(14),
         )
         ax.set_xticks([])
         ax.set_yticks([])
@@ -934,7 +948,7 @@ def _render_collagen_ha_overlay(
         ax.scatter(
             xs,
             ys,
-            s=66,
+            s=66 * 1.6,
             c="#ffb000",
             edgecolors="#3a1f00",
             linewidths=1.1,
@@ -945,7 +959,7 @@ def _render_collagen_ha_overlay(
         legend = ax.legend(
             loc="upper right",
             frameon=True,
-            fontsize=11.5,
+            fontsize=_snap_fs(11.5),
             borderpad=0.4,
             handletextpad=0.4,
         )
@@ -966,13 +980,17 @@ def _render_collagen_ha_overlay(
     cbar_col = fig.colorbar(im_col, cax=cax_col)
     cbar_col.ax.yaxis.set_label_position("left")
     cbar_col.ax.yaxis.set_ticks_position("left")
-    cbar_col.set_label("Collagen-I (a.u.)", fontsize=13.5, labelpad=12)
-    cbar_col.ax.tick_params(labelsize=11.5, colors="black", width=0.9, length=4.0)
+    cbar_col.set_label("Collagen-I (a.u.)", fontsize=_snap_fs(13.5), labelpad=12)
+    cbar_col.ax.tick_params(
+        labelsize=_snap_fs(11.5), colors="black", width=0.9, length=4.0
+    )
 
     cax_ha = fig.add_axes(CBAR_RIGHT_POS)
     cbar_ha = fig.colorbar(sm_ha, cax=cax_ha)
-    cbar_ha.set_label("Hydroxyapatite (a.u.)", fontsize=13.5, labelpad=12)
-    cbar_ha.ax.tick_params(labelsize=11.5, colors="black", width=0.9, length=4.0)
+    cbar_ha.set_label("Hydroxyapatite (a.u.)", fontsize=_snap_fs(13.5), labelpad=12)
+    cbar_ha.ax.tick_params(
+        labelsize=_snap_fs(11.5), colors="black", width=0.9, length=4.0
+    )
 
     _save_snapshot_figure(fig, img_path)
     plt.close(fig)
@@ -1031,13 +1049,17 @@ def export_alp_field_snapshot(
         title_y=0.958,
         title_size=16,
     )
-    cax = fig.add_axes(CBAR_RIGHT_POS)
+    cax = fig.add_axes(CBAR_LEFT_POS)
     cbar = fig.colorbar(im, cax=cax)
+    cbar.ax.yaxis.set_label_position("left")
+    cbar.ax.yaxis.set_ticks_position("left")
     tick_vals = np.linspace(0.0, vmax, 5)
     cbar.set_ticks(tick_vals)
     cbar.set_ticklabels([f"{int(round(v))}" for v in tick_vals])
-    cbar.set_label("ALP signal (a.u.)", fontsize=13.5, labelpad=12)
-    cbar.ax.tick_params(labelsize=11.5, colors="black", width=0.9, length=4.0)
+    cbar.set_label("ALP signal (a.u.)", fontsize=_snap_fs(13.5), labelpad=12)
+    cbar.ax.tick_params(
+        labelsize=_snap_fs(11.5), colors="black", width=0.9, length=4.0
+    )
     _save_snapshot_figure(fig, img_path)
     plt.close(fig)
 

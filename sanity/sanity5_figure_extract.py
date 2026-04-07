@@ -17,10 +17,7 @@ from matplotlib.ticker import MaxNLocator
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent
 INPUT_DEFAULT = SCRIPT_DIR / "out" / "sanity_check5"
-BOOTSTRAP_SAMPLES = 5000
-BOOTSTRAP_SEED = 12345
 REFERENCE_PREFERENCE = ("C2", "C1")
-RELATIVE_EPS = 1e-9
 
 JOURNAL_AXIS_LABEL_PT = 11
 JOURNAL_TICK_PT = 10
@@ -161,18 +158,6 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="write tidy assay-comparison and metrics CSV tables",
     )
-    parser.add_argument(
-        "--bootstrap-samples",
-        type=int,
-        default=BOOTSTRAP_SAMPLES,
-        help="number of bootstrap resamples over conditions for correlation confidence intervals",
-    )
-    parser.add_argument(
-        "--bootstrap-seed",
-        type=int,
-        default=BOOTSTRAP_SEED,
-        help="bootstrap RNG seed",
-    )
     args = parser.parse_args()
     if not (args.main_figure or args.supplement_figure or args.metrics_table):
         args.main_figure = True
@@ -194,7 +179,12 @@ def style_axes(
     ax.set_facecolor("white")
     ax.tick_params(direction="out", length=4.5, width=JOURNAL_AXIS_LINE_PT)
     if grid_axis:
-        ax.grid(axis=grid_axis, color=COLORS["grid"], linewidth=JOURNAL_LINE_PT, alpha=grid_alpha)
+        ax.grid(
+            axis=grid_axis,
+            color=COLORS["grid"],
+            linewidth=JOURNAL_LINE_PT,
+            alpha=grid_alpha,
+        )
 
 
 def condition_tick_label(code: str) -> str:
@@ -231,62 +221,43 @@ def choose_reference_condition(df: pd.DataFrame) -> str:
     return str(df["condition_code"].iloc[0])
 
 
-def relative_effect(
-    values: pd.Series, ref_value: float, eps: float = RELATIVE_EPS
-) -> pd.Series:
+def relative_effect(values: pd.Series, ref_value: float) -> pd.Series:
     vals = values.astype(float)
-    denom = vals.abs() + abs(float(ref_value)) + eps
-    return (vals - float(ref_value)) / denom
+    denom = vals.abs() + abs(float(ref_value))
+    out = pd.Series(np.zeros(len(vals), dtype=float), index=values.index)
+    valid = denom > 0.0
+    out.loc[valid] = (vals.loc[valid] - float(ref_value)) / denom.loc[valid]
+    return out
 
 
 def relative_effect_sd(
-    values: pd.Series, sds: pd.Series, ref_value: float, ref_sd: float, eps: float = RELATIVE_EPS
+    values: pd.Series,
+    sds: pd.Series,
+    ref_value: float,
+    ref_sd: float,
 ) -> pd.Series:
     vals = values.astype(float).to_numpy()
     sd_vals = sds.astype(float).fillna(0.0).to_numpy()
     ref = float(ref_value)
     ref_sd = float(ref_sd)
-    denom = np.abs(vals) + abs(ref) + eps
-    deriv_x = (denom - (vals - ref) * np.sign(vals)) / (denom ** 2)
-    deriv_r = (-denom - (vals - ref) * np.sign(ref if ref != 0 else 1.0)) / (denom ** 2)
-    propagated = np.sqrt((deriv_x * sd_vals) ** 2 + (deriv_r * ref_sd) ** 2)
+    denom = np.abs(vals) + abs(ref)
+    deriv_x = np.zeros_like(vals, dtype=float)
+    deriv_r = np.zeros_like(vals, dtype=float)
+    valid = denom > 0.0
+    deriv_x[valid] = (
+        denom[valid] - (vals[valid] - ref) * np.sign(vals[valid])
+    ) / (denom[valid] ** 2)
+    deriv_r[valid] = (
+        -denom[valid] - (vals[valid] - ref) * np.sign(ref if ref != 0 else 1.0)
+    ) / (denom[valid] ** 2)
+    propagated = np.zeros_like(vals, dtype=float)
+    propagated[valid] = np.sqrt(
+        (deriv_x[valid] * sd_vals[valid]) ** 2 + (deriv_r[valid] * ref_sd) ** 2
+    )
     return pd.Series(propagated, index=values.index)
 
 
-def bootstrap_corr_ci(
-    x: np.ndarray,
-    y: np.ndarray,
-    kind: str,
-    *,
-    n_boot: int,
-    seed: int,
-) -> tuple[float, float]:
-    rng = np.random.default_rng(seed)
-    n = len(x)
-    samples: list[float] = []
-    for _ in range(n_boot):
-        idx = rng.integers(0, n, size=n)
-        xb = x[idx]
-        yb = y[idx]
-        if np.allclose(xb, xb[0]) or np.allclose(yb, yb[0]):
-            continue
-        try:
-            if kind == "spearman":
-                val = float(spearmanr(xb, yb).statistic)
-            else:
-                val = float(pearsonr(xb, yb).statistic)
-        except Exception:
-            continue
-        if np.isfinite(val):
-            samples.append(val)
-    if not samples:
-        return float("nan"), float("nan")
-    return float(np.percentile(samples, 2.5)), float(np.percentile(samples, 97.5))
-
-
-def compute_metrics(
-    df: pd.DataFrame, *, n_boot: int, seed: int
-) -> dict[str, float | int]:
+def compute_metrics(df: pd.DataFrame) -> dict[str, float | int]:
     nonref = df.loc[~df["is_reference"]].copy()
     sim_rel = nonref["sim_rel_effect"].to_numpy(dtype=float)
     exp_rel = nonref["exp_rel_effect"].to_numpy(dtype=float)
@@ -295,34 +266,46 @@ def compute_metrics(
         if len(nonref) > 0
         else np.array([], dtype=bool)
     )
-    kendall_val = float(kendalltau(sim_rel, exp_rel).statistic) if len(nonref) > 1 else float("nan")
-    spearman_val = float(spearmanr(sim_rel, exp_rel).statistic) if len(nonref) > 1 else float("nan")
-    pearson_val = float(pearsonr(sim_rel, exp_rel).statistic) if len(nonref) > 1 else float("nan")
-    rmse_val = float(np.sqrt(np.mean((sim_rel - exp_rel) ** 2))) if len(nonref) else float("nan")
+    kendall_val = (
+        float(kendalltau(sim_rel, exp_rel).statistic)
+        if len(nonref) > 1
+        else float("nan")
+    )
+    spearman_val = (
+        float(spearmanr(sim_rel, exp_rel).statistic)
+        if len(nonref) > 1
+        else float("nan")
+    )
+    pearson_val = (
+        float(pearsonr(sim_rel, exp_rel).statistic) if len(nonref) > 1 else float("nan")
+    )
+    rmse_val = (
+        float(np.sqrt(np.mean((sim_rel - exp_rel) ** 2)))
+        if len(nonref)
+        else float("nan")
+    )
     mae_val = float(np.mean(np.abs(sim_rel - exp_rel))) if len(nonref) else float("nan")
-    spearman_ci_low, spearman_ci_high = bootstrap_corr_ci(
-        sim_rel, exp_rel, "spearman", n_boot=n_boot, seed=seed
+    rank_sim = nonref.sort_values("sim_rel_effect", ascending=False)[
+        "condition_code"
+    ].tolist()
+    rank_exp = nonref.sort_values("exp_rel_effect", ascending=False)[
+        "condition_code"
+    ].tolist()
+    top_condition_match = int(
+        bool(rank_sim and rank_exp and rank_sim[0] == rank_exp[0])
     )
-    pearson_ci_low, pearson_ci_high = bootstrap_corr_ci(
-        sim_rel, exp_rel, "pearson", n_boot=n_boot, seed=seed + 1
-    )
-    rank_sim = nonref.sort_values("sim_rel_effect", ascending=False)["condition_code"].tolist()
-    rank_exp = nonref.sort_values("exp_rel_effect", ascending=False)["condition_code"].tolist()
-    top_condition_match = int(bool(rank_sim and rank_exp and rank_sim[0] == rank_exp[0]))
     top3_recovery = len(set(rank_sim[:3]).intersection(rank_exp[:3]))
     return {
-        "reference_condition": str(df.loc[df["is_reference"], "condition_code"].iloc[0]),
+        "reference_condition": str(
+            df.loc[df["is_reference"], "condition_code"].iloc[0]
+        ),
         "direction_agreement": (
             float(np.mean(direction_match)) if len(direction_match) else float("nan")
         ),
         "direction_agreement_n": int(len(direction_match)),
         "kendall_tau": kendall_val,
         "spearman_rho": spearman_val,
-        "spearman_ci_low": spearman_ci_low,
-        "spearman_ci_high": spearman_ci_high,
         "pearson_r": pearson_val,
-        "pearson_ci_low": pearson_ci_low,
-        "pearson_ci_high": pearson_ci_high,
         "rmse_rel_effect": rmse_val,
         "mae_rel_effect": mae_val,
         "top_condition_match": top_condition_match,
@@ -401,8 +384,6 @@ def load_experimental_assay(exp_dir: Path, assay: str) -> pd.DataFrame:
 def build_assay_frame(
     input_dir: Path,
     assay: str,
-    bootstrap_samples: int,
-    seed_offset: int,
 ) -> tuple[pd.DataFrame, dict[str, float | int]]:
     sim = load_simulation(input_dir)
     exp = load_experimental_assay(resolve_experimental_dir(input_dir), assay)
@@ -437,8 +418,12 @@ def build_assay_frame(
     ref_row = merged.loc[merged["is_reference"]].iloc[0]
     merged["sim_z"] = zscore(merged["sim_mean"])
     merged["exp_z"] = zscore(merged["exp_mean"])
-    merged["sim_rel_effect"] = relative_effect(merged["sim_mean"], float(ref_row["sim_mean"]))
-    merged["exp_rel_effect"] = relative_effect(merged["exp_mean"], float(ref_row["exp_mean"]))
+    merged["sim_rel_effect"] = relative_effect(
+        merged["sim_mean"], float(ref_row["sim_mean"])
+    )
+    merged["exp_rel_effect"] = relative_effect(
+        merged["exp_mean"], float(ref_row["exp_mean"])
+    )
     merged["sim_rel_effect_sd"] = relative_effect_sd(
         merged["sim_mean"],
         merged["sim_sd"],
@@ -459,19 +444,15 @@ def build_assay_frame(
     merged["exp_sd_z"] = (
         merged["exp_sd"].astype(float) / exp_scale if exp_scale > 1e-12 else 0.0
     )
-    metrics = compute_metrics(merged, n_boot=bootstrap_samples, seed=seed_offset)
+    metrics = compute_metrics(merged)
     return merged, metrics
 
 
-def build_all_assays(
-    input_dir: Path, bootstrap_samples: int, bootstrap_seed: int
-) -> tuple[dict[str, pd.DataFrame], pd.DataFrame]:
+def build_all_assays(input_dir: Path) -> tuple[dict[str, pd.DataFrame], pd.DataFrame]:
     assay_frames: dict[str, pd.DataFrame] = {}
     metric_rows: list[dict[str, float | int | str]] = []
-    for i, assay in enumerate(("alp", "collagen", "ars")):
-        frame, metrics = build_assay_frame(
-            input_dir, assay, bootstrap_samples, bootstrap_seed + i
-        )
+    for assay in ("alp", "collagen", "ars"):
+        frame, metrics = build_assay_frame(input_dir, assay)
         assay_frames[assay] = frame
         metric_rows.append(
             {
@@ -528,11 +509,68 @@ def write_tables(
         "interpreted as descriptive trend-agreement metrics across conditions.\n"
     )
     (out_dir / "assay_spearman_validation.txt").write_text(summary, encoding="utf-8")
+    write_relative_effect_condition_text(assay_frames, metrics_df, out_dir)
+
+
+def _relative_state_label(value: float, *, tol: float = 1e-9) -> str:
+    if value > tol:
+        return "higher than reference"
+    if value < -tol:
+        return "lower than reference"
+    return "approximately equal to reference"
+
+
+def write_relative_effect_condition_text(
+    assay_frames: dict[str, pd.DataFrame], metrics_df: pd.DataFrame, out_dir: Path
+) -> None:
+    lines: list[str] = []
+    lines.append(
+        "Relative effect condition-by-condition comparison (simulation vs experiment)"
+    )
+    lines.append(
+        "Reference-centered effect is defined as (x - x_ref) / (|x| + |x_ref|), using C2 when available."
+    )
+    lines.append("")
+
+    for assay in ("alp", "collagen", "ars"):
+        frame = assay_frames[assay].copy()
+        frame["condition"] = pd.Categorical(
+            frame["condition_code"], categories=CONDITION_ORDER, ordered=True
+        )
+        frame = frame.sort_values("condition").reset_index(drop=True)
+        mrow = metrics_df.loc[metrics_df["assay"] == assay].iloc[0]
+        ref_code = str(mrow["reference_condition"])
+        lines.append(
+            f"{ASSAY_SPECS[assay]['title']} (reference={ref_code}, directionality={float(mrow['direction_agreement']):.0%})"
+        )
+        for _, row in frame.iterrows():
+            code = str(row["condition_code"])
+            exp_rel = float(row["exp_rel_effect"])
+            sim_rel = float(row["sim_rel_effect"])
+            exp_state = _relative_state_label(exp_rel)
+            sim_state = _relative_state_label(sim_rel)
+            if bool(row["is_reference"]):
+                lines.append(
+                    f"  {code}: reference condition; exp_rel={exp_rel:+.3f}, sim_rel={sim_rel:+.3f}."
+                )
+                continue
+            direction_match = np.sign(exp_rel) == np.sign(sim_rel)
+            lines.append(
+                f"  {code}: experiment {exp_state} (exp_rel={exp_rel:+.3f}); "
+                f"simulation {sim_state} (sim_rel={sim_rel:+.3f}); "
+                f"direction_match={'yes' if direction_match else 'no'}."
+            )
+        lines.append("")
+
+    (out_dir / "relative_effect_condition_comparison.txt").write_text(
+        "\n".join(lines).rstrip() + "\n",
+        encoding="utf-8",
+    )
 
 
 def main_panel_metric_text(metrics: pd.Series) -> str:
     return (
-        f"Direction agreement = {metrics['direction_agreement']:.0%}\n"
+        f"Sign agreement = {metrics['direction_agreement']:.0%}\n"
         f"Kendall τ = {metrics['kendall_tau']:.2f}\n"
         f"Top-3 recovery = {int(metrics['top3_recovery'])}/3"
     )
@@ -540,10 +578,8 @@ def main_panel_metric_text(metrics: pd.Series) -> str:
 
 def supplement_metric_text(metrics: pd.Series) -> str:
     return (
-        f"Spearman ρ = {metrics['spearman_rho']:.2f}\n"
-        f"Pearson r = {metrics['pearson_r']:.2f}\n"
         f"RMSE(rel) = {metrics['rmse_rel_effect']:.2g}\n"
-        f"MAE(rel) = {metrics['mae_rel_effect']:.2g}"
+        f"MAE = {metrics['mae_rel_effect']:.2g}"
     )
 
 
@@ -559,7 +595,9 @@ def scatter_label_offsets(
     r1 = 0.050 * scale
     r2 = 0.072 * scale
     angles = np.deg2rad(np.arange(0, 360, 30, dtype=float))
-    candidates = [(r * float(np.cos(a)), r * float(np.sin(a))) for r in (r1, r2) for a in angles]
+    candidates = [
+        (r * float(np.cos(a)), r * float(np.sin(a))) for r in (r1, r2) for a in angles
+    ]
 
     n = len(points)
     pairwise = np.linalg.norm(points[:, None, :] - points[None, :, :], axis=2)
@@ -606,14 +644,18 @@ def scatter_label_offsets(
 
 
 def parity_metric_text(metrics: pd.Series) -> str:
-    directionality = metrics["direction_agreement"] if "direction_agreement" in metrics else float("nan")
+    directionality = (
+        metrics["direction_agreement"]
+        if "direction_agreement" in metrics
+        else float("nan")
+    )
     directionality_txt = (
         f"{directionality:.0%}" if np.isfinite(float(directionality)) else "NA"
     )
     return (
         f"τ = {metrics['kendall_tau']:.2f}\n"
-        f"ρ = {metrics['spearman_rho']:.2f}\n"
-        f"Directionality = {directionality_txt}"
+        f"MAE = {metrics['mae_rel_effect']:.2g}\n"
+        f"Sign agreement = {directionality_txt}"
     )
 
 
@@ -638,7 +680,7 @@ def plot_profile_panel(
         yerr=exp_sd,
         color=COLORS["exp_line"],
         marker=spec["marker"],
-        ms=5.0,
+        ms=5.8,
         lw=1.8,
         capsize=2.0,
         capthick=0.8,
@@ -654,7 +696,7 @@ def plot_profile_panel(
         yerr=sim_sd,
         color=COLORS["sim_line"],
         marker="D",
-        ms=4.8,
+        ms=5.6,
         lw=1.4,
         ls=(0, (4, 2)),
         capsize=1.8,
@@ -735,7 +777,7 @@ def plot_standardized_panel(
     ax.scatter(
         exp_z,
         sim_z,
-        s=102,
+        s=116,
         color=COLORS["exp_line"],
         marker=spec["marker"],
         edgecolors="white",
@@ -805,7 +847,9 @@ def write_captions(out_dir: Path) -> None:
 def export_main_figure(
     assay_frames: dict[str, pd.DataFrame], metrics_df: pd.DataFrame, out_dir: Path
 ) -> None:
-    fig, axes = plt.subplots(1, 3, figsize=(12.6, 4.6), sharey=True, constrained_layout=True)
+    fig, axes = plt.subplots(
+        1, 3, figsize=(12.6, 4.6), sharey=True, constrained_layout=True
+    )
     for idx, assay in enumerate(("alp", "collagen", "ars")):
         frame = assay_frames[assay]
         metrics = metrics_df.loc[metrics_df["assay"] == assay].iloc[0]
@@ -819,7 +863,7 @@ def export_main_figure(
             marker=ASSAY_SPECS["alp"]["marker"],
             linestyle="-",
             linewidth=1.8,
-            markersize=5.5,
+            markersize=6.3,
             markeredgecolor="white",
             label="Experiment",
         ),
@@ -830,13 +874,20 @@ def export_main_figure(
             marker="D",
             linestyle=(0, (4, 2)),
             linewidth=1.4,
-            markersize=5.0,
+            markersize=5.8,
             markerfacecolor="white",
             markeredgecolor=COLORS["sim_line"],
             label="Simulation",
         ),
     ]
-    fig.legend(handles=legend_handles, loc="upper center", bbox_to_anchor=(0.5, 0.97), frameon=False, fontsize=10.5, ncol=2)
+    fig.legend(
+        handles=legend_handles,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 0.97),
+        frameon=False,
+        fontsize=10.5,
+        ncol=2,
+    )
     fig.suptitle(
         "Condition-Wise Relative Effect Profiles vs Reference",
         fontsize=14.2,
@@ -849,7 +900,9 @@ def export_main_figure(
 def export_discrete_condition_figure(
     assay_frames: dict[str, pd.DataFrame], metrics_df: pd.DataFrame, out_dir: Path
 ) -> None:
-    fig, axes = plt.subplots(1, 3, figsize=(13.6, 4.8), constrained_layout=True, sharey=True)
+    fig, axes = plt.subplots(
+        1, 3, figsize=(13.6, 4.8), constrained_layout=True, sharey=True
+    )
     panel_titles = {
         "alp": "ALP",
         "collagen": "Collagen",
@@ -895,7 +948,7 @@ def export_discrete_condition_figure(
         ax.scatter(
             exp_rel,
             sim_rel,
-            s=96,
+            s=110,
             color=panel_colors[assay],
             marker=spec["marker"],
             edgecolors="#111111",
@@ -913,7 +966,12 @@ def export_discrete_condition_figure(
                 fontsize=14.5,
                 color=COLORS["ink"],
                 zorder=4,
-                bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.8, "pad": 0.15},
+                bbox={
+                    "facecolor": "white",
+                    "edgecolor": "none",
+                    "alpha": 0.8,
+                    "pad": 0.15,
+                },
             )
 
         ax.text(
@@ -986,7 +1044,7 @@ def export_supplement_figure(
         ax.scatter(
             exp_plot,
             sim_plot,
-            s=78,
+            s=90,
             color=spec["color"],
             marker=spec["marker"],
             edgecolors="white",
@@ -1036,19 +1094,17 @@ def export_supplement_figure(
         pooled_ax.scatter(
             sub["exp_z"],
             sub["sim_z"],
-            s=72,
+            s=84,
             color=spec["color"],
             marker=spec["marker"],
             edgecolors="white",
             linewidths=0.8,
             label=spec["title"],
         )
-    pooled_r = float(pearsonr(pooled["exp_z"], pooled["sim_z"]).statistic)
-    pooled_rho = float(spearmanr(pooled["exp_z"], pooled["sim_z"]).statistic)
     pooled_ax.text(
         0.02,
         0.96,
-        f"Pooled standardized points\nPearson r = {pooled_r:.2f}\nSpearman rho = {pooled_rho:.2f}\nSupplementary view only",
+        "Pooled standardized points\nSupplementary view only",
         transform=pooled_ax.transAxes,
         ha="left",
         va="top",
@@ -1064,7 +1120,12 @@ def export_supplement_figure(
     pooled_ax.set_ylim(-limit, limit)
     pooled_ax.legend(frameon=False, fontsize=8.8, loc="lower right")
 
-    fig.suptitle("Supplementary Raw Calibration Views", fontsize=13.5, fontweight="semibold", y=0.985)
+    fig.suptitle(
+        "Supplementary Raw Calibration Views",
+        fontsize=13.5,
+        fontweight="semibold",
+        y=0.985,
+    )
     fig.subplots_adjust(
         left=0.09, right=0.985, bottom=0.08, top=0.92, wspace=0.30, hspace=0.34
     )
@@ -1074,9 +1135,7 @@ def export_supplement_figure(
 def main() -> None:
     out_dir = args_global.out or (args_global.input / "figure_extract_5")
     out_dir.mkdir(parents=True, exist_ok=True)
-    assay_frames, metrics_df = build_all_assays(
-        args_global.input, args_global.bootstrap_samples, args_global.bootstrap_seed
-    )
+    assay_frames, metrics_df = build_all_assays(args_global.input)
 
     if args_global.metrics_table:
         write_tables(assay_frames, metrics_df, out_dir)
