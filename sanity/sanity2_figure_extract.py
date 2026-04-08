@@ -101,6 +101,18 @@ def parse_args() -> argparse.Namespace:
         default="nn",
         help="replace Edge or NN geometry column in figure_3 heatmap with nodule count at final timepoint",
     )
+    parser.add_argument(
+        "--figure3-geometry-mode",
+        choices=["classic", "patch_density"],
+        default="classic",
+        help="geometry panel mode for figure_3; 'patch_density' replaces Radius/Edge with N_patch and n=N_patch/A",
+    )
+    parser.add_argument(
+        "--domain-area-mm2",
+        type=float,
+        default=1.0,
+        help="domain area A used for patch-density calculation n=N_patch/A (clusters per mm^2)",
+    )
     return parser.parse_args()
 
 
@@ -173,9 +185,59 @@ def row_at_hours(df: pd.DataFrame, hours: int) -> pd.Series:
     return df.loc[idx]
 
 
+def estimate_autocorr_length_xi(field: np.ndarray) -> float:
+    arr = np.asarray(field, dtype=float)
+    if arr.ndim != 2:
+        return float("nan")
+    centered = arr - float(np.mean(arr))
+    var = float(np.mean(centered * centered))
+    if var <= 1e-12:
+        return 0.0
+
+    fft = np.fft.fftn(centered)
+    power = np.abs(fft) ** 2
+    ac = np.fft.ifftn(power).real
+    ac /= max(float(ac[0, 0]), 1e-12)
+
+    h, w = centered.shape
+    yy = np.minimum(np.arange(h), h - np.arange(h))
+    xx = np.minimum(np.arange(w), w - np.arange(w))
+    rr = np.sqrt(yy[:, None] ** 2 + xx[None, :] ** 2)
+    r_max = int(np.floor(min(h, w) / 2))
+    if r_max < 2:
+        return float("nan")
+    bins = np.arange(r_max + 1, dtype=float)
+    radial = np.full(r_max, np.nan, dtype=float)
+    for i in range(r_max):
+        mask = (rr >= bins[i]) & (rr < bins[i + 1])
+        if np.any(mask):
+            radial[i] = float(np.mean(ac[mask]))
+    if not np.isfinite(radial[0]):
+        radial[0] = 1.0
+    target = float(np.exp(-1.0))
+    for i in range(1, len(radial)):
+        c0 = float(radial[i - 1])
+        c1 = float(radial[i])
+        if np.isfinite(c0) and np.isfinite(c1) and (c0 >= target) and (c1 <= target):
+            denom = max(abs(c0 - c1), 1e-12)
+            frac = (c0 - target) / denom
+            return float((i - 1) + np.clip(frac, 0.0, 1.0))
+    return float("nan")
+
+
+def _find_grid_for_day(rep_dir: Path, prefix: str, preferred_day: int) -> Path:
+    preferred = rep_dir / "grids" / f"{prefix}_day_{preferred_day:03d}.npy"
+    if preferred.exists():
+        return preferred
+    candidates = sorted((rep_dir / "grids").glob(f"{prefix}_day_*.npy"))
+    if not candidates:
+        raise SystemExit(f"No {prefix} grids found in {rep_dir / 'grids'}")
+    return candidates[-1]
+
+
 def enrich_replicate_summary(replicate_summary: pd.DataFrame, assay_hours: dict[str, int]) -> pd.DataFrame:
     df = replicate_summary.copy()
-    assay_values = {"assay_alp": [], "assay_collagen": [], "assay_ha": []}
+    assay_values = {"assay_alp": [], "assay_collagen": [], "assay_ha": [], "spatial_autocorr_xi": []}
     for _, row in df.iterrows():
         out_dir = Path(str(row["out_dir"]))
         ts_path = out_dir / "timeseries.csv"
@@ -185,6 +247,10 @@ def enrich_replicate_summary(replicate_summary: pd.DataFrame, assay_hours: dict[
         assay_values["assay_alp"].append(float(row_at_hours(ts, assay_hours["alp"])["alp_total"]))
         assay_values["assay_collagen"].append(float(row_at_hours(ts, assay_hours["collagen"])["collagen_total"]))
         assay_values["assay_ha"].append(float(row_at_hours(ts, assay_hours["ha"])["ha_total"]))
+        target_day = int(round(float(assay_hours["ha"]) / 24.0))
+        ha_grid_path = _find_grid_for_day(out_dir, "ha", target_day)
+        ha_grid = np.load(ha_grid_path).astype(float)
+        assay_values["spatial_autocorr_xi"].append(float(estimate_autocorr_length_xi(ha_grid)))
     for key, values in assay_values.items():
         df[key] = values
     return df
@@ -234,6 +300,7 @@ def build_condition_summary(replicate_summary: pd.DataFrame) -> pd.DataFrame:
         "assay_alp",
         "assay_collagen",
         "assay_ha",
+        "spatial_autocorr_xi",
         "final_alp",
         "final_collagen",
         "final_ha",
@@ -359,7 +426,7 @@ def compute_statistics(replicate_summary: pd.DataFrame, assay_hours: dict[str, i
     return pd.DataFrame(rows).sort_values(["metric", "condition_index"]).reset_index(drop=True)
 
 
-def prep_summary(summary: pd.DataFrame) -> pd.DataFrame:
+def prep_summary(summary: pd.DataFrame, domain_area_mm2: float) -> pd.DataFrame:
     df = summary.copy().sort_values("condition_index").reset_index(drop=True)
     base = df.iloc[0]
     for mean_src, sd_src, pct_dest, sd_dest in [
@@ -373,6 +440,14 @@ def prep_summary(summary: pd.DataFrame) -> pd.DataFrame:
         denom = max(float(base[mean_src]), 1e-12)
         df[pct_dest] = 100.0 * (df[mean_src] - float(base[mean_src])) / denom
         df[sd_dest] = 100.0 * df[sd_src].astype(float) / denom
+    area = float(domain_area_mm2)
+    if area <= 0.0:
+        raise SystemExit(f"--domain-area-mm2 must be > 0 (got {area})")
+    df["domain_area_mm2"] = area
+    df["final_n_patch_mean"] = df["final_nodule_count_mean"].astype(float)
+    df["final_n_patch_sd"] = df["final_nodule_count_sd"].astype(float)
+    df["patch_density_mm2_mean"] = df["final_n_patch_mean"] / area
+    df["patch_density_mm2_sd"] = df["final_n_patch_sd"] / area
     df["condition_label"] = [f"C{int(i):02d}" for i in df["condition_index"]]
     df["row_label"] = df["condition_label"] + "  " + df["slug"]
     return df
@@ -411,12 +486,16 @@ def write_report(
         "",
         "## Endpoint table",
         "",
-        f"| Condition | {assay_label('alp', assay_hours['alp'])} | {assay_label('collagen', assay_hours['collagen'])} | {assay_label('ha', assay_hours['ha'])} | Final live |",
-        "| --- | ---: | ---: | ---: | ---: |",
+        f"| Condition | {assay_label('alp', assay_hours['alp'])} | {assay_label('collagen', assay_hours['collagen'])} | {assay_label('ha', assay_hours['ha'])} | Final live | Nodules | Autocorrelation (xi) |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for _, row in condition_summary.iterrows():
+        n_patch_mean = float(row["final_nodule_count_mean"])
+        n_patch_sd = float(row["final_nodule_count_sd"])
+        xi_mean = float(row["spatial_autocorr_xi_mean"])
+        xi_sd = float(row["spatial_autocorr_xi_sd"])
         lines.append(
-            f"| C{int(row['condition_index']):02d} `{row['slug']}` | {_fmt(row['assay_alp_mean'])} +/- {_fmt(row['assay_alp_sd'])} | {_fmt(row['assay_collagen_mean'])} +/- {_fmt(row['assay_collagen_sd'])} | {_fmt(row['assay_ha_mean'])} +/- {_fmt(row['assay_ha_sd'])} | {_fmt(row['final_live_mean'])} +/- {_fmt(row['final_live_sd'])} |"
+            f"| C{int(row['condition_index']):02d} | {_fmt(row['assay_alp_mean'])} +/- {_fmt(row['assay_alp_sd'])} | {_fmt(row['assay_collagen_mean'])} +/- {_fmt(row['assay_collagen_sd'])} | {_fmt(row['assay_ha_mean'])} +/- {_fmt(row['assay_ha_sd'])} | {_fmt(row['final_live_mean'])} +/- {_fmt(row['final_live_sd'])} | {_fmt(n_patch_mean)} +/- {_fmt(n_patch_sd)} | {_fmt(xi_mean)} +/- {_fmt(xi_sd)} |"
         )
     lines.extend(["", "## Statistical summary", "", "| Metric | Omnibus p | Significant vs control after Holm |", "| --- | ---: | --- |"])
     for metric in PRIMARY_METRICS:
@@ -534,6 +613,7 @@ def export_ecm_overview_heatmap(
     out_dir: Path,
     assay_hours: dict[str, int],
     nodule_column_mode: str = "nn",
+    geometry_mode: str = "classic",
 ) -> None:
     ordered = reorder_rows(df, "final_ha_pct")
     value_cols = [
@@ -553,16 +633,16 @@ def export_ecm_overview_heatmap(
     vmax = max(2.0, float(np.max(np.abs(values))))
     cmap = response_cmap()
 
-    fig = plt.figure(figsize=(11.2, 10.0))
+    fig = plt.figure(figsize=(13.8, 12.4))
     gs = gridspec.GridSpec(1, 2, width_ratios=[3.2, 1.55], wspace=0.16)
     ax_main = fig.add_subplot(gs[0, 0])
     ax_geo = fig.add_subplot(gs[0, 1], sharey=ax_main)
 
     im = ax_main.imshow(values, aspect="auto", cmap=cmap, vmin=-vmax, vmax=vmax)
     ax_main.set_xticks(np.arange(len(value_labels)), value_labels, rotation=24, ha="right")
-    ax_main.set_yticks(np.arange(len(ordered)), ordered["row_label"])
-    ax_main.tick_params(axis="x", labelsize=10.5)
-    ax_main.tick_params(axis="y", length=0, labelsize=10.0)
+    ax_main.set_yticks(np.arange(len(ordered)), ordered["condition_label"])
+    ax_main.tick_params(axis="x", labelsize=15.5)
+    ax_main.tick_params(axis="y", length=0, labelsize=15.5)
     for spine in ax_main.spines.values():
         spine.set_visible(False)
     for i in range(values.shape[0]):
@@ -573,7 +653,7 @@ def export_ecm_overview_heatmap(
                 f"{values[i, j]:+.1f}",
                 ha="center",
                 va="center",
-                fontsize=9.6,
+                fontsize=13.8,
                 color=COLORS["ink"],
             )
 
@@ -581,12 +661,16 @@ def export_ecm_overview_heatmap(
     ax_main.axhline(control_row - 0.5, color=COLORS["control"], lw=1.2)
     ax_main.axhline(control_row + 0.5, color=COLORS["control"], lw=1.2)
 
-    geo_cols = ["seed_mean_radius_mean", "seed_edge_fraction_mean", "seed_mean_nearest_neighbor_mean"]
-    geo_labels = ["Radius", "Edge", "NN"]
-    if nodule_column_mode in {"edge", "nn"}:
-        replace_idx = 1 if nodule_column_mode == "edge" else 2
-        geo_cols[replace_idx] = "final_nodule_count_mean"
-        geo_labels[replace_idx] = "Nodules"
+    if geometry_mode == "patch_density":
+        geo_cols = ["final_n_patch_mean", "spatial_autocorr_xi_mean"]
+        geo_labels = ["Nodules", "Autocorrelation"]
+    else:
+        geo_cols = ["seed_mean_radius_mean", "seed_edge_fraction_mean", "seed_mean_nearest_neighbor_mean"]
+        geo_labels = ["Radius", "Edge", "NN"]
+        if nodule_column_mode in {"edge", "nn"}:
+            replace_idx = 1 if nodule_column_mode == "edge" else 2
+            geo_cols[replace_idx] = "final_nodule_count_mean"
+            geo_labels[replace_idx] = "Nodules"
     geo = ordered[geo_cols].to_numpy(dtype=float)
     control_idx_arr = np.where(ordered["condition_index"].to_numpy(dtype=int) == 1)[0]
     control_geo = geo[int(control_idx_arr[0])] if control_idx_arr.size else geo[0]
@@ -601,7 +685,7 @@ def export_ecm_overview_heatmap(
     geo_norm = TwoSlopeNorm(vmin=-geo_vmax, vcenter=0.0, vmax=geo_vmax)
     geo_im = ax_geo.imshow(geo_diff, aspect="auto", cmap=response_cmap(), norm=geo_norm)
     ax_geo.set_xticks(np.arange(len(geo_labels)), geo_labels, rotation=18, ha="center")
-    ax_geo.tick_params(axis="x", pad=8, labelsize=10.0)
+    ax_geo.tick_params(axis="x", pad=12, labelsize=14.5)
     ax_geo.tick_params(axis="y", labelleft=False, length=0)
     for spine in ax_geo.spines.values():
         spine.set_visible(False)
@@ -609,16 +693,22 @@ def export_ecm_overview_heatmap(
         for j in range(geo.shape[1]):
             if geo_labels[j] == "Nodules":
                 val_txt = f"{geo[i, j]:.1f}"
+            elif geo_labels[j] == "N_patch":
+                val_txt = f"{geo[i, j]:.1f}"
+            elif geo_labels[j] == "n (/mm^2)":
+                val_txt = f"{geo[i, j]:.3f}"
+            elif geo_labels[j] == "Autocorrelation":
+                val_txt = f"{geo[i, j]:.3f}"
             else:
                 val_txt = f"{geo[i, j]:.2f}"
-            ax_geo.text(j, i, val_txt, ha="center", va="center", fontsize=9.2, color=COLORS["ink"])
+            ax_geo.text(j, i, val_txt, ha="center", va="center", fontsize=13.2, color=COLORS["ink"])
 
-    fig.suptitle("Relative endpoint response heatmap", fontsize=16.5, fontweight="semibold", y=0.955)
+    fig.suptitle("Relative endpoint response heatmap", fontsize=25.0, fontweight="semibold", y=0.968)
     cbar = fig.colorbar(im, ax=ax_main, fraction=0.028, pad=0.016)
-    cbar.set_label("% difference vs C01", fontsize=10.5)
-    cbar.ax.tick_params(labelsize=9.5)
+    cbar.set_label("% difference vs C01", fontsize=14.0)
+    cbar.ax.tick_params(labelsize=13.0)
     # Geometry side uses color for % vs C01 but displays raw values in-cell; no extra colorbar.
-    fig.subplots_adjust(top=0.90, right=0.96, bottom=0.14)
+    fig.subplots_adjust(top=0.93, right=0.975, bottom=0.18)
     save_figure(fig, out_dir, "figure_3_ecm_overview_heatmap")
 
 
@@ -981,9 +1071,15 @@ def main() -> None:
     stats_df = compute_statistics(replicate_df, assay_hours)
     condition_summary.to_csv(args.input / "summary.csv", index=False)
     write_statistics_tables(stats_df, args.input)
-    write_report(condition_summary, replicate_df, stats_df, args.input, assay_hours)
+    write_report(
+        condition_summary,
+        replicate_df,
+        stats_df,
+        args.input,
+        assay_hours,
+    )
 
-    summary = prep_summary(condition_summary)
+    summary = prep_summary(condition_summary, domain_area_mm2=float(args.domain_area_mm2))
     export_assay_triptych(summary, stats_df, out_dir, assay_hours)
     export_hap_collagen_map(summary, out_dir, assay_hours)
     export_ecm_overview_heatmap(
@@ -991,6 +1087,7 @@ def main() -> None:
         out_dir,
         assay_hours,
         nodule_column_mode=args.figure3_nodule_column,
+        geometry_mode=args.figure3_geometry_mode,
     )
     export_ecm_fingerprint(summary, replicate_df, out_dir, assay_hours)
     export_geometry_heatmap(summary, out_dir)
