@@ -1,0 +1,15 @@
+Global heterogeneity (CV = sigma_I / mu_I)
+Channel=green; normalization=percentile (p_low=1, p_high=99); window=32px
+Test: Mann-Whitney U (two-sided)
+Multiple testing: Benjamini-Hochberg across C2-vs-target comparisons
+Alpha: 0.05
+Kruskal-Wallis across all conditions: H=40.97, p=8.217e-07
+
+Pairwise comparisons vs C2
+  C1 vs C2: p_raw=0.0004123, p_adj=0.002886
+  C3 vs C2: p_raw=0.2893, p_adj=0.3375
+  C4 vs C2: p_raw=1, p_adj=1
+  C5 vs C2: p_raw=0.001998, p_adj=0.004661
+  C6 vs C2: p_raw=0.001478, p_adj=0.004661
+  C7 vs C2: p_raw=0.01044, p_adj=0.01828
+  C8 vs C2: p_raw=0.1333, p_adj=0.1866
