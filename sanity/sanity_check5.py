@@ -220,6 +220,19 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="forward --runtime to main.py for progress logging",
     )
+    parser.add_argument(
+        "--snapshots",
+        dest="snapshots",
+        action="store_true",
+        help="force raw grid snapshots (.npy) from main.py",
+    )
+    parser.add_argument(
+        "--no-snapshots",
+        dest="snapshots",
+        action="store_false",
+        help="disable raw grid snapshots (.npy) from main.py",
+    )
+    parser.set_defaults(snapshots=False)
     args = parser.parse_args()
     if args.replicates <= 0:
         raise SystemExit("--replicates must be >= 1")
@@ -287,6 +300,7 @@ def build_command(
     spec: ConditionSpec,
     python_exe: str,
     runtime: bool,
+    snapshots: bool,
     seed: int,
     out_dir: Path,
 ) -> list[str]:
@@ -297,6 +311,7 @@ def build_command(
     cmd += ["--mk4-conc", f"{spec.mk4_uM:.10g}"]
     cmd += ["--out", str(out_dir)]
     cmd += commitment_flag(spec)
+    cmd += ["--snapshots"] if snapshots else ["--no-snapshots"]
     if runtime:
         cmd += ["--runtime"]
     return cmd
@@ -311,11 +326,12 @@ def run_condition(
     overwrite: bool,
     dry_run: bool,
     runtime: bool,
+    snapshots: bool,
 ) -> RunResult:
     run_out_dir = spec.out_dir / f"r{replicate_index:02d}"
     run_out_dir.mkdir(parents=True, exist_ok=True)
     timeseries_path = run_out_dir / "timeseries.csv"
-    cmd = build_command(spec, python_exe, runtime, seed, run_out_dir)
+    cmd = build_command(spec, python_exe, runtime, snapshots, seed, run_out_dir)
     command_str = shlex.join(cmd)
 
     if timeseries_path.exists() and not overwrite:
@@ -622,6 +638,7 @@ def main() -> None:
                 overwrite=args.overwrite,
                 dry_run=args.dry_run,
                 runtime=args.runtime,
+                snapshots=args.snapshots,
             )
             results.append(result)
             if not result.success:

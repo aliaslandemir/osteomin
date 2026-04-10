@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import math
 import sys
@@ -140,6 +141,21 @@ def parse_args() -> argparse.Namespace:
         help="print runtime progress from the underlying model",
     )
     parser.add_argument(
+        "--jobs",
+        type=int,
+        default=1,
+        help="number of conditions to run in parallel",
+    )
+    parser.add_argument(
+        "--seed-scheme",
+        choices=["randomized", "deterministic"],
+        default="randomized",
+        help=(
+            "deterministic uses arithmetic seed offsets; randomized draws "
+            "structured seeds from RNG streams derived from --seed"
+        ),
+    )
+    parser.add_argument(
         "--overwrite",
         action="store_true",
         help="rerun conditions even if cached outputs already exist",
@@ -153,6 +169,8 @@ def parse_args() -> argparse.Namespace:
         raise SystemExit("--hours must be >= 1")
     if args.w <= 0 or args.h <= 0:
         raise SystemExit("--w and --h must be >= 1")
+    if args.jobs <= 0:
+        raise SystemExit("--jobs must be >= 1")
     return args
 
 
@@ -228,7 +246,7 @@ def build_configs(width: int, height: int) -> tuple[ABMConfig, FieldConfig]:
     return abm_cfg, field_cfg
 
 
-def make_condition_specs(seed: int) -> list[ConditionSpec]:
+def make_condition_specs(seed: int, seed_scheme: str = "randomized") -> list[ConditionSpec]:
     titles = [
         ("base_random", "Condition 1: Uniform random", "Control layout spanning the full domain with unbiased random seeding."),
         ("center_cluster", "Condition 2: Central cluster", "Cells are sampled from a compact disk around the geometric center."),
@@ -246,16 +264,34 @@ def make_condition_specs(seed: int) -> list[ConditionSpec]:
         ("radial_spokes", "Condition 14: Radial spokes", "Cells are distributed along multiple radial spokes emerging from the center."),
         ("ring_periphery", "Condition 15: Peripheral ring", "Cells are initialized on an annular ring surrounding the center to emphasize boundary-facing growth fronts."),
     ]
-    return [
-        ConditionSpec(
-            index=i + 1,
-            slug=slug,
-            title=title,
-            description=description,
-            layout_seed=seed + 1000 + i * 101,
+    specs: list[ConditionSpec] = []
+    if seed_scheme == "deterministic":
+        for i, (slug, title, description) in enumerate(titles):
+            specs.append(
+                ConditionSpec(
+                    index=i + 1,
+                    slug=slug,
+                    title=title,
+                    description=description,
+                    layout_seed=seed + 1000 + i * 101,
+                )
+            )
+        return specs
+
+    # Structured but randomized condition seeds, reproducible from --seed.
+    rng = np.random.default_rng(seed + 1000)
+    cond_layout_seeds = rng.integers(1, np.iinfo(np.int32).max, size=len(titles), endpoint=False)
+    for i, (slug, title, description) in enumerate(titles):
+        specs.append(
+            ConditionSpec(
+                index=i + 1,
+                slug=slug,
+                title=title,
+                description=description,
+                layout_seed=int(cond_layout_seeds[i]),
+            )
         )
-        for i, (slug, title, description) in enumerate(titles)
-    ]
+    return specs
 
 
 def _all_sites(width: int, height: int) -> list[tuple[int, int]]:
@@ -581,14 +617,20 @@ def run_replicate(
     height: int,
     show_runtime: bool,
     overwrite: bool,
+    seed_scheme: str,
 ) -> ReplicateResult:
     replicate_dir = condition_dir / f"replicate{replicate_index:02d}"
     replicate_dir.mkdir(parents=True, exist_ok=True)
     final_day = total_hours // HOURS_PER_DAY
-    layout_seed = spec.layout_seed + replicate_index * 10007
+    if seed_scheme == "deterministic":
+        layout_seed = spec.layout_seed + replicate_index * 10007
+        model_seed_rep = model_seed + spec.index * 1000 + replicate_index
+    else:
+        rep_rng = np.random.default_rng(spec.layout_seed + replicate_index * 7919)
+        layout_seed = int(rep_rng.integers(1, np.iinfo(np.int32).max, endpoint=False))
+        model_seed_rep = int(rep_rng.integers(1, np.iinfo(np.int32).max, endpoint=False))
     coords = generate_layout(spec, width, height, n_cells, layout_seed)
     layout_metrics = summarize_layout(coords, width, height)
-    model_seed_rep = model_seed + spec.index * 1000 + replicate_index
 
     pd.DataFrame(coords, columns=["x", "y"]).to_csv(replicate_dir / "seed_coords.csv", index=False)
     (replicate_dir / "replicate.json").write_text(
@@ -629,8 +671,9 @@ def run_replicate(
             abm_cfg=abm_cfg,
             field_cfg=field_cfg,
             seed=model_seed_rep,
-            spatial_every=24,
-            spatial_days=[],
+            # Export only boundary snapshots (day 0 and final day) to reduce I/O.
+            spatial_every=0,
+            spatial_days=sorted({0, final_day}),
             snapshots_enabled=True,
             unique_id_tracking=False,
             hourly_exports=False,
@@ -676,6 +719,7 @@ def run_condition(
     replicates: int,
     show_runtime: bool,
     overwrite: bool,
+    seed_scheme: str,
 ) -> ConditionResult:
     condition_dir = out_root / "conditions" / f"condition{spec.index:02d}_{spec.slug}"
     condition_dir.mkdir(parents=True, exist_ok=True)
@@ -693,6 +737,7 @@ def run_condition(
             height=height,
             show_runtime=show_runtime,
             overwrite=overwrite,
+            seed_scheme=seed_scheme,
         )
         for rep_idx in range(1, replicates + 1)
     ]
@@ -1285,26 +1330,56 @@ def main() -> None:
     args.out.mkdir(parents=True, exist_ok=True)
 
     abm_cfg, field_cfg = build_configs(args.w, args.h)
-    specs = make_condition_specs(args.seed)
-    results = []
+    specs = make_condition_specs(args.seed, seed_scheme=args.seed_scheme)
+    results: list[ConditionResult] = []
 
-    for spec in specs:
-        print(f"[run] {spec.title}")
-        result = run_condition(
-            spec=spec,
-            out_root=args.out,
-            abm_cfg=abm_cfg,
-            field_cfg=field_cfg,
-            model_seed=args.seed,
-            total_hours=args.hours,
-            n_cells=args.cells,
-            width=args.w,
-            height=args.h,
-            replicates=args.replicates,
-            show_runtime=args.runtime,
-            overwrite=args.overwrite,
-        )
-        results.append(result)
+    if args.jobs == 1:
+        for spec in specs:
+            print(f"[run] {spec.title}")
+            result = run_condition(
+                spec=spec,
+                out_root=args.out,
+                abm_cfg=abm_cfg,
+                field_cfg=field_cfg,
+                model_seed=args.seed,
+                total_hours=args.hours,
+                n_cells=args.cells,
+                width=args.w,
+                height=args.h,
+                replicates=args.replicates,
+                show_runtime=args.runtime,
+                overwrite=args.overwrite,
+                seed_scheme=args.seed_scheme,
+            )
+            results.append(result)
+    else:
+        print(f"[run] launching {len(specs)} conditions with --jobs={args.jobs}")
+        with ThreadPoolExecutor(max_workers=args.jobs) as ex:
+            fut_to_spec = {
+                ex.submit(
+                    run_condition,
+                    spec=spec,
+                    out_root=args.out,
+                    abm_cfg=abm_cfg,
+                    field_cfg=field_cfg,
+                    model_seed=args.seed,
+                    total_hours=args.hours,
+                    n_cells=args.cells,
+                    width=args.w,
+                    height=args.h,
+                    replicates=args.replicates,
+                    show_runtime=args.runtime,
+                    overwrite=args.overwrite,
+                    seed_scheme=args.seed_scheme,
+                ): spec
+                for spec in specs
+            }
+            for fut in as_completed(fut_to_spec):
+                spec = fut_to_spec[fut]
+                result = fut.result()
+                print(f"[done] {spec.title}")
+                results.append(result)
+        results.sort(key=lambda r: r.spec.index)
 
     replicate_summary = build_replicate_summary(results)
     replicate_summary.to_csv(args.out / "replicate_summary.csv", index=False)
@@ -1317,7 +1392,9 @@ def main() -> None:
                 "cells": args.cells,
                 "grid": {"w": args.w, "h": args.h},
                 "model_seed": args.seed,
+                "seed_scheme": args.seed_scheme,
                 "replicates": args.replicates,
+                "jobs": args.jobs,
                 "alp_hours": ALP_HOURS,
                 "collagen_hours": COLLAGEN_HOURS,
                 "mineral_hours": MINERAL_HOURS,

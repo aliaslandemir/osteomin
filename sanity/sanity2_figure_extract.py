@@ -458,15 +458,16 @@ def write_statistics_tables(stats_df: pd.DataFrame, out_dir: Path) -> None:
     lines = [
         "# Sanity Check 2 Statistics",
         "",
-        "| Metric | Condition | Mean | SD | Delta vs control | Percent vs control | U | p | p_adj | Significant |",
-        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+        "| Metric | Condition | Mean +/- SD | Delta vs control | Percent vs control | U | p | p_adj | Significant |",
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
     ]
     for _, row in stats_df.iterrows():
         u_text = _fmt(float(row["u_stat"])) if not pd.isna(row["u_stat"]) else "NA"
         p_text = _fmt_p(float(row["p_value"])) if not pd.isna(row["p_value"]) else "NA"
         p_adj_text = _fmt_p(float(row["p_adj"])) if not pd.isna(row["p_adj"]) else "NA"
+        mean_pm_sd = f"{_fmt(float(row['mean']))} +/- {_fmt(float(row['sd']))}"
         lines.append(
-            f"| {row['metric_label']} | C{int(row['condition_index']):02d} `{row['slug']}` | {_fmt(float(row['mean']))} | {_fmt(float(row['sd']))} | {_fmt(float(row['delta_vs_control']))} | {float(row['pct_vs_control']):+.1f}% | {u_text} | {p_text} | {p_adj_text} | {'yes' if bool(row['significant_vs_control']) else 'no'} |"
+            f"| {row['metric_label']} | C{int(row['condition_index']):02d} `{row['slug']}` | {mean_pm_sd} | {_fmt(float(row['delta_vs_control']))} | {float(row['pct_vs_control']):+.1f}% | {u_text} | {p_text} | {p_adj_text} | {'yes' if bool(row['significant_vs_control']) else 'no'} |"
         )
     (out_dir / "statistics.md").write_text("\n".join(lines), encoding="utf-8")
 
@@ -504,7 +505,54 @@ def write_report(
         global_p_text = _fmt_p(float(global_p.iloc[0])) if not global_p.empty else "NA"
         sig_conditions = [f"C{int(idx):02d}" for idx in subset.loc[subset["significant_vs_control"], "condition_index"].tolist()]
         lines.append(f"| {metric_label(metric, assay_hours)} | {global_p_text} | {', '.join(sig_conditions) if sig_conditions else 'none'} |")
+    lines.extend(
+        [
+            "",
+            "## Nodule and autocorrelation focus",
+            "",
+            "| Condition | Nodules (mean +/- SD) | Autocorrelation xi (mean +/- SD) |",
+            "| --- | ---: | ---: |",
+        ]
+    )
+    for _, row in condition_summary.iterrows():
+        lines.append(
+            f"| C{int(row['condition_index']):02d} | {_fmt(float(row['final_nodule_count_mean']))} +/- {_fmt(float(row['final_nodule_count_sd']))} | {_fmt(float(row['spatial_autocorr_xi_mean']))} +/- {_fmt(float(row['spatial_autocorr_xi_sd']))} |"
+        )
     (out_dir / "report.md").write_text("\n".join(lines), encoding="utf-8")
+
+
+def export_nodule_autocorr_focus(df: pd.DataFrame, out_dir: Path) -> None:
+    ordered = df.sort_values("condition_index").reset_index(drop=True)
+    labels = ordered["condition_label"].tolist()
+    x = np.arange(len(ordered), dtype=float)
+
+    nodule_mean = ordered["final_nodule_count_mean"].to_numpy(dtype=float)
+    nodule_sd = ordered["final_nodule_count_sd"].to_numpy(dtype=float)
+    xi_mean = ordered["spatial_autocorr_xi_mean"].to_numpy(dtype=float)
+    xi_sd = ordered["spatial_autocorr_xi_sd"].to_numpy(dtype=float)
+
+    fig, axes = plt.subplots(1, 2, figsize=(13.2, 5.4), constrained_layout=True)
+    ax0, ax1 = axes
+
+    style_axes(ax0, "y")
+    ax0.bar(x, nodule_mean, color="#5b8fd7", alpha=0.68, edgecolor=COLORS["ink"], linewidth=0.8)
+    ax0.errorbar(x, nodule_mean, yerr=nodule_sd, fmt="none", ecolor=COLORS["ink"], elinewidth=1.0, capsize=3)
+    for i in range(len(x)):
+        ax0.text(x[i], nodule_mean[i] + nodule_sd[i] + 0.08, f"{_fmt(nodule_mean[i])} +/- {_fmt(nodule_sd[i])}", ha="center", va="bottom", fontsize=7.4)
+    ax0.set_xticks(x, labels, rotation=45, ha="right")
+    ax0.set_ylabel("Nodules (final count)")
+    ax0.set_title("A  Nodule Count (mean +/- SD)", loc="left")
+
+    style_axes(ax1, "y")
+    ax1.bar(x, xi_mean, color="#f59e66", alpha=0.68, edgecolor=COLORS["ink"], linewidth=0.8)
+    ax1.errorbar(x, xi_mean, yerr=xi_sd, fmt="none", ecolor=COLORS["ink"], elinewidth=1.0, capsize=3)
+    for i in range(len(x)):
+        ax1.text(x[i], xi_mean[i] + xi_sd[i] + 0.02, f"{_fmt(xi_mean[i])} +/- {_fmt(xi_sd[i])}", ha="center", va="bottom", fontsize=7.4)
+    ax1.set_xticks(x, labels, rotation=45, ha="right")
+    ax1.set_ylabel("Autocorrelation length xi")
+    ax1.set_title("B  Spatial Autocorrelation (mean +/- SD)", loc="left")
+
+    save_figure(fig, out_dir, "figure_2_nodules_autocorr_focus")
 
 
 def reorder_rows(df: pd.DataFrame, sort_col: str, ascending: bool = False) -> pd.DataFrame:
@@ -624,12 +672,18 @@ def export_ecm_overview_heatmap(
         "final_collagen_pct",
         "final_live_pct",
     ]
+    value_sd_cols = [
+        "assay_alp_pct_sd",
+        "assay_collagen_pct_sd",
+        "assay_ha_pct_sd",
+    ]
     value_labels = [
         f"ALP {assay_hours['alp']} h",
         f"Collagen {assay_hours['collagen']} h",
         f"HAp {assay_hours['ha']} h",
     ]
     values = ordered[value_cols[:3]].to_numpy(dtype=float)
+    values_sd = ordered[value_sd_cols].to_numpy(dtype=float)
     vmax = max(2.0, float(np.max(np.abs(values))))
     cmap = response_cmap()
 
@@ -650,10 +704,10 @@ def export_ecm_overview_heatmap(
             ax_main.text(
                 j,
                 i,
-                f"{values[i, j]:+.1f}",
+                f"{values[i, j]:+.1f} ± {values_sd[i, j]:.1f}",
                 ha="center",
                 va="center",
-                fontsize=13.8,
+                fontsize=10.6,
                 color=COLORS["ink"],
             )
 
@@ -661,29 +715,16 @@ def export_ecm_overview_heatmap(
     ax_main.axhline(control_row - 0.5, color=COLORS["control"], lw=1.2)
     ax_main.axhline(control_row + 0.5, color=COLORS["control"], lw=1.2)
 
-    if geometry_mode == "patch_density":
-        geo_cols = ["final_n_patch_mean", "spatial_autocorr_xi_mean"]
-        geo_labels = ["Nodules", "Autocorrelation"]
-    else:
-        geo_cols = ["seed_mean_radius_mean", "seed_edge_fraction_mean", "seed_mean_nearest_neighbor_mean"]
-        geo_labels = ["Radius", "Edge", "NN"]
-        if nodule_column_mode in {"edge", "nn"}:
-            replace_idx = 1 if nodule_column_mode == "edge" else 2
-            geo_cols[replace_idx] = "final_nodule_count_mean"
-            geo_labels[replace_idx] = "Nodules"
+    # Right panel is a focused report: nodules + spatial autocorrelation.
+    geo_cols = ["final_n_patch_mean", "spatial_autocorr_xi_mean"]
+    geo_sd_cols = ["final_n_patch_sd", "spatial_autocorr_xi_sd"]
+    geo_labels = ["Nodules", "Autocorrelation"]
     geo = ordered[geo_cols].to_numpy(dtype=float)
-    control_idx_arr = np.where(ordered["condition_index"].to_numpy(dtype=int) == 1)[0]
-    control_geo = geo[int(control_idx_arr[0])] if control_idx_arr.size else geo[0]
-    geo_diff = np.zeros_like(geo)
-    for j in range(geo.shape[1]):
-        base = float(control_geo[j])
-        if abs(base) > 1e-12:
-            geo_diff[:, j] = 100.0 * (geo[:, j] - base) / abs(base)
-        else:
-            geo_diff[:, j] = geo[:, j] - base
-    geo_vmax = max(1.0, float(np.nanmax(np.abs(geo_diff))))
-    geo_norm = TwoSlopeNorm(vmin=-geo_vmax, vcenter=0.0, vmax=geo_vmax)
-    geo_im = ax_geo.imshow(geo_diff, aspect="auto", cmap=response_cmap(), norm=geo_norm)
+    geo_sd = ordered[geo_sd_cols].to_numpy(dtype=float)
+    # Right panel is a plain two-column report (no heatmap coloring).
+    geo_bg = np.zeros_like(geo, dtype=float)
+    neutral_cmap = LinearSegmentedColormap.from_list("geo_plain", ["#f2f2f2", "#f2f2f2"])
+    ax_geo.imshow(geo_bg, aspect="auto", cmap=neutral_cmap, vmin=0.0, vmax=1.0)
     ax_geo.set_xticks(np.arange(len(geo_labels)), geo_labels, rotation=18, ha="center")
     ax_geo.tick_params(axis="x", pad=12, labelsize=14.5)
     ax_geo.tick_params(axis="y", labelleft=False, length=0)
@@ -692,22 +733,23 @@ def export_ecm_overview_heatmap(
     for i in range(geo.shape[0]):
         for j in range(geo.shape[1]):
             if geo_labels[j] == "Nodules":
-                val_txt = f"{geo[i, j]:.1f}"
+                val_txt = f"{geo[i, j]:.1f} ± {geo_sd[i, j]:.1f}"
             elif geo_labels[j] == "N_patch":
-                val_txt = f"{geo[i, j]:.1f}"
+                val_txt = f"{geo[i, j]:.1f} ± {geo_sd[i, j]:.1f}"
             elif geo_labels[j] == "n (/mm^2)":
-                val_txt = f"{geo[i, j]:.3f}"
+                val_txt = f"{geo[i, j]:.3f} ± {geo_sd[i, j]:.3f}"
             elif geo_labels[j] == "Autocorrelation":
-                val_txt = f"{geo[i, j]:.3f}"
+                val_txt = f"{geo[i, j]:.3f} ± {geo_sd[i, j]:.3f}"
             else:
-                val_txt = f"{geo[i, j]:.2f}"
-            ax_geo.text(j, i, val_txt, ha="center", va="center", fontsize=13.2, color=COLORS["ink"])
+                val_txt = f"{geo[i, j]:.2f} ± {geo_sd[i, j]:.2f}"
+            ax_geo.text(j, i, val_txt, ha="center", va="center", fontsize=10.4, color=COLORS["ink"])
 
     fig.suptitle("Relative endpoint response heatmap", fontsize=25.0, fontweight="semibold", y=0.968)
     cbar = fig.colorbar(im, ax=ax_main, fraction=0.028, pad=0.016)
     cbar.set_label("% difference vs C01", fontsize=14.0)
     cbar.ax.tick_params(labelsize=13.0)
-    # Geometry side uses color for % vs C01 but displays raw values in-cell; no extra colorbar.
+    # Right panel colors indicate within-column relative position (z-score),
+    # while cell text reports raw values.
     fig.subplots_adjust(top=0.93, right=0.975, bottom=0.18)
     save_figure(fig, out_dir, "figure_3_ecm_overview_heatmap")
 
@@ -1080,6 +1122,7 @@ def main() -> None:
     )
 
     summary = prep_summary(condition_summary, domain_area_mm2=float(args.domain_area_mm2))
+    # Keep the original heatmap-style outputs.
     export_assay_triptych(summary, stats_df, out_dir, assay_hours)
     export_hap_collagen_map(summary, out_dir, assay_hours)
     export_ecm_overview_heatmap(
@@ -1091,6 +1134,8 @@ def main() -> None:
     )
     export_ecm_fingerprint(summary, replicate_df, out_dir, assay_hours)
     export_geometry_heatmap(summary, out_dir)
+    # Keep nodules/autocorrelation focus panel too.
+    export_nodule_autocorr_focus(summary, out_dir)
     export_spatial_gallery(
         summary,
         out_dir,
