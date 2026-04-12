@@ -558,7 +558,7 @@ def _build_spatial_base_args(run_cfg: dict, ts_df: pd.DataFrame) -> list[str]:
         "--collagen-b-k", f"{float(field.get('collagen_b_k', 2.15)):.10g}",
         "--ha-a-k", f"{float(field.get('ha_a_k', 4.66)):.10g}",
         "--ha-b-k", f"{float(field.get('ha_b_k', 2.15)):.10g}",
-        "--ha-model", str(field.get("ha_model", "minimal")),
+        "--ha-model", str(field.get("ha_model", "ha")),
         "--ha-collagen-maturation-tau", f"{float(field.get('ha_collagen_maturation_tau_hours', 48.0)):.10g}",
         "--ha-collagen-km", f"{float(field.get('ha_collagen_half_sat', 1.0)):.10g}",
         "--ha-tau", f"{float(field.get('ha_tau_hours', 384.0)):.10g}",

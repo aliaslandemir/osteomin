@@ -60,15 +60,15 @@ CONDITIONS = ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8"]
 FAM_A_REF = "C2"
 FAM_A_TARGETS = ["C1", "C3", "C4", "C5", "C6", "C7", "C8"]  # vs C2
 ASSAY_COLORS = {
-    "alp": "#E69F00",
-    "collagen": "#009E73",
-    "mineralization": "#0072B2",
+    "alp": "#1f77b4",
+    "collagen": "#1f77b4",
+    "mineralization": "#1f77b4",
 }
 USE_REFERENCE_GREY = False
 REFERENCE_COLOR = "#374151"
 
 POINT_COLORS = {
-    "alp": "#8A5A00",
+    "alp": "#1f77b4",
 }
 MEAN_COLOR = "#111111"
 SD_COLOR = "#1f2937"

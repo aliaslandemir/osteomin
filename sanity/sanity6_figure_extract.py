@@ -43,7 +43,7 @@ ENDPOINTS = [
     {
         "key": "ars_672h",
         "field": "ha_total",
-        "title": "HAp",
+        "title": "Mineral",
         "color": "#2b6cb0",
     },
 ]
@@ -63,7 +63,7 @@ PARAM_LABELS = {
     "alp_ro": "ALP osteogenic production rate",
     "collagen_rb": "Collagen basal production rate",
     "collagen_ro": "Collagen osteogenic production rate",
-    "ha_ro": "HAp osteogenic deposition rate",
+    "ha_ro": "Mineral osteogenic deposition rate",
     "ha_tau": "Mineral Hill n",
     "ha_hill_n": "Mineral Hill function n",
     "ha_collagen_maturation_tau": "Collagen maturation timescale (tau_col)",
@@ -301,7 +301,7 @@ def endpoint_short_ylabel(key: str) -> str:
     mapping = {
         "alp_240h": "ALP",
         "collagen_336h": "Collagen",
-        "ars_672h": "HAp",
+        "ars_672h": "Mineral",
     }
     return mapping.get(key, key)
 
@@ -400,12 +400,13 @@ def fig1_total_effect_heatmap(
 def fig2_s1_vs_st(
     sobol_df: pd.DataFrame, out_dir: Path, *, clip_for_display: bool, top_n: int
 ) -> None:
+    text_scale = 1.10
     short_alias = {
         "alp_rb": "ALP basal prod.",
         "alp_ro": "ALP osteogenic prod.",
         "collagen_rb": "Collagen basal prod.",
         "collagen_ro": "Collagen osteogenic prod.",
-        "ha_ro": "HAp osteogenic dep.",
+        "ha_ro": "Mineral osteogenic dep.",
         "ha_collagen_maturation_tau": "Collagen maturation tau",
         "ha_collagen_km": "Collagen support K",
         "collagen_aa_km": "Collagen AA K",
@@ -498,7 +499,7 @@ def fig2_s1_vs_st(
                 short_param(str(p)),
                 ha="right",
                 va="center",
-                fontsize=10.5,
+                fontsize=10.5 * text_scale,
                 fontweight="semibold",
                 color=COLORS["ink"],
                 clip_on=False,
@@ -535,13 +536,18 @@ def fig2_s1_vs_st(
         ax.axvline(0.0, color="#334155", lw=1.4, zorder=1)
         ax.set_xlim(global_x_min, x_upper)
         ax.set_ylim(len(params) - 0.5, -0.5)
-        ax.set_title(endpoint_panel_title(ep), fontsize=12.0, pad=7.0)
-        ax.set_xlabel("Sobol index", fontsize=12.0)
+        subtitle = {
+            "alp_240h": "ALP 240 h",
+            "collagen_336h": "Collagen 336 h",
+            "ars_672h": "Mineral 672 h",
+        }.get(ep, endpoint_panel_title(ep))
+        ax.set_title(subtitle, fontsize=12.0 * text_scale, pad=7.0)
+        ax.set_xlabel("Sobol index", fontsize=12.0 * text_scale)
         ax.set_yticks(y)
         ax.set_yticklabels([])
         style_axes(ax, "x", 0.28)
         ax.set_xticks(np.arange(0.0, x_upper + 1e-9, tick_step))
-        ax.tick_params(axis="x", labelsize=11.2, width=1.0)
+        ax.tick_params(axis="x", labelsize=11.2 * text_scale, width=1.0)
         ax.tick_params(axis="y", pad=1, length=0)
         if legend_handles is None:
             legend_handles = (h1, h2)
@@ -553,13 +559,13 @@ def fig2_s1_vs_st(
             loc="upper center",
             bbox_to_anchor=(0.52, 0.95),
             ncol=2,
-            fontsize=11.8,
+            fontsize=11.8 * text_scale,
             handlelength=1.5,
             columnspacing=2.0,
         )
     fig.suptitle(
-        f"First-order vs total-order Sobol indices (endpoint-specific top {top_n})",
-        fontsize=15.0,
+        f"Endpoint-specific top {top_n}",
+        fontsize=15.0 * text_scale,
         fontweight="semibold",
         y=0.975,
     )
@@ -661,7 +667,7 @@ def fig7_integrated_sobol_final(
     endpoint_name = {
         "alp_240h": "ALP ",
         "collagen_336h": "Collagen ",
-        "ars_672h": "HAp ",
+        "ars_672h": "Mineral ",
     }
 
     short_alias = {

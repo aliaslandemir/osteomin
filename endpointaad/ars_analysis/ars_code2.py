@@ -40,8 +40,8 @@ FAM_A_REF = "C2"
 FAM_A_TARGETS = ["C1", "C3", "C4", "C5", "C6", "C7", "C8"]  # vs C2
 
 # Assay colors (journal style, colorblind-safe)
-BAR_COLOR = "#C0392B"
-POINT_COLOR = "#7F1D1D"
+BAR_COLOR = "#1f77b4"
+POINT_COLOR = "#1f77b4"
 
 # Plot colors
 MEAN_COLOR = "#111111"

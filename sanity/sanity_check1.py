@@ -148,7 +148,7 @@ BASE_ARGS = [
     "--ha-b-k",
     "2.15",
     "--ha-model",
-    "minimal",
+    "ha",
     "--ha-ro",
     "0.102",
     "--ha-tau",
@@ -418,7 +418,7 @@ def write_report(
             "- This sanity suite exercises the current direct field-law model, not the legacy default `datafit` workflow.",
             "- Runs export `timeseries.csv` and use that file for consistency checks and control-vs-perturbation comparisons.",
             "- HAp is still stored internally under `ha_total` in the timeseries schema.",
-            "- In the minimal HAp model, the mineral increment is scaled by a matured-collagen state that relaxes toward total collagen with timescale `--ha-collagen-maturation-tau`.",
+            "- In the HAp model, the mineral increment is scaled by a matured-collagen state that relaxes toward total collagen with timescale `--ha-collagen-maturation-tau`.",
         ]
     )
 

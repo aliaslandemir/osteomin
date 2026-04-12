@@ -447,9 +447,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--ha-model",
         type=str,
-        choices=["ha", "minimal"],
+        choices=["ha"],
         default="ha",
-        help="HAp production model (use 'ha'; 'minimal' is kept as a legacy alias)",
+        help="HAp production model",
     )
     p.add_argument(
         "--ha-ro",

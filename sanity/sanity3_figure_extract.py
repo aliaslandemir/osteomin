@@ -9,13 +9,14 @@ import matplotlib
 import numpy as np
 import pandas as pd
 from matplotlib import gridspec
-from matplotlib.colors import LinearSegmentedColormap, Normalize, TwoSlopeNorm
+from matplotlib.colors import LinearSegmentedColormap, Normalize, PowerNorm, TwoSlopeNorm
 from matplotlib.cm import ScalarMappable
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+LN2 = float(np.log(2.0))
 
 JOURNAL_AXIS_LABEL_PT = 9
 JOURNAL_TICK_PT = 8
@@ -233,6 +234,22 @@ def build_summary(input_dir: Path, assay_hours: dict[str, int]) -> pd.DataFrame:
         else:
             baseline = float(df[col].min())
         df[f"{col}_pct_sd_vs_control"] = 100.0 * df[sd_col].astype(float) / max(baseline, 1e-12)
+    for col, sd_col in [
+        ("assay_alp", "assay_alp_sd"),
+        ("assay_collagen", "assay_collagen_sd"),
+        ("assay_ha", "assay_ha_sd"),
+    ]:
+        control_mask = (df["dex_conc_nM"] == 0.0) & (df["mk4_conc_uM"] == 0.0)
+        if bool(control_mask.any()):
+            baseline = float(df.loc[control_mask, col].iloc[0])
+        else:
+            baseline = float(df[col].min())
+        fc = df[col].astype(float) / max(baseline, 1e-12)
+        df[f"{col}_fc_vs_control"] = fc
+        df[f"{col}_log2fc_vs_control"] = np.log2(np.clip(fc.to_numpy(dtype=float), 1e-12, None))
+        mean_safe = np.clip(df[col].astype(float).to_numpy(dtype=float), 1e-12, None)
+        # Delta-method SD for log2(x / baseline): sd_log2 ~= sd_x / (x * ln(2))
+        df[f"{col}_log2fc_sd_vs_control"] = df[sd_col].astype(float).to_numpy(dtype=float) / (mean_safe * LN2)
     return df
 
 
@@ -365,17 +382,21 @@ def export_response_map(df: pd.DataFrame, out_dir: Path, assay_hours: dict[str, 
 
 def export_overview_heatmap(df: pd.DataFrame, out_dir: Path, assay_hours: dict[str, int]) -> None:
     metrics = [
-        ("assay_alp_pct_vs_control", f"ALP {assay_hours['alp']} h"),
-        ("assay_collagen_pct_vs_control", f"Collagen {assay_hours['collagen']} h"),
-        ("assay_ha_pct_vs_control", f"HAp {assay_hours['ha']} h"),
+        ("assay_alp_log2fc_vs_control", f"ALP {assay_hours['alp']} h"),
+        ("assay_collagen_log2fc_vs_control", f"Collagen {assay_hours['collagen']} h"),
+        ("assay_ha_log2fc_vs_control", f"Mineral {assay_hours['ha']} h"),
     ]
-    # Rank by composite osteogenic response and keep only the top 10 conditions.
+    metric_sd_cols = [
+        "assay_alp_log2fc_sd_vs_control",
+        "assay_collagen_log2fc_sd_vs_control",
+        "assay_ha_log2fc_sd_vs_control",
+    ]
+    # Rank by HAp response and keep only the top 10 conditions.
     ranked = df.copy()
-    ranked["overview_score"] = ranked[[m[0] for m in metrics]].mean(axis=1)
     ranked_sorted = (
         ranked.sort_values(
-            ["overview_score", "assay_ha_pct_vs_control", "assay_collagen_pct_vs_control", "assay_alp_pct_vs_control"],
-            ascending=[False, False, False, False],
+            ["assay_ha_log2fc_vs_control", "assay_collagen_log2fc_vs_control", "assay_alp_log2fc_vs_control"],
+            ascending=[False, False, False],
         )
         .reset_index(drop=True)
     )
@@ -392,19 +413,32 @@ def export_overview_heatmap(df: pd.DataFrame, out_dir: Path, assay_hours: dict[s
     ordered.to_csv(out_dir / "figure_3_top10_conditions.csv", index=False)
 
     values = ordered[[m[0] for m in metrics]].to_numpy(dtype=float)
-    finite_vals = values[np.isfinite(values)]
-    vmin = float(np.min(finite_vals)) if finite_vals.size else 0.0
-    vmax = float(np.max(finite_vals)) if finite_vals.size else 1.0
+    values_sd = ordered[metric_sd_cols].to_numpy(dtype=float)
+    # Improve color discrimination among high positive conditions by
+    # excluding the baseline row from normalization and applying power scaling.
+    control_mask = (ordered["dex_conc_nM"].to_numpy(dtype=float) == 0.0) & (
+        ordered["mk4_conc_uM"].to_numpy(dtype=float) == 0.0
+    )
+    color_values = values.copy()
+    if np.any(control_mask):
+        color_values[control_mask, :] = np.nan
+    finite_vals = color_values[np.isfinite(color_values)]
+    if finite_vals.size:
+        vmin = float(np.nanpercentile(finite_vals, 5.0))
+        vmax = float(np.nanpercentile(finite_vals, 98.0))
+    else:
+        vmin, vmax = 0.0, 1.0
     if vmax <= vmin:
         vmax = vmin + 1.0
 
-    # Pastel sequential gradient for a softer, publication-style overview panel.
+    # Muted sequential scale (PLOS-style): low contrast near baseline, restrained high-end saturation.
     plos_cmap = LinearSegmentedColormap.from_list(
-        "pastel_blush",
-        ["#fff9f7", "#fbe7e2", "#f6d0c9", "#efb3a9", "#e38f82", "#d36e62"],
+        "plos_muted_warm",
+        ["#faf7f5", "#f2ddd5", "#e6bfb3", "#d69484", "#bc6754", "#8e3326"],
         N=256,
     )
-    norm = Normalize(vmin=vmin, vmax=vmax)
+    plos_cmap.set_bad("#ececec")
+    norm = PowerNorm(gamma=1.55, vmin=vmin, vmax=vmax)
 
     row_labels = [
         f"D={row.dex_conc_nM:.4g} nM | K={row.mk4_conc_uM:.4g} uM"
@@ -417,13 +451,13 @@ def export_overview_heatmap(df: pd.DataFrame, out_dir: Path, assay_hours: dict[s
     ax_labels = fig.add_subplot(gs[0, 0])
     ax = fig.add_subplot(gs[0, 1])
 
-    im = ax.imshow(values, aspect="auto", cmap=plos_cmap, norm=norm)
+    im = ax.imshow(np.ma.array(color_values, mask=~np.isfinite(color_values)), aspect="auto", cmap=plos_cmap, norm=norm)
     ax.set_xticks(
         np.arange(len(metrics)),
         [
             f"ALP\n{assay_hours['alp']} h",
             f"Collagen\n{assay_hours['collagen']} h",
-            f"HAp\n{assay_hours['ha']} h",
+            f"Mineral\n{assay_hours['ha']} h",
         ],
     )
     ax.tick_params(axis="x", pad=9, labelsize=13.2)
@@ -439,10 +473,10 @@ def export_overview_heatmap(df: pd.DataFrame, out_dir: Path, assay_hours: dict[s
             ax.text(
                 j,
                 i,
-                f"{values[i, j]:.1f}",
+                f"{values[i, j]:+.2f} ± {values_sd[i, j]:.2f}",
                 ha="center",
                 va="center",
-                fontsize=12.8,
+                fontsize=10.6,
                 color=COLORS["ink"],
             )
 
@@ -464,7 +498,7 @@ def export_overview_heatmap(df: pd.DataFrame, out_dir: Path, assay_hours: dict[s
 
     ax.set_title("Top-10 dose response heatmap", pad=14, fontsize=17.0)
     cbar = fig.colorbar(im, ax=ax, fraction=0.038, pad=0.035)
-    cbar.set_label("% difference vs control", fontsize=13.2)
+    cbar.set_label("log2 fold change vs control", fontsize=13.2)
     cbar.ax.tick_params(labelsize=12.0)
     fig.subplots_adjust(left=0.01, right=0.965, bottom=0.13, top=0.90)
     save_figure(fig, out_dir, "figure_3_ecm_overview_heatmap")

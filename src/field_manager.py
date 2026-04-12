@@ -90,8 +90,9 @@ class FieldManager:
         self.aa_half_life_hours = max(1e-9, float(aa_half_life_hours))
         self.collagen_aa_half_sat = max(1e-9, float(collagen_aa_half_sat))
         model_name = str(ha_model).lower().strip()
-        # Backward-compatible alias: previous docs/CLI used "minimal".
-        self.ha_model = "ha" if model_name == "minimal" else model_name
+        if model_name != "ha":
+            raise ValueError(f"unsupported ha_model '{ha_model}'")
+        self.ha_model = model_name
         self.ha_initial = max(0.0, float(ha_initial))
         self.ha_osteo_rate = float(ha_osteo_rate)
         self.ha_dex_ref_conc = max(1e-12, float(ha_dex_ref_conc))

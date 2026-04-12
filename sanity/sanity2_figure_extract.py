@@ -175,7 +175,7 @@ def assay_hours_from_args(args: argparse.Namespace, manifest: dict) -> dict[str,
 
 
 def assay_label(name: str, hours: int) -> str:
-    pretty = {"alp": "ALP", "collagen": "Collagen", "ha": "HAp"}[name]
+    pretty = {"alp": "ALP", "collagen": "Collagen", "ha": "Mineral"}[name]
     return f"{pretty} at {int(hours)} h"
 
 
@@ -571,9 +571,9 @@ def export_assay_triptych(
     assay_titles = [
         f"A  ALP {assay_hours['alp']} h",
         f"B  Collagen {assay_hours['collagen']} h",
-        f"C  HAp {assay_hours['ha']} h",
+        f"C  Mineral {assay_hours['ha']} h",
     ]
-    xticklabels = ["ALP", "Collagen", "HAp"]
+    xticklabels = ["ALP", "Collagen", "Mineral"]
     values = ordered[assay_cols].to_numpy(dtype=float)
     vmax = max(3.0, float(np.max(np.abs(values))))
     cmap = response_cmap()
@@ -680,7 +680,7 @@ def export_ecm_overview_heatmap(
     value_labels = [
         f"ALP {assay_hours['alp']} h",
         f"Collagen {assay_hours['collagen']} h",
-        f"HAp {assay_hours['ha']} h",
+        f"Mineral {assay_hours['ha']} h",
     ]
     values = ordered[value_cols[:3]].to_numpy(dtype=float)
     values_sd = ordered[value_sd_cols].to_numpy(dtype=float)

@@ -145,7 +145,7 @@ BASE_ARGS = [
     "--ha-b-k",
     "2.15",
     "--ha-model",
-    "minimal",
+    "ha",
     "--ha-tau",
     "384",
     "--ha-hill-n",

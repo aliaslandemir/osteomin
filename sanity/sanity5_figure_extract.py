@@ -17,7 +17,7 @@ from matplotlib.ticker import MaxNLocator
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent
 INPUT_DEFAULT = SCRIPT_DIR / "out" / "sanity_check5"
-REFERENCE_PREFERENCE = ("C2", "C1")
+REFERENCE_CONDITION = "C2"
 
 JOURNAL_AXIS_LABEL_PT = 11
 JOURNAL_TICK_PT = 10
@@ -60,7 +60,7 @@ ASSAY_SPECS = {
         "sim_endpoint": "240 h ALP total",
         "exp_endpoint": "experimental ALP_mU_mL",
         "profile_ylabel_full": "ALP activity (a.u.)",
-        "color": "#D55E00",
+        "color": "#1f77b4",
         "marker": "o",
     },
     "collagen": {
@@ -72,7 +72,7 @@ ASSAY_SPECS = {
         "sim_endpoint": "336 h collagen total",
         "exp_endpoint": "experimental M1_field",
         "profile_ylabel_full": "collagen intensity (a.u.)",
-        "color": "#009E73",
+        "color": "#1f77b4",
         "marker": "s",
     },
     "ars": {
@@ -84,7 +84,7 @@ ASSAY_SPECS = {
         "sim_endpoint": "672 h HAp total",
         "exp_endpoint": "experimental fraction_percent",
         "profile_ylabel_full": "ARS+ area (%)",
-        "color": "#0072B2",
+        "color": "#1f77b4",
         "marker": "^",
     },
 }
@@ -215,10 +215,11 @@ def standardized_values(df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
 
 def choose_reference_condition(df: pd.DataFrame) -> str:
     codes = set(df["condition_code"].astype(str))
-    for code in REFERENCE_PREFERENCE:
-        if code in codes:
-            return code
-    return str(df["condition_code"].iloc[0])
+    if REFERENCE_CONDITION not in codes:
+        raise SystemExit(
+            f"Required reference condition '{REFERENCE_CONDITION}' is missing from merged assay table."
+        )
+    return REFERENCE_CONDITION
 
 
 def relative_effect(values: pd.Series, ref_value: float) -> pd.Series:
@@ -528,7 +529,7 @@ def write_relative_effect_condition_text(
         "Relative effect condition-by-condition comparison (simulation vs experiment)"
     )
     lines.append(
-        "Reference-centered effect is defined as (x - x_ref) / (|x| + |x_ref|), using C2 when available."
+        "Reference-centered effect is defined as (x - x_ref) / (|x| + |x_ref|), with x_ref fixed to C2."
     )
     lines.append("")
 
@@ -579,7 +580,7 @@ def main_panel_metric_text(metrics: pd.Series) -> str:
 def supplement_metric_text(metrics: pd.Series) -> str:
     return (
         f"RMSE(rel) = {metrics['rmse_rel_effect']:.2g}\n"
-        f"MAE = {metrics['mae_rel_effect']:.2g}"
+        f"MAE = {metrics['mae_rel_effect']:.2f}"
     )
 
 
@@ -654,7 +655,7 @@ def parity_metric_text(metrics: pd.Series) -> str:
     )
     return (
         f"τ = {metrics['kendall_tau']:.2f}\n"
-        f"MAE = {metrics['mae_rel_effect']:.2g}\n"
+        f"MAE = {metrics['mae_rel_effect']:.2f}\n"
         f"Sign agreement = {directionality_txt}"
     )
 
@@ -744,7 +745,7 @@ def plot_profile_panel(
     tick_labels = [condition_tick_label(c) for c in frame["condition_code"]]
     ax.set_xticks(x, tick_labels)
     ax.set_xlim(-0.5, len(frame) - 0.5)
-    ax.set_ylabel("Reference-centered effect: (x - x_ref) / (x + x_ref)")
+    ax.set_ylabel("Reference-centered effect: (x - x_ref) / (|x| + |x_ref|)")
     ax.yaxis.set_major_locator(MaxNLocator(nbins=5))
     ymin = float(min(np.min(exp_vals - exp_sd), np.min(sim_vals - sim_sd), -0.6))
     ymax = float(max(np.max(exp_vals + exp_sd), np.max(sim_vals + sim_sd), 0.6))
@@ -823,7 +824,7 @@ def plot_standardized_panel(
 def write_captions(out_dir: Path) -> None:
     main_caption = (
         "Main figure. Per-assay validation is shown as condition-wise relative effect profiles, expressed as a bounded reference-centered effect size "
-        "(x - x_ref) / (x + x_ref), using C2 when available and otherwise C1 as the reference condition. Simulation and experiment are compared on the same "
+        "(x - x_ref) / (|x| + |x_ref|), with C2 fixed as the reference condition. Simulation and experiment are compared on the same "
         "relative scale across conditions C1-C8. "
         "Primary validation focuses on recovery of condition-wise relative trends across media conditions, quantified by direction-of-effect agreement, Kendall tau, "
         "and top-condition recovery. Direction-of-effect agreement is defined as the fraction of non-reference conditions for which simulation and experiment show the "
@@ -832,9 +833,8 @@ def write_captions(out_dir: Path) -> None:
         "Correlation metrics are reported as secondary descriptive summaries."
     )
     supplement_caption = (
-        "Supplementary figure. Raw-value calibration views for each assay and a pooled standardized comparison across assay-condition points. "
-        "These views are descriptive only. Raw-unit calibration metrics are not the primary basis for model validation because experimental and simulated units differ; "
-        "the main validation emphasizes relative responses versus the reference condition."
+        "Supplementary figure. Per-assay and pooled parity views in the same C2-centered relative-effect space used in the primary analysis. "
+        "All assay-condition comparisons are shown as reference-centered effect values, enabling direct direction and ranking checks without unit mismatch."
     )
     (out_dir / "main_figure_caption.txt").write_text(
         main_caption + "\n", encoding="utf-8"
@@ -889,7 +889,7 @@ def export_main_figure(
         ncol=2,
     )
     fig.suptitle(
-        "Condition-Wise Relative Effect Profiles vs Reference",
+        "Condition-Wise Relative Effect Profiles vs C2",
         fontsize=14.2,
         fontweight="semibold",
         y=1.03,
@@ -910,9 +910,9 @@ def export_discrete_condition_figure(
     }
     # Match endpoint palette used in endpoint figures.
     panel_colors = {
-        "alp": "#E69F00",
-        "collagen": "#009E73",
-        "ars": "#C0392B",
+        "alp": "#1f77b4",
+        "collagen": "#1f77b4",
+        "ars": "#1f77b4",
     }
     global_values = np.concatenate(
         [
@@ -1031,16 +1031,19 @@ def export_supplement_figure(
     for ax in axes.ravel():
         style_axes(ax, "both", grid_alpha=0.35)
 
+    pooled_rows = []
     for idx, assay in enumerate(("alp", "collagen", "ars")):
         ax = axes.ravel()[idx]
         frame = assay_frames[assay]
         metrics = metrics_df.loc[metrics_df["assay"] == assay].iloc[0]
         spec = ASSAY_SPECS[assay]
-        sim_raw, exp_raw = raw_values(frame)
-        exp_plot = np.log10(np.maximum(exp_raw, 0.0) + 1.0)
-        sim_plot = np.log10(np.maximum(sim_raw, 0.0) + 1.0)
-        lo = min(np.min(sim_plot), np.min(exp_plot))
-        hi = max(np.max(sim_plot), np.max(exp_plot))
+        exp_plot = frame["exp_rel_effect"].to_numpy(dtype=float)
+        sim_plot = frame["sim_rel_effect"].to_numpy(dtype=float)
+        lo = min(np.min(sim_plot), np.min(exp_plot), -0.1)
+        hi = max(np.max(sim_plot), np.max(exp_plot), 0.1)
+        pad = max(0.08, 0.12 * (hi - lo + 1e-12))
+        lo -= pad
+        hi += pad
         ax.scatter(
             exp_plot,
             sim_plot,
@@ -1052,11 +1055,9 @@ def export_supplement_figure(
         )
         ax.plot([lo, hi], [lo, hi], color=COLORS["muted"], lw=1.0, ls=(0, (4, 3)))
         for _, row in frame.iterrows():
-            ex = float(np.log10(max(float(row["exp_mean"]), 0.0) + 1.0))
-            sy = float(np.log10(max(float(row["sim_mean"]), 0.0) + 1.0))
-            ax.text(
-                ex + 0.01 * (hi - lo + 1e-9), sy, row["condition_code"], fontsize=7.8
-            )
+            ex = float(row["exp_rel_effect"])
+            sy = float(row["sim_rel_effect"])
+            ax.text(ex + 0.01 * (hi - lo + 1e-9), sy, row["condition_code"], fontsize=7.8)
         ax.set_title(
             f"{chr(65 + idx)}  {spec['title']}", loc="left", pad=8, fontsize=11.5
         )
@@ -1070,20 +1071,26 @@ def export_supplement_figure(
             fontsize=9.0,
             bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.8, "pad": 1.2},
         )
-        ax.set_xlabel("log10(experimental + 1)")
-        ax.set_ylabel("log10(simulation + 1)")
+        ax.set_xlabel("Experimental relative effect vs C2")
+        ax.set_ylabel("Simulated relative effect vs C2")
+        ax.set_xlim(lo, hi)
+        ax.set_ylim(lo, hi)
 
-    pooled_ax = axes[1, 1]
-    pooled_rows = []
-    for assay, frame in assay_frames.items():
-        tmp = frame[["exp_z", "sim_z"]].copy()
+        tmp = frame[["exp_rel_effect", "sim_rel_effect"]].copy()
         tmp["assay"] = assay
         tmp["condition_code"] = frame["condition_code"]
         pooled_rows.append(tmp)
+
+    pooled_ax = axes[1, 1]
     pooled = pd.concat(pooled_rows, ignore_index=True)
     limit = max(
-        1.1,
-        float(np.max(np.abs(pooled[["exp_z", "sim_z"]].to_numpy(dtype=float)))) * 1.15,
+        0.4,
+        float(
+            np.max(
+                np.abs(pooled[["exp_rel_effect", "sim_rel_effect"]].to_numpy(dtype=float))
+            )
+        )
+        * 1.15,
     )
     pooled_ax.plot(
         [-limit, limit], [-limit, limit], color=COLORS["muted"], lw=1.0, ls=(0, (4, 3))
@@ -1092,8 +1099,8 @@ def export_supplement_figure(
         spec = ASSAY_SPECS[assay]
         sub = pooled[pooled["assay"] == assay]
         pooled_ax.scatter(
-            sub["exp_z"],
-            sub["sim_z"],
+            sub["exp_rel_effect"],
+            sub["sim_rel_effect"],
             s=84,
             color=spec["color"],
             marker=spec["marker"],
@@ -1104,7 +1111,7 @@ def export_supplement_figure(
     pooled_ax.text(
         0.02,
         0.96,
-        "Pooled standardized points\nSupplementary view only",
+        "Pooled relative-effect points\n(all assays; C2 reference)",
         transform=pooled_ax.transAxes,
         ha="left",
         va="top",
@@ -1112,16 +1119,16 @@ def export_supplement_figure(
         bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.8, "pad": 1.2},
     )
     pooled_ax.set_title(
-        "D  Pooled standardized comparison", loc="left", pad=8, fontsize=11.5
+        "D  Pooled relative-effect comparison", loc="left", pad=8, fontsize=11.5
     )
-    pooled_ax.set_xlabel("Experimental standardized response")
-    pooled_ax.set_ylabel("Simulation standardized response")
+    pooled_ax.set_xlabel("Experimental relative effect vs C2")
+    pooled_ax.set_ylabel("Simulated relative effect vs C2")
     pooled_ax.set_xlim(-limit, limit)
     pooled_ax.set_ylim(-limit, limit)
     pooled_ax.legend(frameon=False, fontsize=8.8, loc="lower right")
 
     fig.suptitle(
-        "Supplementary Raw Calibration Views",
+        "Supplementary Relative-Effect Parity Views (Reference = C2)",
         fontsize=13.5,
         fontweight="semibold",
         y=0.985,

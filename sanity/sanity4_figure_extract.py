@@ -15,6 +15,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+LN2 = float(np.log(2.0))
 
 JOURNAL_AXIS_LABEL_PT = 9
 JOURNAL_TICK_PT = 8
@@ -214,6 +215,12 @@ def build_summary(input_dir: Path, assay_hours: dict[str, int]) -> pd.DataFrame:
             df[col].to_numpy(dtype=float) - base
         ) / max(base, 1e-12)
         df[f"{col}_pct_sd_vs_vehicle"] = 100.0 * df[sd_col].to_numpy(dtype=float) / max(base, 1e-12)
+        fc = df[col].to_numpy(dtype=float) / max(base, 1e-12)
+        fc = np.clip(fc, 1e-12, None)
+        df[f"{col}_log2fc_vs_vehicle"] = np.log2(fc)
+        mean_safe = np.clip(df[col].to_numpy(dtype=float), 1e-12, None)
+        # Delta-method SD for log2(x/base): sd_log2 ~= sd_x / (x * ln 2)
+        df[f"{col}_log2fc_sd_vs_vehicle"] = df[sd_col].to_numpy(dtype=float) / (mean_safe * LN2)
     return df
 
 
@@ -270,9 +277,9 @@ def export_assay_dose_curves(dex_df: pd.DataFrame, mk4_df: pd.DataFrame, out_dir
     axes[0, 0].set_title("DEX-only", pad=4, fontsize=15.8)
     axes[0, 1].set_title("MK-4-only", pad=4, fontsize=15.8)
     rows = [
-        ("assay_alp_pct_vs_vehicle", "assay_alp_pct_sd_vs_vehicle", f"ALP {assay_hours['alp']} h", COLORS["alp"]),
-        ("assay_collagen_pct_vs_vehicle", "assay_collagen_pct_sd_vs_vehicle", f"Collagen {assay_hours['collagen']} h", COLORS["collagen"]),
-        ("assay_ha_pct_vs_vehicle", "assay_ha_pct_sd_vs_vehicle", f"HAp {assay_hours['ha']} h", COLORS["ha"]),
+        ("assay_alp_log2fc_vs_vehicle", "assay_alp_log2fc_sd_vs_vehicle", f"ALP {assay_hours['alp']} h", COLORS["alp"]),
+        ("assay_collagen_log2fc_vs_vehicle", "assay_collagen_log2fc_sd_vs_vehicle", f"Collagen {assay_hours['collagen']} h", COLORS["collagen"]),
+        ("assay_ha_log2fc_vs_vehicle", "assay_ha_log2fc_sd_vs_vehicle", f"Mineral {assay_hours['ha']} h", COLORS["ha"]),
     ]
     dex_pos = dex_df[dex_df["dose"] > 0.0].copy()
     mk4_pos = mk4_df[mk4_df["dose"] > 0.0].copy()
@@ -343,7 +350,7 @@ def export_assay_dose_curves(dex_df: pd.DataFrame, mk4_df: pd.DataFrame, out_dir
         ax.set_xticks(dex_ticks, [f"{d:.4g}" for d in dex_ticks])
         ax.tick_params(axis="both", labelsize=12.4)
         ax.yaxis.set_major_formatter(ScalarFormatter(useOffset=False))
-        ax.set_ylabel(f"{title}\n% vs osteogenic C2", fontsize=13.8)
+        ax.set_ylabel(f"{title}\nlog2FC vs C2", fontsize=13.8)
         add_peak_marker(ax, dex_peak_low, dex_peak_high, COLORS["dex"], y_peak)
         if ridx == 2:
             ax.set_xlabel("Dex concentration (nM)", fontsize=13.8)
@@ -384,9 +391,9 @@ def export_relative_effect_heatmap(dex_df: pd.DataFrame, mk4_df: pd.DataFrame, o
     axes = [fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[0, 1])]
     cax = fig.add_subplot(gs[0, 2])
     metric_cols = [
-        ("assay_alp_pct_vs_vehicle", f"ALP {assay_hours['alp']} h"),
-        ("assay_collagen_pct_vs_vehicle", f"Collagen {assay_hours['collagen']} h"),
-        ("assay_ha_pct_vs_vehicle", f"HAp {assay_hours['ha']} h"),
+        ("assay_alp_log2fc_vs_vehicle", f"ALP {assay_hours['alp']} h"),
+        ("assay_collagen_log2fc_vs_vehicle", f"Collagen {assay_hours['collagen']} h"),
+        ("assay_ha_log2fc_vs_vehicle", f"HAp {assay_hours['ha']} h"),
     ]
     vmax = robust_abs_max(
         [
@@ -428,8 +435,7 @@ def export_relative_effect_heatmap(dex_df: pd.DataFrame, mk4_df: pd.DataFrame, o
                     clip_on=True,
                 )
     cbar = fig.colorbar(im, cax=cax)
-    cbar.set_label("Difference vs control (%)")
-    cbar.set_ticks([-300, -150, 0, 150, 300])
+    cbar.set_label("log2 fold change vs control")
     fig.suptitle("Relative effect heatmaps", fontsize=15, fontweight="semibold", y=0.98)
     fig.subplots_adjust(left=0.06, right=0.96, top=0.80, bottom=0.16)
     save_figure(fig, out_dir, "figure_2_relative_effect_heatmap")
@@ -443,14 +449,14 @@ def export_relative_effect_lines_ci(
 ) -> None:
     fig, axes = plt.subplots(1, 2, figsize=(12.4, 4.4), sharey=False, constrained_layout=False)
     metric_defs = [
-        ("assay_alp_pct_vs_vehicle", "assay_alp_pct_sd_vs_vehicle", f"ALP {assay_hours['alp']} h", COLORS["alp"]),
+        ("assay_alp_log2fc_vs_vehicle", "assay_alp_log2fc_sd_vs_vehicle", f"ALP {assay_hours['alp']} h", COLORS["alp"]),
         (
-            "assay_collagen_pct_vs_vehicle",
-            "assay_collagen_pct_sd_vs_vehicle",
+            "assay_collagen_log2fc_vs_vehicle",
+            "assay_collagen_log2fc_sd_vs_vehicle",
             f"Collagen {assay_hours['collagen']} h",
             COLORS["collagen"],
         ),
-        ("assay_ha_pct_vs_vehicle", "assay_ha_pct_sd_vs_vehicle", f"HAp {assay_hours['ha']} h", COLORS["ha"]),
+        ("assay_ha_log2fc_vs_vehicle", "assay_ha_log2fc_sd_vs_vehicle", f"HAp {assay_hours['ha']} h", COLORS["ha"]),
     ]
     branches = [
         (axes[0], dex_df.sort_values("dose").reset_index(drop=True), "DEX branch", "DEX concentration (nM)"),
@@ -501,8 +507,8 @@ def export_relative_effect_lines_ci(
         y_pad = max(8.0, 0.12 * max(abs(y_min), abs(y_max)))
         ax.set_ylim(y_min - y_pad, y_max + y_pad)
 
-    axes[0].set_ylabel("Difference vs control (%)")
-    axes[1].set_ylabel("Difference vs control (%)")
+    axes[0].set_ylabel("log2 fold change vs control")
+    axes[1].set_ylabel("log2 fold change vs control")
     handles, labels = axes[1].get_legend_handles_labels()
     fig.legend(
         handles,
@@ -521,9 +527,9 @@ def export_relative_effect_lines_ci(
 def export_local_sensitivity(dex_df: pd.DataFrame, mk4_df: pd.DataFrame, out_dir: Path, assay_hours: dict[str, int]) -> None:
     fig, axes = plt.subplots(1, 2, figsize=(11.8, 5.2), constrained_layout=True)
     metric_defs = [
-        ("assay_alp_pct_vs_vehicle", f"ALP {assay_hours['alp']} h", COLORS["alp"]),
-        ("assay_collagen_pct_vs_vehicle", f"Collagen {assay_hours['collagen']} h", COLORS["collagen"]),
-        ("assay_ha_pct_vs_vehicle", f"HAp {assay_hours['ha']} h", COLORS["ha"]),
+        ("assay_alp_log2fc_vs_vehicle", f"ALP {assay_hours['alp']} h", COLORS["alp"]),
+        ("assay_collagen_log2fc_vs_vehicle", f"Collagen {assay_hours['collagen']} h", COLORS["collagen"]),
+        ("assay_ha_log2fc_vs_vehicle", f"HAp {assay_hours['ha']} h", COLORS["ha"]),
     ]
     for panel_idx, (ax, branch_df, title, xlabel) in enumerate(zip(
         axes,
@@ -547,7 +553,7 @@ def export_local_sensitivity(dex_df: pd.DataFrame, mk4_df: pd.DataFrame, out_dir
         ax.axhline(0.0, color=COLORS["neutral"], lw=0.9)
         ax.set_title(title, pad=10)
         ax.set_xlabel(xlabel)
-        ax.set_ylabel("Adjacent slope (% per log10 dose)")
+        ax.set_ylabel("Adjacent slope (log2FC per log10 dose)")
         if panel_idx == 1:
             ax.legend(frameon=False, loc="upper right")
     fig.suptitle("Adjacent-dose sensitivity analysis", fontsize=15, fontweight="semibold", y=1.03)
@@ -556,9 +562,9 @@ def export_local_sensitivity(dex_df: pd.DataFrame, mk4_df: pd.DataFrame, out_dir
 
 def export_peak_summary(dex_df: pd.DataFrame, mk4_df: pd.DataFrame, out_dir: Path, assay_hours: dict[str, int]) -> None:
     metric_defs = [
-        ("assay_alp", f"ALP {assay_hours['alp']} h", COLORS["alp"], "assay_alp_pct_vs_vehicle"),
-        ("assay_collagen", f"Collagen {assay_hours['collagen']} h", COLORS["collagen"], "assay_collagen_pct_vs_vehicle"),
-        ("assay_ha", f"HAp {assay_hours['ha']} h", COLORS["ha"], "assay_ha_pct_vs_vehicle"),
+        ("assay_alp", f"ALP {assay_hours['alp']} h", COLORS["alp"], "assay_alp_log2fc_vs_vehicle"),
+        ("assay_collagen", f"Collagen {assay_hours['collagen']} h", COLORS["collagen"], "assay_collagen_log2fc_vs_vehicle"),
+        ("assay_ha", f"HAp {assay_hours['ha']} h", COLORS["ha"], "assay_ha_log2fc_vs_vehicle"),
     ]
     rows: list[dict[str, float | str]] = []
     for branch_name, branch_df in [("Dex", dex_df), ("MK-4", mk4_df)]:
@@ -566,7 +572,7 @@ def export_peak_summary(dex_df: pd.DataFrame, mk4_df: pd.DataFrame, out_dir: Pat
             branch_sorted = branch_df.sort_values("dose").reset_index(drop=True)
             local_idx = int(branch_sorted[col].astype(float).idxmax())
             row = branch_sorted.loc[local_idx]
-            sd_col = pct_col.replace("_pct_vs_vehicle", "_pct_sd_vs_vehicle")
+            sd_col = pct_col.replace("_log2fc_vs_vehicle", "_log2fc_sd_vs_vehicle")
             max_idx = int(branch_sorted[pct_col].astype(float).idxmax())
             min_idx = int(branch_sorted[pct_col].astype(float).idxmin())
             range_sd = float(
@@ -594,7 +600,7 @@ def export_peak_summary(dex_df: pd.DataFrame, mk4_df: pd.DataFrame, out_dir: Pat
                     "peak_dose": float(row["dose"]),
                     "peak_dose_low": peak_low,
                     "peak_dose_high": peak_high,
-                    "dynamic_range_pct": float(branch_df[pct_col].max() - branch_df[pct_col].min()),
+                    "dynamic_range_log2fc": float(branch_df[pct_col].max() - branch_df[pct_col].min()),
                     "dynamic_range_sd": range_sd,
                 }
             )
@@ -605,14 +611,14 @@ def export_peak_summary(dex_df: pd.DataFrame, mk4_df: pd.DataFrame, out_dir: Pat
     style_axes(ax, "y")
     x = np.arange(len(metric_defs))
     width = 0.35
-    dex_rng = summary[summary["branch"] == "Dex"]["dynamic_range_pct"].to_numpy(dtype=float)
-    mk4_rng = summary[summary["branch"] == "MK-4"]["dynamic_range_pct"].to_numpy(dtype=float)
+    dex_rng = summary[summary["branch"] == "Dex"]["dynamic_range_log2fc"].to_numpy(dtype=float)
+    mk4_rng = summary[summary["branch"] == "MK-4"]["dynamic_range_log2fc"].to_numpy(dtype=float)
     dex_err = summary[summary["branch"] == "Dex"]["dynamic_range_sd"].to_numpy(dtype=float)
     mk4_err = summary[summary["branch"] == "MK-4"]["dynamic_range_sd"].to_numpy(dtype=float)
     ax.bar(x - width / 2.0, dex_rng, width=width, color=COLORS["dex"], yerr=dex_err, capsize=2, label="Dex")
     ax.bar(x + width / 2.0, mk4_rng, width=width, color=COLORS["mk4"], yerr=mk4_err, capsize=2, label="MK-4")
     ax.set_xticks(x, [label for _, label, _, _ in metric_defs], rotation=20, ha="right")
-    ax.set_ylabel("Dynamic range (% vs control)")
+    ax.set_ylabel("Dynamic range (log2FC)")
     ax.set_title("Dynamic range by drug branch", pad=10)
     ax.legend(frameon=False, loc="best")
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import shlex
 import statistics
@@ -10,6 +11,8 @@ import subprocess
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
+
+import numpy as np
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent
@@ -24,8 +27,8 @@ ARS_HOURS = 672
 ALP_DAY = ALP_HOURS // HOURS_PER_DAY
 COLLAGEN_DAY = COLLAGEN_HOURS // HOURS_PER_DAY
 ARS_DAY = ARS_HOURS // HOURS_PER_DAY
-AA_BASAL_M_M = 0.0
-AA_OSTEO_M_M = 50.0
+AA_BASAL_UG_ML = 0.0
+AA_OSTEO_UG_ML = 50.0
 BGP_OSTEO_M_M = 10.0
 
 BASE_ARGS = [
@@ -37,7 +40,7 @@ BASE_ARGS = [
     "--seed-mode",
     "random",
     "--seed",
-    str(BASE_SEED),
+    "12345",
     "--w",
     "33",
     "--h",
@@ -123,7 +126,7 @@ BASE_ARGS = [
     "--ha-b-k",
     "2.15",
     "--ha-model",
-    "minimal",
+    "ha",
     "--ha-ro",
     "0.102",
     "--ha-tau",
@@ -150,7 +153,7 @@ class ConditionSpec:
     index: int
     code: str
     label: str
-    aa_mM: float
+    aa_ug_ml: float
     bgp_mM: float
     dex_nM: float
     mk4_uM: float
@@ -168,7 +171,7 @@ class RunResult:
     code: str
     replicate_index: int
     seed: int
-    aa_mM: float
+    aa_ug_ml: float
     bgp_mM: float
     dex_nM: float
     mk4_uM: float
@@ -208,7 +211,7 @@ def parse_args() -> argparse.Namespace:
         "--base-seed",
         type=int,
         default=BASE_SEED,
-        help="base RNG seed used to derive replicate seeds",
+        help="deterministic base seed for replicate runs",
     )
     parser.add_argument(
         "--dry-run",
@@ -219,6 +222,12 @@ def parse_args() -> argparse.Namespace:
         "--runtime",
         action="store_true",
         help="forward --runtime to main.py for progress logging",
+    )
+    parser.add_argument(
+        "--jobs",
+        type=int,
+        default=1,
+        help="number of parallel condition/replicate runs",
     )
     parser.add_argument(
         "--snapshots",
@@ -236,22 +245,24 @@ def parse_args() -> argparse.Namespace:
     args = parser.parse_args()
     if args.replicates <= 0:
         raise SystemExit("--replicates must be >= 1")
+    if args.jobs <= 0:
+        raise SystemExit("--jobs must be >= 1")
     return args
 
 
 def build_condition_specs(out_root: Path) -> list[ConditionSpec]:
     definitions = [
-        ("C1", "Basal", AA_BASAL_M_M, 0.0, 0.0, 0.0, False),
-        ("C2", "AA+beta-GP", AA_OSTEO_M_M, BGP_OSTEO_M_M, 0.0, 0.0, True),
-        ("C3", "AA+beta-GP+D_L_K_L", AA_OSTEO_M_M, BGP_OSTEO_M_M, 10.0, 0.1, True),
-        ("C4", "AA+beta-GP+D_L_K_H", AA_OSTEO_M_M, BGP_OSTEO_M_M, 10.0, 10.0, True),
-        ("C5", "AA+beta-GP+D_H_K_L", AA_OSTEO_M_M, BGP_OSTEO_M_M, 100.0, 0.1, True),
-        ("C6", "AA+beta-GP+D_H_K_H", AA_OSTEO_M_M, BGP_OSTEO_M_M, 100.0, 10.0, True),
-        ("C7", "AA+beta-GP+D_H_K_0", AA_OSTEO_M_M, BGP_OSTEO_M_M, 100.0, 0.0, True),
-        ("C8", "AA+beta-GP+D_0_K_H", AA_OSTEO_M_M, BGP_OSTEO_M_M, 0.0, 10.0, True),
+        ("C1", "Basal", AA_BASAL_UG_ML, 0.0, 0.0, 0.0, False),
+        ("C2", "AA+beta-GP", AA_OSTEO_UG_ML, BGP_OSTEO_M_M, 0.0, 0.0, True),
+        ("C3", "AA+beta-GP+D_L_K_L", AA_OSTEO_UG_ML, BGP_OSTEO_M_M, 10.0, 0.1, True),
+        ("C4", "AA+beta-GP+D_L_K_H", AA_OSTEO_UG_ML, BGP_OSTEO_M_M, 10.0, 10.0, True),
+        ("C5", "AA+beta-GP+D_H_K_L", AA_OSTEO_UG_ML, BGP_OSTEO_M_M, 100.0, 0.1, True),
+        ("C6", "AA+beta-GP+D_H_K_H", AA_OSTEO_UG_ML, BGP_OSTEO_M_M, 100.0, 10.0, True),
+        ("C7", "AA+beta-GP+D_H_K_0", AA_OSTEO_UG_ML, BGP_OSTEO_M_M, 100.0, 0.0, True),
+        ("C8", "AA+beta-GP+D_0_K_H", AA_OSTEO_UG_ML, BGP_OSTEO_M_M, 0.0, 10.0, True),
     ]
     specs: list[ConditionSpec] = []
-    for index, (code, label, aa_mM, bgp_mM, dex_nM, mk4_uM, osteogenic) in enumerate(
+    for index, (code, label, aa_ug_ml, bgp_mM, dex_nM, mk4_uM, osteogenic) in enumerate(
         definitions, start=1
     ):
         specs.append(
@@ -259,7 +270,7 @@ def build_condition_specs(out_root: Path) -> list[ConditionSpec]:
                 index=index,
                 code=code,
                 label=label,
-                aa_mM=float(aa_mM),
+                aa_ug_ml=float(aa_ug_ml),
                 bgp_mM=float(bgp_mM),
                 dex_nM=float(dex_nM),
                 mk4_uM=float(mk4_uM),
@@ -273,15 +284,15 @@ def build_condition_specs(out_root: Path) -> list[ConditionSpec]:
 def validate_condition_specs(specs: list[ConditionSpec]) -> None:
     for spec in specs:
         if spec.code == "C1":
-            if abs(spec.aa_mM - AA_BASAL_M_M) > 1e-12:
-                raise ValueError(f"C1 must keep aa_mM={AA_BASAL_M_M}")
+            if abs(spec.aa_ug_ml - AA_BASAL_UG_ML) > 1e-12:
+                raise ValueError(f"C1 must keep aa_ug_ml={AA_BASAL_UG_ML}")
             if spec.bgp_mM != 0.0:
                 raise ValueError("C1 must keep bgp_mM=0.0")
             if spec.osteogenic_commitment:
                 raise ValueError("C1 must keep osteogenic_commitment=False")
             continue
-        if abs(spec.aa_mM - AA_OSTEO_M_M) > 1e-12:
-            raise ValueError(f"{spec.code}: aa_mM must stay at {AA_OSTEO_M_M}")
+        if abs(spec.aa_ug_ml - AA_OSTEO_UG_ML) > 1e-12:
+            raise ValueError(f"{spec.code}: aa_ug_ml must stay at {AA_OSTEO_UG_ML}")
         if abs(spec.bgp_mM - BGP_OSTEO_M_M) > 1e-12:
             raise ValueError(f"{spec.code}: bgp_mM must stay at {BGP_OSTEO_M_M}")
         if not spec.osteogenic_commitment:
@@ -306,7 +317,7 @@ def build_command(
 ) -> list[str]:
     cmd = [python_exe, *BASE_ARGS]
     cmd += ["--seed", str(int(seed))]
-    cmd += ["--aa0", f"{spec.aa_mM:.10g}"]
+    cmd += ["--aa0", f"{spec.aa_ug_ml:.10g}"]
     cmd += ["--dex-conc", f"{spec.dex_nM:.10g}"]
     cmd += ["--mk4-conc", f"{spec.mk4_uM:.10g}"]
     cmd += ["--out", str(out_dir)]
@@ -340,7 +351,7 @@ def run_condition(
             code=spec.code,
             replicate_index=replicate_index,
             seed=seed,
-            aa_mM=spec.aa_mM,
+            aa_ug_ml=spec.aa_ug_ml,
             bgp_mM=spec.bgp_mM,
             dex_nM=spec.dex_nM,
             mk4_uM=spec.mk4_uM,
@@ -358,7 +369,7 @@ def run_condition(
             code=spec.code,
             replicate_index=replicate_index,
             seed=seed,
-            aa_mM=spec.aa_mM,
+            aa_ug_ml=spec.aa_ug_ml,
             bgp_mM=spec.bgp_mM,
             dex_nM=spec.dex_nM,
             mk4_uM=spec.mk4_uM,
@@ -377,7 +388,7 @@ def run_condition(
             code=spec.code,
             replicate_index=replicate_index,
             seed=seed,
-            aa_mM=spec.aa_mM,
+            aa_ug_ml=spec.aa_ug_ml,
             bgp_mM=spec.bgp_mM,
             dex_nM=spec.dex_nM,
             mk4_uM=spec.mk4_uM,
@@ -393,7 +404,7 @@ def run_condition(
         code=spec.code,
         replicate_index=replicate_index,
         seed=seed,
-        aa_mM=spec.aa_mM,
+        aa_ug_ml=spec.aa_ug_ml,
         bgp_mM=spec.bgp_mM,
         dex_nM=spec.dex_nM,
         mk4_uM=spec.mk4_uM,
@@ -444,7 +455,7 @@ def extract_endpoint_row(spec: ConditionSpec, result: RunResult) -> dict:
         "condition_label": spec.label,
         "replicate_index": result.replicate_index,
         "seed": result.seed,
-        "aa_mM": spec.aa_mM,
+        "aa_ug_ml": spec.aa_ug_ml,
         "bgp_mM": spec.bgp_mM,
         "dex_nM": spec.dex_nM,
         "mk4_uM": spec.mk4_uM,
@@ -470,7 +481,7 @@ def write_manifest(out_root: Path, specs: list[ConditionSpec]) -> None:
             "code": spec.code,
             "label": spec.label,
             "slug": spec.slug,
-            "aa_mM": spec.aa_mM,
+            "aa_ug_ml": spec.aa_ug_ml,
             "bgp_mM": spec.bgp_mM,
             "dex_nM": spec.dex_nM,
             "mk4_uM": spec.mk4_uM,
@@ -493,7 +504,7 @@ def write_manifest(out_root: Path, specs: list[ConditionSpec]) -> None:
                 "code",
                 "label",
                 "slug",
-                "aa_mM",
+                "aa_ug_ml",
                 "bgp_mM",
                 "dex_nM",
                 "mk4_uM",
@@ -519,7 +530,7 @@ def write_run_summary(out_root: Path, results: list[RunResult]) -> None:
                 "code",
                 "replicate_index",
                 "seed",
-                "aa_mM",
+                "aa_ug_ml",
                 "bgp_mM",
                 "dex_nM",
                 "mk4_uM",
@@ -553,7 +564,7 @@ def write_endpoint_tables(out_root: Path, endpoint_rows: list[dict]) -> None:
             row["condition_index"],
             row["condition_code"],
             row["condition_label"],
-            row["aa_mM"],
+            row["aa_ug_ml"],
             row["bgp_mM"],
             row["dex_nM"],
             row["mk4_uM"],
@@ -582,7 +593,7 @@ def write_endpoint_tables(out_root: Path, endpoint_rows: list[dict]) -> None:
                 "condition_index": key[0],
                 "condition_code": key[1],
                 "condition_label": key[2],
-                "aa_mM": key[3],
+                "aa_ug_ml": key[3],
                 "bgp_mM": key[4],
                 "dex_nM": key[5],
                 "mk4_uM": key[6],
@@ -619,17 +630,25 @@ def main() -> None:
 
     print(f"[sanity_check5] prepared {len(specs)} attached conditions")
     print(f"[sanity_check5] replicates per condition: {args.replicates}")
+    print(f"[sanity_check5] base seed: {int(args.base_seed)}")
+    print(f"[sanity_check5] jobs: {args.jobs}")
     print(f"[sanity_check5] outputs: {args.out}")
+
+    tasks: list[tuple[ConditionSpec, int, int]] = []
+    for spec in specs:
+        for rep_idx in range(1, args.replicates + 1):
+            rep_seed = int(args.base_seed + (spec.index - 1) * 1000 + (rep_idx - 1))
+            tasks.append((spec, rep_idx, rep_seed))
 
     results: list[RunResult] = []
     for spec in specs:
         print(
-            f"[sanity_check5] {spec.code}: AA={spec.aa_mM:.3g} mM, "
+            f"[sanity_check5] {spec.code}: AA={spec.aa_ug_ml:.3g} ug/mL, "
             f"beta-GP={spec.bgp_mM:.3g} mM, Dex={spec.dex_nM:.3g} nM, "
             f"MK-4={spec.mk4_uM:.3g} uM"
         )
-        for rep_idx in range(1, args.replicates + 1):
-            rep_seed = int(args.base_seed + spec.index * 1000 + rep_idx)
+    if args.jobs == 1:
+        for spec, rep_idx, rep_seed in tasks:
             result = run_condition(
                 spec,
                 rep_idx,
@@ -646,6 +665,32 @@ def main() -> None:
                 raise SystemExit(
                     f"{spec.code} replicate {rep_idx:02d} failed: {result.error or 'unknown error'}"
                 )
+    else:
+        print(f"[sanity_check5] launching {len(tasks)} runs with --jobs={args.jobs}")
+        with ThreadPoolExecutor(max_workers=int(args.jobs)) as ex:
+            fut_to_task = {
+                ex.submit(
+                    run_condition,
+                    spec,
+                    rep_idx,
+                    rep_seed,
+                    python_exe=args.python,
+                    overwrite=args.overwrite,
+                    dry_run=args.dry_run,
+                    runtime=args.runtime,
+                    snapshots=args.snapshots,
+                ): (spec, rep_idx)
+                for spec, rep_idx, rep_seed in tasks
+            }
+            for fut in as_completed(fut_to_task):
+                spec, rep_idx = fut_to_task[fut]
+                result = fut.result()
+                results.append(result)
+                if not result.success:
+                    write_run_summary(args.out, results)
+                    raise SystemExit(
+                        f"{spec.code} replicate {rep_idx:02d} failed: {result.error or 'unknown error'}"
+                    )
 
     write_run_summary(args.out, results)
 

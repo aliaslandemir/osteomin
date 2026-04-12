@@ -470,6 +470,8 @@ class OsteoModel:
         self.nodule_count_by_day[int(day)] = nodule_count_ever
 
         if day == 0:
+            # Keep day-0 mineral consistent with initialized field state.
+            scalars0 = self.field.snapshot_scalars()
             row = {
                 "day": int(day),
                 "n_preob": int(n_preob),
@@ -480,7 +482,7 @@ class OsteoModel:
                 "committed_today": 0,
                 "collagen_total": float(self.field.total_collagen),
                 "alp_total": float(self.field.total_alp),
-                "ha_total": 0.0,
+                "ha_total": float(scalars0.get("ha_total", 0.0)),
                 "collagen_preob_total": float(self.field.collagen_preob_total),
                 "collagen_ob_total": float(self.field.collagen_ob_total),
                 "alp_preob_total": float(self.field.alp_preob_total),

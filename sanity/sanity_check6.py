@@ -108,7 +108,7 @@ BASE_ARGS = [
     "--ars-mk4-ref",
     "0.667",
     "--ha-model",
-    "minimal",
+    "ha",
     "--ha-ro",
     "0.102",
     "--alp-a-d",

@@ -140,7 +140,7 @@ BASE_ARGS = [
     "--ha-b-k",
     "2.15",
     "--ha-model",
-    "minimal",
+    "ha",
     "--ha-ro",
     "0.102",
     "--ha-h0",
