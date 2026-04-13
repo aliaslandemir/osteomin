@@ -1056,6 +1056,7 @@ def main() -> None:
 
                 n_preob = n_ob = dead_today = nodule_count = None
                 nodule_centers = None
+                persistent_nodule_centers = None
                 if day in df_by_day.index:
                     row = df_by_day.loc[day]
                     n_preob = int(row["n_preob"])
@@ -1067,13 +1068,28 @@ def main() -> None:
                         nodule_count = int(row["nodule_count"])
                 if day in model.nodule_centers_by_day:
                     nodule_centers = model.nodule_centers_by_day[day]
+                if day in model.nodule_persistent_centers_by_day:
+                    persistent_nodule_centers = model.nodule_persistent_centers_by_day[day]
                 centers_sig = ()
                 if nodule_centers:
                     centers_sig = tuple(
                         (round(float(x), 3), round(float(y), 3))
                         for x, y in nodule_centers
                     )
-                meta_sig = (n_preob, n_ob, dead_today, nodule_count, centers_sig)
+                persistent_centers_sig = ()
+                if persistent_nodule_centers:
+                    persistent_centers_sig = tuple(
+                        (round(float(x), 3), round(float(y), 3))
+                        for x, y in persistent_nodule_centers
+                    )
+                meta_sig = (
+                    n_preob,
+                    n_ob,
+                    dead_today,
+                    nodule_count,
+                    centers_sig,
+                    persistent_centers_sig,
+                )
                 if (
                     prev_col is not None
                     and prev_ha is not None
@@ -1097,6 +1113,7 @@ def main() -> None:
                     dead_today=dead_today,
                     nodule_count=nodule_count,
                     nodule_centers=nodule_centers,
+                    persistent_nodule_centers=persistent_nodule_centers,
                     global_vmax_col=collagen_vmax,
                     global_vmax_ha=ha_vmax,
                     state_grid=state,

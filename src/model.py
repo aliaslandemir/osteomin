@@ -131,7 +131,17 @@ class OsteoModel:
         self.nodule_connectivity = str(nodule_connectivity).lower()
         self.nodule_boundary_mode = str(abm_cfg.boundary_mode).lower()
         self.nodule_centers_by_day: Dict[int, List[Tuple[float, float]]] = {}
+        self.nodule_persistent_centers_by_day: Dict[int, List[Tuple[float, float]]] = {}
         self.nodule_count_by_day: Dict[int, int] = {}
+        self._nodule_count_ever = 0
+        self._persistent_nodule_centers: List[Tuple[float, float]] = []
+        self._nodule_merge_radius_manhattan = self._nodule_manhattan_radius(
+            self.nodule_connectivity
+        )
+        self._nodule_assoc_radius_manhattan = max(
+            self._nodule_merge_radius_manhattan,
+            2 * self._nodule_merge_radius_manhattan,
+        )
 
         self.spatial_every = max(0, int(spatial_every))
         base_days = set((spatial_days or []))
@@ -153,6 +163,9 @@ class OsteoModel:
             "runtime_every_days": self.runtime_every_days,
             "nodule_connectivity": self.nodule_connectivity,
             "nodule_boundary_mode": self.nodule_boundary_mode,
+            "nodule_persistence_mode": "persistent_centers_with_manhattan_merge",
+            "nodule_merge_radius_manhattan": self._nodule_merge_radius_manhattan,
+            "nodule_assoc_radius_manhattan": self._nodule_assoc_radius_manhattan,
             "runtime_environment": {
                 "hostname": socket.gethostname(),
                 "platform": platform.platform(),
@@ -465,8 +478,12 @@ class OsteoModel:
             boundary_mode=self.nodule_boundary_mode,
         )
         nodule_count_current = int(len(nodule_centers))
-        nodule_count_ever = nodule_count_current
+        persistent_centers = self._update_persistent_nodules(nodule_centers)
+        nodule_count_persistent = int(len(persistent_centers))
+        self._nodule_count_ever = max(self._nodule_count_ever, nodule_count_current)
+        nodule_count_ever = int(self._nodule_count_ever)
         self.nodule_centers_by_day[int(day)] = list(nodule_centers)
+        self.nodule_persistent_centers_by_day[int(day)] = list(persistent_centers)
         self.nodule_count_by_day[int(day)] = nodule_count_ever
 
         if day == 0:
@@ -494,6 +511,7 @@ class OsteoModel:
                 "avg_move_count": float(avg_move_count),
                 "avg_live_age_hours": float(avg_live_age_hours),
                 "nodule_count_current": nodule_count_current,
+                "nodule_count_persistent": nodule_count_persistent,
                 "nodule_count_ever": nodule_count_ever,
                 "nodule_count": nodule_count_ever,
             }
@@ -523,10 +541,122 @@ class OsteoModel:
             "avg_move_count": float(avg_move_count),
             "avg_live_age_hours": float(avg_live_age_hours),
             "nodule_count_current": nodule_count_current,
+            "nodule_count_persistent": nodule_count_persistent,
             "nodule_count_ever": nodule_count_ever,
             "nodule_count": nodule_count_ever,
         }
         self._rows.append(row)
+
+    @staticmethod
+    def _nodule_manhattan_radius(connectivity: str) -> int:
+        conn = str(connectivity).lower().strip()
+        radius_map = {
+            "4n": 1,
+            "8n": 1,
+            "24n": 2,
+            "40n": 4,
+            "60n": 5,
+            "84n": 6,
+            "112n": 7,
+            "144n": 8,
+        }
+        return int(radius_map.get(conn, 1))
+
+    def _manhattan_dist(
+        self,
+        a: Tuple[float, float],
+        b: Tuple[float, float],
+    ) -> float:
+        ax, ay = float(a[0]), float(a[1])
+        bx, by = float(b[0]), float(b[1])
+        dx = abs(ax - bx)
+        dy = abs(ay - by)
+        if self.nodule_boundary_mode == "periodic":
+            dx = min(dx, float(self.abm.width) - dx)
+            dy = min(dy, float(self.abm.height) - dy)
+        return dx + dy
+
+    def _merge_centers_manhattan(
+        self,
+        centers: List[Tuple[float, float]],
+    ) -> List[Tuple[float, float]]:
+        if not centers:
+            return []
+        n = len(centers)
+        parent = list(range(n))
+
+        def find(i: int) -> int:
+            while parent[i] != i:
+                parent[i] = parent[parent[i]]
+                i = parent[i]
+            return i
+
+        def union(a: int, b: int) -> None:
+            ra, rb = find(a), find(b)
+            if ra != rb:
+                parent[rb] = ra
+
+        thr = float(self._nodule_merge_radius_manhattan)
+        for i in range(n):
+            for j in range(i + 1, n):
+                if self._manhattan_dist(centers[i], centers[j]) <= thr:
+                    union(i, j)
+
+        groups: Dict[int, List[Tuple[float, float]]] = {}
+        for i, c in enumerate(centers):
+            r = find(i)
+            groups.setdefault(r, []).append(c)
+
+        merged: List[Tuple[float, float]] = []
+        for pts in groups.values():
+            xs = np.array([p[0] for p in pts], dtype=float)
+            ys = np.array([p[1] for p in pts], dtype=float)
+            if self.nodule_boundary_mode == "periodic":
+                w = float(self.abm.width)
+                h = float(self.abm.height)
+                xang = (2.0 * np.pi * xs) / w
+                yang = (2.0 * np.pi * ys) / h
+                xmean = np.arctan2(np.mean(np.sin(xang)), np.mean(np.cos(xang)))
+                ymean = np.arctan2(np.mean(np.sin(yang)), np.mean(np.cos(yang)))
+                if xmean < 0.0:
+                    xmean += 2.0 * np.pi
+                if ymean < 0.0:
+                    ymean += 2.0 * np.pi
+                cx = float((xmean / (2.0 * np.pi)) * w)
+                cy = float((ymean / (2.0 * np.pi)) * h)
+            else:
+                cx = float(np.mean(xs))
+                cy = float(np.mean(ys))
+            merged.append((cx, cy))
+
+        merged.sort(key=lambda p: (round(float(p[0]), 6), round(float(p[1]), 6)))
+        return merged
+
+    def _update_persistent_nodules(
+        self,
+        current_centers: List[Tuple[float, float]],
+    ) -> List[Tuple[float, float]]:
+        if not self._persistent_nodule_centers:
+            self._persistent_nodule_centers = list(current_centers)
+            self._persistent_nodule_centers = self._merge_centers_manhattan(
+                self._persistent_nodule_centers
+            )
+            return list(self._persistent_nodule_centers)
+
+        assoc_thr = float(self._nodule_assoc_radius_manhattan)
+        # Keep existing persistent centers fixed; add only truly new centers.
+        for c in current_centers:
+            near_existing = any(
+                self._manhattan_dist(c, p) <= assoc_thr
+                for p in self._persistent_nodule_centers
+            )
+            if not near_existing:
+                self._persistent_nodule_centers.append((float(c[0]), float(c[1])))
+
+        self._persistent_nodule_centers = self._merge_centers_manhattan(
+            self._persistent_nodule_centers
+        )
+        return list(self._persistent_nodule_centers)
 
     def _effective_msd_live_cells(self) -> float:
         if not self.abm.cells:

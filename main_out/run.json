@@ -135,8 +135,11 @@
   "runtime_every_days": 1,
   "nodule_connectivity": "40n",
   "nodule_boundary_mode": "periodic",
+  "nodule_persistence_mode": "persistent_centers_with_manhattan_merge",
+  "nodule_merge_radius_manhattan": 4,
+  "nodule_assoc_radius_manhattan": 8,
   "runtime_environment": {
-    "hostname": "homie",
+    "hostname": "aliad",
     "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
     "system": "Linux",
     "release": "6.6.87.2-microsoft-standard-WSL2",
@@ -152,17 +155,17 @@
     "initial_cell_count": 0
   },
   "timing": {
-    "started_utc": "2026-04-12T15:00:40.118292+00:00",
-    "finished_utc": "2026-04-12T15:01:17.104192+00:00"
+    "started_utc": "2026-04-13T14:04:11.500226+00:00",
+    "finished_utc": "2026-04-13T14:04:37.214577+00:00"
   },
   "performance": {
-    "wallclock_seconds": 38.42642435200105,
-    "wallclock_minutes": 0.6404404058666842,
-    "wallclock_hours": 0.010674006764444736,
+    "wallclock_seconds": 22.776286315000107,
+    "wallclock_minutes": 0.37960477191666847,
+    "wallclock_hours": 0.006326746198611141,
     "simulated_hours": 672.0,
     "simulated_days": 28.0,
-    "simulated_hours_per_wallclock_second": 17.487965933135428,
-    "simulated_hours_per_wallclock_hour": 62956.67735928754,
-    "simulated_days_per_wallclock_hour": 2623.1948899703143
+    "simulated_hours_per_wallclock_second": 29.50437093677696,
+    "simulated_hours_per_wallclock_hour": 106215.73537239706,
+    "simulated_days_per_wallclock_hour": 4425.655640516544
   }
 }

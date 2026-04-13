@@ -12,6 +12,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 from matplotlib.colors import LinearSegmentedColormap, PowerNorm, to_rgb
+from matplotlib.ticker import MaxNLocator
 from .agent import CellState
 from .modulatoreff import plot_drug_modulation_summary
 
@@ -620,31 +621,37 @@ def plot_summary(
     if "nodule_count" in df.columns:
         fig, ax = plt.subplots(figsize=(6.2, 3.6))
         _set_white(ax)
-        nodule_series = (
-            df["nodule_count_ever"]
-            if "nodule_count_ever" in df.columns
-            else df["nodule_count"]
-        )
-        ax.plot(
+        if "nodule_count_persistent" in df.columns:
+            nodule_series = df["nodule_count_persistent"]
+            persistent_label = "Nodules (persistent)"
+        else:
+            nodule_series = (
+                df["nodule_count_ever"]
+                if "nodule_count_ever" in df.columns
+                else df["nodule_count"]
+            )
+            persistent_label = "Nodules (ever formed)"
+        ax.step(
             days,
             nodule_series,
-            label="Nodules (ever formed)",
+            where="post",
+            label=persistent_label,
             color="#0891b2",
             lw=PLOT_STYLE["line_width"],
-            marker="o",
-            markersize=4,
-            markerfacecolor="#0891b2",
-            markeredgecolor="#0e7490",
         )
+        ax.plot(days, nodule_series, color="#0891b2", lw=0, marker="o", markersize=4)
         if "nodule_count_current" in df.columns:
-            ax.plot(
+            ax.step(
                 days,
                 df["nodule_count_current"],
+                where="post",
                 label="Nodules (current day)",
                 color="#64748b",
                 lw=1.4,
                 ls="--",
             )
+        ax.set_ylim(bottom=0)
+        ax.yaxis.set_major_locator(MaxNLocator(integer=True))
         _style_timecourse(ax, days, "Count", "Nodule count over time")
         fig.tight_layout(pad=0.6)
         _save_figure(fig, outdir, "08_nodule_count")
@@ -874,6 +881,7 @@ def _render_collagen_ha_overlay(
     dead_today: int | None = None,
     nodule_count: int | None = None,
     nodule_centers: list[tuple[float, float]] | None = None,
+    persistent_nodule_centers: list[tuple[float, float]] | None = None,
     global_vmax_col: float | None = None,
     global_vmax_ha: float | None = None,
     state_grid: np.ndarray | None = None,
@@ -942,19 +950,24 @@ def _render_collagen_ha_overlay(
         interpolation="nearest",
         zorder=3,
     )
-    if nodule_centers:
-        xs = [c[0] for c in nodule_centers]
-        ys = [c[1] for c in nodule_centers]
+    centers_for_plot = (
+        persistent_nodule_centers if persistent_nodule_centers is not None else nodule_centers
+    )
+    if centers_for_plot:
+        # Persistent nodules are emphasized by a 1.2x larger marker.
+        marker_size = 66 * 1.6 * (1.2 if persistent_nodule_centers is not None else 1.0)
+        xs = [c[0] for c in centers_for_plot]
+        ys = [c[1] for c in centers_for_plot]
         ax.scatter(
             xs,
             ys,
-            s=66 * 1.6,
+            s=marker_size,
             c="#ffb000",
             edgecolors="#3a1f00",
             linewidths=1.1,
             marker="o",
             label="Nodule",
-            zorder=6,
+            zorder=7,
         )
         legend = ax.legend(
             loc="upper right",
@@ -1075,6 +1088,7 @@ def export_overlay_collagen_ha(
     dead_today: int | None = None,
     nodule_count: int | None = None,
     nodule_centers: list[tuple[float, float]] | None = None,
+    persistent_nodule_centers: list[tuple[float, float]] | None = None,
     global_vmax_col: float | None = None,
     global_vmax_ha: float | None = None,
     state_grid: np.ndarray | None = None,
@@ -1090,6 +1104,7 @@ def export_overlay_collagen_ha(
         dead_today=dead_today,
         nodule_count=nodule_count,
         nodule_centers=nodule_centers,
+        persistent_nodule_centers=persistent_nodule_centers,
         global_vmax_col=global_vmax_col,
         global_vmax_ha=global_vmax_ha,
         state_grid=state_grid,
