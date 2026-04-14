@@ -1,0 +1,40 @@
+{
+  "fit_method": "scipy.least_squares_autojoint_fixed_aK_bK",
+  "grid_method": "autojoint",
+  "shape_source": "mk4_ars_autojoint_fit",
+  "cK0_uM": 0.347950546704587,
+  "col_control_y0": 1.0,
+  "aK": 4.663134844322316,
+  "bK": 2.1451658350203324,
+  "degrees_of_freedom": 0,
+  "metrics_overall": {
+    "SSE": 1.232595164407831e-28,
+    "RMSE": 7.850462293418876e-15,
+    "MAE": 5.551115123125783e-15,
+    "R2": 1.0
+  },
+  "metrics_dosed": {
+    "SSE": 1.232595164407831e-28,
+    "RMSE": 1.1102230246251565e-14,
+    "MAE": 1.1102230246251565e-14,
+    "R2": NaN
+  },
+  "grid_profile": {
+    "cK0_uM": [
+      0.347950546704587
+    ],
+    "RMSE": [
+      1.1102230246251565e-14
+    ]
+  },
+  "data": {
+    "mk4_uM": [
+      0.0,
+      10.0
+    ],
+    "collagen_response": [
+      1.0,
+      1.1
+    ]
+  }
+}
