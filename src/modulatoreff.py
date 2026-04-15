@@ -32,11 +32,11 @@ def endpoint_drug_factors(
 
     dex_conc = float(getattr(cfg, "dex_conc", 0.0) if dex_conc is None else dex_conc)
     mk4_conc = float(getattr(cfg, "mk4_conc", 0.0) if mk4_conc is None else mk4_conc)
-    default_dex_ref = float(getattr(cfg, "dex_ref_conc", 22.7))
+    default_dex_ref = float(getattr(cfg, "dex_ref_conc", 22.7585))
     default_mk4_ref = {
-        "alp": 0.784,
-        "collagen": 0.349,
-        "ha": 0.667,
+        "alp": 0.78289,
+        "collagen": 0.347951,
+        "ha": 0.669239,
     }[prefix]
     dex_ref = max(1e-12, float(getattr(cfg, f"{prefix}_dex_ref_conc", default_dex_ref)))
     mk4_ref = max(
@@ -93,8 +93,8 @@ def drug_response_summary(field_cfg: object) -> dict[str, float | str]:
     return {
         "dex_conc_nM": dex_conc,
         "mk4_conc_uM": mk4_conc,
-        "dex_ref_nM": float(getattr(field_cfg, "dex_ref_conc", 22.7)),
-        "mk4_ref_uM": float(getattr(field_cfg, "mk4_ref_conc", 0.784)),
+        "dex_ref_nM": float(getattr(field_cfg, "dex_ref_conc", 22.7585)),
+        "mk4_ref_uM": float(getattr(field_cfg, "mk4_ref_conc", 0.78289)),
         "I_D": float(i_d),
         "I_K": float(i_k),
         "alp_base": alp_base,
