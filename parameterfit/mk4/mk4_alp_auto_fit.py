@@ -24,8 +24,7 @@ def gating_m(c_uM: np.ndarray, a_k: float, b_k: float, c_k0_uM: float) -> np.nda
     mask = c > 0.0
     if np.any(mask):
         x = np.log10(c[mask] / float(c_k0_uM))
-        raw = 1.0 + (a_k - b_k * x * x)
-        out[mask] = np.maximum(0.0, raw)
+        out[mask] = 1.0 + (a_k - b_k * x * x)
     return out
 
 
