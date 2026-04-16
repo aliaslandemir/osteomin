@@ -69,11 +69,11 @@ def apply_pub_rcparams() -> None:
             "savefig.bbox": "tight",
             "pdf.fonttype": 42,
             "ps.fonttype": 42,
-            "font.size": 10,
-            "axes.titlesize": 11,
-            "axes.labelsize": 10,
-            "xtick.labelsize": 9,
-            "ytick.labelsize": 9,
+            "font.size": 12.5,
+            "axes.titlesize": 14.0,
+            "axes.labelsize": 13.0,
+            "xtick.labelsize": 12.0,
+            "ytick.labelsize": 12.0,
             "axes.linewidth": 0.8,
             "lines.linewidth": 1.0,
             "grid.linewidth": 0.6,
@@ -119,18 +119,20 @@ MEDIAN_COLOR = "#1F1F1F"
 STAR_COLOR_A = "#000000"
 STAR_COLOR_B = "#B22222"
 SD_COLOR = "#5A5A5A"
+BAR_COLOR = "#1f77b4"
+POINT_COLOR = "#1f77b4"
 
 
 def two_line_label(name: str) -> str:
     m = {
         "Basal": "Basal",
-        "Osteo": r"AA+$\beta$-GP",
-        "Osteo+D/MK4 (L/L)": r"AA+$\beta$-GP" + "\n" + r"$D_LK_L$",
-        "Osteo+D/MK4 (L/H)": r"AA+$\beta$-GP" + "\n" + r"$D_LK_H$",
-        "Osteo+D/MK4 (H/L)": r"AA+$\beta$-GP" + "\n" + r"$D_HK_L$",
-        "Osteo+D/MK4 (H/H)": r"AA+$\beta$-GP" + "\n" + r"$D_HK_H$",
-        "Osteo+Dex (H)":     r"AA+$\beta$-GP" + "\n" + r"$D_HK_0$",
-        "Osteo+MK-4 (H)":    r"AA+$\beta$-GP" + "\n" + r"$D_0K_H$",
+        "Osteo": "Osteo",
+        "Osteo+D/MK4 (L/L)": r"Osteo" + "\n" + r"$D_LK_L$",
+        "Osteo+D/MK4 (L/H)": r"Osteo" + "\n" + r"$D_LK_H$",
+        "Osteo+D/MK4 (H/L)": r"Osteo" + "\n" + r"$D_HK_L$",
+        "Osteo+D/MK4 (H/H)": r"Osteo" + "\n" + r"$D_HK_H$",
+        "Osteo+Dex (H)":     r"Osteo" + "\n" + r"$D_HK_0$",
+        "Osteo+MK-4 (H)":    r"Osteo" + "\n" + r"$D_0K_H$",
     }
     return m.get(name, name)
 
@@ -153,6 +155,131 @@ def _mean_sd(vals: np.ndarray) -> Tuple[float, float]:
         return mean, np.nan
     sd = float(np.std(vals, ddof=1))
     return mean, sd
+
+
+def plot_fig2_alp_style_bar_delta_sig(
+    df: pd.DataFrame,
+    value_col: str,
+    conds: List[str],
+    stats_vs_c2: Dict[str, Dict[str, float]],
+    suptitle: str,
+    xlab: str,
+    seed: int = 0,
+) -> plt.Figure:
+    rng = np.random.default_rng(seed)
+
+    data = [
+        df.loc[df["condition"] == c, value_col].dropna().astype(float).values
+        for c in conds
+    ]
+
+    fig, ax = plt.subplots(figsize=(7.0, 6.0))
+    fig.subplots_adjust(left=0.10, right=0.99, bottom=0.305, top=0.885)
+
+    x_step = 0.62
+    x = np.arange(len(conds), dtype=float) * x_step
+
+    lower_bounds: List[float] = []
+    upper_bounds: List[float] = []
+    means: List[float] = []
+
+    for i, vals in enumerate(data):
+        if vals.size == 0:
+            means.append(np.nan)
+            continue
+        mean, sd = _mean_sd(vals)
+        means.append(mean)
+        if np.isfinite(sd) and sd > 0.0:
+            low = max(mean - sd, 0.0)
+            high = mean + sd
+        else:
+            low = 0.0
+            high = mean
+        lower_bounds.append(low)
+        upper_bounds.append(high)
+
+        ax.bar(
+            x[i],
+            high - low,
+            bottom=low,
+            width=0.42,
+            color=BAR_COLOR,
+            edgecolor="#1f2937",
+            linewidth=1.15,
+            alpha=0.48,
+            zorder=2,
+        )
+        xj = x[i] + rng.normal(0, 0.020, size=vals.size)
+        ax.scatter(
+            xj,
+            vals,
+            s=36,
+            marker="o",
+            color=POINT_COLOR,
+            edgecolor="#111111",
+            linewidth=0.45,
+            alpha=0.95,
+            zorder=5,
+        )
+        ax.hlines(
+            mean,
+            x[i] - 0.16,
+            x[i] + 0.16,
+            color=MEAN_COLOR,
+            linewidth=1.6,
+            zorder=6,
+        )
+        ax.scatter(
+            x[i],
+            mean,
+            s=58,
+            marker="o",
+            color=MEAN_COLOR,
+            edgecolor="white",
+            linewidth=0.65,
+            zorder=7,
+        )
+
+    finite_vals = np.concatenate([vals[np.isfinite(vals)] for vals in data if vals.size])
+    ymin = 0.0
+    ymax = 1.0
+    finite_lower = np.asarray([v for v in lower_bounds if np.isfinite(v)], dtype=float)
+    finite_upper = np.asarray([v for v in upper_bounds if np.isfinite(v)], dtype=float)
+    if finite_vals.size:
+        ymin = float(np.min(finite_vals))
+        ymax = max(
+            float(np.max(finite_vals)),
+            float(np.max(finite_upper) if finite_upper.size else np.max(finite_vals)),
+        )
+        if finite_lower.size:
+            ymin = min(ymin, float(np.min(finite_lower)))
+    yrange = max(ymax - ymin, 1e-9)
+    pad = max(0.12 * yrange, 0.02 * max(abs(ymax), 1.0))
+    ylo = max(0.0, ymin - 0.60 * pad)
+    yhi = ymax + pad
+    ax.set_ylim(ylo, yhi)
+    ax.set_xlim(x[0] - 0.25, x[-1] + 0.25)
+
+    labels = [cond_id_to_tag(c) for c in conds]
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, rotation=0, ha="center")
+    ax.set_ylabel(xlab, fontsize=15.5)
+    ax.set_xlabel("")
+    ax.grid(False)
+    ax.tick_params(axis="x", labelsize=11.2, pad=8)
+    ax.tick_params(axis="y", labelsize=13.5)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["left"].set_linewidth(1.0)
+    ax.spines["bottom"].set_linewidth(1.0)
+
+    y_sig = ymax + pad * 0.45
+    for i, c in enumerate(conds):
+        st = "ref" if c == "C2" else star_from_p(stats_vs_c2.get(c, {}).get("p_adj", np.nan))
+        ax.text(x[i], y_sig, st, ha="center", va="center", fontsize=13.8, color=STAR_COLOR_A)
+
+    fig.suptitle(suptitle, fontsize=18.5, y=0.965)
+    return fig
 
 
 # ========================== DAPI CONFIG ==========================
@@ -931,17 +1058,17 @@ def main():
                         f"p_adj={famB.get(c, {}).get('p_adj', np.nan):.4g}\n")
             f.write("\n")
 
-            plot_fn = (
-                plot_fig2_tags_points_sig
-                if feat in ARS_STYLE_FEATURES
-                else plot_fig2_tags_violin_delta_sig
+            stats_vs_c2 = pairwise_vs_ref_BH(
+                cond_to_vals,
+                ref="C2",
+                targets=[c for c in conds_present if c != "C2"],
+                alpha=float(args.alpha),
             )
-            fig = plot_fn(
+            fig = plot_fig2_alp_style_bar_delta_sig(
                 df=df_kept,
                 value_col=feat,
                 conds=conds_present,
-                famA=famA,
-                famB=famB,
+                stats_vs_c2=stats_vs_c2,
                 suptitle=title_map.get(feat, f"DAPI nuclei — {feat.replace('_',' ')}"),
                 xlab=ylab_map.get(feat, feat.replace("_", " ")),
                 seed=int(args.seed),
