@@ -46,31 +46,51 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## Default osteogenic run (public reference)
+## Default osteogenic run (from `main.py`)
 
-Use the following run as the default osteogenic reference condition:
+The true defaults are already configured in `main.py`, so the default run is simply:
+
+```bash
+python main.py
+```
+
+For reproducibility, the expanded equivalent defaults are:
 
 ```bash
 python main.py \
   --out main_out \
   --seed 12345 \
-  --runtime \
-  \
   --hours 672 \
   --cells 72 \
-  \
+  --seed-mode random \
   --w 33 \
   --h 33 \
   --boundary-mode periodic \
-  --seed-mode random \
-  --nodules 40n \
-  \
+  --update-order random \
   --media-interval 48 \
-  --secretion \
+  --dex-conc 0.0 \
+  --mk4-conc 0.0 \
+  --alp-rb 0.0949 \
+  --alp-ro 0.810 \
+  --alp-p0 0.8 \
+  --alp-dex-ref 2.51535 \
+  --collagen-dex-ref 1.05263 \
+  --ars-dex-ref 2.85714 \
+  --alp-mk4-ref 0.78289 \
+  --collagen-mk4-ref 0.347951 \
+  --ars-mk4-ref 0.669239 \
+  --collagen-rb 0.00336 \
+  --collagen-ro 0.0130 \
   --aa0 50.0 \
-  --aa-half-life 8 \
+  --aa-half-life 8.0 \
   --collagen-aa-km 5.0 \
-  \
+  --ha-model ha \
+  --ha-ro 0.102 \
+  --ha-h0 2.34 \
+  --ha-tau 384 \
+  --ha-hill-n 2 \
+  --ha-collagen-maturation-tau 48 \
+  --ha-collagen-km 1.0 \
   --random-move \
   --move-prob 0.27 \
   --max-moves 1 \
@@ -78,56 +98,25 @@ python main.py \
   --ob-div-prob 0.0 \
   --min-div-hours 38 \
   --max-div-hours 52 \
-  --apoptosis \
-  --apoptosis-prob 0.0010 \
-  --apoptosis-osteo 0.0 \
-  \
   --osteogenic-commitment \
   --osteo-induction-hours 72 \
   --commit-delay 48 \
   --commit-k 0.0125 \
-  \
-  --dex-conc 0 \
-  --mk4-conc 0 \
-  \
-  --alp-rb 0.0949 \
-  --alp-ro 0.810 \
-  --collagen-rb 0.00336 \
-  --collagen-ro 0.0130 \
-  --ha-ro 0.102 \
-  \
-  --alp-dex-ref 22.7 \
-  --collagen-dex-ref 6.22 \
-  --ars-dex-ref 46.6 \
-  --alp-a-d 3.72 \
-  --alp-b-d 1.75 \
-  --collagen-a-d 2.69 \
-  --collagen-b-d 2.04 \
-  --ha-a-d 1.22 \
-  --ha-b-d 0.679 \
-  \
-  --alp-mk4-ref 0.784 \
-  --collagen-mk4-ref 0.349 \
-  --ars-mk4-ref 0.667 \
-  --alp-a-k 1.10 \
-  --alp-b-k 1.06 \
-  --collagen-a-k 4.66 \
-  --collagen-b-k 2.15 \
-  --ha-a-k 4.66 \
-  --ha-b-k 2.15 \
-  \
-  --ha-model ha \
-  --ha-collagen-maturation-tau 48 \
-  --ha-collagen-km 1.0 \
-  --ha-tau 384 \
-  --ha-hill-n 2 \
-  \
+  --apoptosis \
+  --apoptosis-prob 0.0010 \
+  --apoptosis-osteo 0.0 \
+  --secretion \
   --spatial-every 24 \
+  --xlsx \
+  --uniqueID \
+  --snapshots \
+  --no-hourly-exports \
+  --alp-snapshots \
+  --runtime \
+  --runtime-every 1 \
   --alp-plot-hours 240 \
   --collagen-plot-hours 336 \
-  --mineral-plot-hours 672 \
-  --no-hourly-exports \
-  --alp-snapshots
+  --mineral-plot-hours 672
 ```
 
 ## Run outputs
@@ -137,7 +126,7 @@ A run writes to `--out` (default `main_out/`). Core artifacts include:
 - `run.json`: complete runtime metadata and parameter configuration.
 - `timeseries.xlsx`: daily simulation summary metrics.
 - `cell_history.xlsx`: per-cell history export (when unique-ID tracking is enabled).
-- figure panel (`*.png` + `figures_pdf/*.pdf`): counts, events, motility, field totals, nodules, modulation summary.
+- figure panel (`*.png` + `figures_pdf/*.pdf`): counts, events, motility, field totals, modulation summary.
 - spatial assets: daily `.npy` grids, collagen/HA overlays, and ALP snapshots (depending on export flags).
 
 ## Quick validation

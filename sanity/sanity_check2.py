@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+
+
+# python sanity/sanity_check2.py --replicates 10 --jobs 8
+
 from __future__ import annotations
 
 import argparse
@@ -564,7 +568,6 @@ def compute_endpoint_metrics(df: pd.DataFrame) -> dict[str, float]:
         "final_preob": float(final_row["n_preob"]),
         "final_ob": float(final_row["n_osteoblast"]),
         "final_live": float(final_row["n_total"]),
-        "final_nodule_count": float(final_row.get("nodule_count_ever", np.nan)),
         "final_msd": float(final_row.get("msd_effective", np.nan)),
     }
 
@@ -679,7 +682,6 @@ def run_replicate(
             hourly_exports=False,
             show_runtime=show_runtime,
             runtime_every_days=1,
-            nodule_connectivity="40n",
         )
         model.abm.seed_from_coords(coords, day0=0)
         df = prepare_timeseries(model.run())
@@ -787,7 +789,6 @@ def build_condition_summary(replicate_summary: pd.DataFrame) -> pd.DataFrame:
         "final_preob",
         "final_ob",
         "final_live",
-        "final_nodule_count",
         "final_msd",
     ]
     grouped = replicate_summary.groupby(group_cols, sort=True)

@@ -33,8 +33,6 @@ BASE_ARGS = [
     "33",
     "--h",
     "33",
-    "--nodules",
-    "40n",
     "--boundary-mode",
     "periodic",
     "--media-interval",

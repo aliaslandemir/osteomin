@@ -62,8 +62,10 @@ def endpoint_drug_factors(
         m_d = 1.0 + float(a_d) * hill_frac
     else:
         m_d = 1.0
-    # MK-4: quadratic log-dose profile.
-    m_k = 1.0 + i_k * (a_k - b_k * x_k_sq)
+    # MK-4: quadratic log-dose profile, clipped to no less than baseline effect.
+    # If the unconstrained fit predicts inhibition (m_k_raw < 1), treat as no change vs 0-dose.
+    m_k_raw = 1.0 + i_k * (a_k - b_k * x_k_sq)
+    m_k = max(1.0, float(m_k_raw))
     m_total = float(m_d * m_k)
     return {
         "dex_conc": dex_conc,
@@ -157,7 +159,8 @@ def drug_response_summary(field_cfg: object) -> dict[str, float | str]:
             "before Hill-time and matured-collagen gates. Drug effects scale the osteogenic "
             "rate multiplicatively as r_o * m_D(c_D) * m_K(c_K). Dex uses a baseline-anchored "
             "Hill profile m_D=1+a_D*c_D^n/(c_D^n+c_D0^n), while MK-4 uses a quadratic "
-            "log-dose profile m_K=1+I_K*(a_K-b_K*x_K^2)."
+            "log-dose profile m_K_raw=1+I_K*(a_K-b_K*x_K^2) with baseline clipping "
+            "m_K=max(1, m_K_raw)."
         ),
     }
 

@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+
+# python sanity/sanity_check5.py --replicates 10 --jobs 8
+
 from __future__ import annotations
 
 import argparse
@@ -45,8 +48,6 @@ BASE_ARGS = [
     "33",
     "--h",
     "33",
-    "--nodules",
-    "40n",
     "--boundary-mode",
     "periodic",
     "--media-interval",

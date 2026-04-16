@@ -54,8 +54,6 @@ BASE_ARGS = [
     "periodic",
     "--seed-mode",
     "random",
-    "--nodules",
-    "40n",
     "--media-interval",
     "48",
     "--secretion",

@@ -17,7 +17,6 @@ python main.py \
   --h 33 \
   --boundary-mode periodic \
   --seed-mode random \
-  --nodules 40n \
   \
   --media-interval 48 \
   --secretion \
@@ -655,13 +654,6 @@ def parse_args() -> argparse.Namespace:
     p.set_defaults(secretion=True)
 
     p.add_argument(
-        "--nodules",
-        type=str,
-        choices=["4n", "8n", "24n", "40n", "60n", "84n", "112n", "144n"],
-        default="40n",
-        help="nodule connectivity rule: 4n (Manhattan r=1), 8n (Moore r=1), 24n (Moore r=2), 40n (Manhattan r=4), 60n (Manhattan r=5), 84n (Manhattan r=6), 112n (Manhattan r=7), 144n (Manhattan r=8)",
-    )
-    p.add_argument(
         "--spatial-every",
         type=int,
         default=24,
@@ -978,7 +970,6 @@ def main() -> None:
             hourly_exports=args.hourly_exports,
             show_runtime=args.runtime,
             runtime_every_days=args.runtime_every,
-            nodule_connectivity=args.nodules,
         )
 
         if args.seed_coords is not None:
@@ -1054,41 +1045,16 @@ def main() -> None:
                 ha = np.load(model.grids_dir / f"ha_day_{day:03d}.npy")
                 state = np.load(model.grids_dir / f"state_day_{day:03d}.npy")
 
-                n_preob = n_ob = dead_today = nodule_count = None
-                nodule_centers = None
-                persistent_nodule_centers = None
+                n_preob = n_ob = dead_today = None
                 if day in df_by_day.index:
                     row = df_by_day.loc[day]
                     n_preob = int(row["n_preob"])
                     n_ob = int(row["n_osteoblast"])
                     dead_today = int(row["dead_total_today"])
-                    if "nodule_count_current" in row:
-                        nodule_count = int(row["nodule_count_current"])
-                    elif "nodule_count" in row:
-                        nodule_count = int(row["nodule_count"])
-                if day in model.nodule_centers_by_day:
-                    nodule_centers = model.nodule_centers_by_day[day]
-                if day in model.nodule_persistent_centers_by_day:
-                    persistent_nodule_centers = model.nodule_persistent_centers_by_day[day]
-                centers_sig = ()
-                if nodule_centers:
-                    centers_sig = tuple(
-                        (round(float(x), 3), round(float(y), 3))
-                        for x, y in nodule_centers
-                    )
-                persistent_centers_sig = ()
-                if persistent_nodule_centers:
-                    persistent_centers_sig = tuple(
-                        (round(float(x), 3), round(float(y), 3))
-                        for x, y in persistent_nodule_centers
-                    )
                 meta_sig = (
                     n_preob,
                     n_ob,
                     dead_today,
-                    nodule_count,
-                    centers_sig,
-                    persistent_centers_sig,
                 )
                 if (
                     prev_col is not None
@@ -1111,9 +1077,6 @@ def main() -> None:
                     n_preob=n_preob,
                     n_ob=n_ob,
                     dead_today=dead_today,
-                    nodule_count=nodule_count,
-                    nodule_centers=nodule_centers,
-                    persistent_nodule_centers=persistent_nodule_centers,
                     global_vmax_col=collagen_vmax,
                     global_vmax_ha=ha_vmax,
                     state_grid=state,

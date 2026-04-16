@@ -132,8 +132,6 @@ BASE_ARGS = [
     str(GRID_H),
     "--boundary-mode",
     "periodic",
-    "--nodules",
-    "40n",
     "--media-interval",
     "48",
     "--secretion",

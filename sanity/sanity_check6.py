@@ -46,8 +46,6 @@ BASE_ARGS = [
     "33",
     "--h",
     "33",
-    "--nodules",
-    "40n",
     "--dex-conc",
     "0",
     "--mk4-conc",

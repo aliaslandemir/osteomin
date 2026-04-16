@@ -68,8 +68,6 @@ def build_main_cmd(python_bin: str, outdir: Path) -> list[str]:
         "periodic",
         "--seed-mode",
         "random",
-        "--nodules",
-        "40n",
         "--media-interval",
         "48",
         "--secretion",

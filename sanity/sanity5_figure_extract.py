@@ -296,6 +296,27 @@ def compute_metrics(df: pd.DataFrame) -> dict[str, float | int]:
         bool(rank_sim and rank_exp and rank_sim[0] == rank_exp[0])
     )
     top3_recovery = len(set(rank_sim[:3]).intersection(rank_exp[:3]))
+    direction_sd = (
+        float(direction_match.astype(float).std(ddof=0))
+        if len(direction_match)
+        else float("nan")
+    )
+    if len(nonref) > 1:
+        rng = np.random.default_rng(12345)
+        n = len(nonref)
+        boot_vals: list[float] = []
+        for _ in range(512):
+            idx = rng.integers(0, n, size=n)
+            tau = kendalltau(sim_rel[idx], exp_rel[idx]).statistic
+            if np.isfinite(float(tau)):
+                boot_vals.append(float(tau))
+        kendall_sd = (
+            float(np.std(np.asarray(boot_vals, dtype=float), ddof=0))
+            if boot_vals
+            else float("nan")
+        )
+    else:
+        kendall_sd = float("nan")
     return {
         "reference_condition": str(
             df.loc[df["is_reference"], "condition_code"].iloc[0]
@@ -303,8 +324,10 @@ def compute_metrics(df: pd.DataFrame) -> dict[str, float | int]:
         "direction_agreement": (
             float(np.mean(direction_match)) if len(direction_match) else float("nan")
         ),
+        "direction_agreement_sd": direction_sd,
         "direction_agreement_n": int(len(direction_match)),
         "kendall_tau": kendall_val,
+        "kendall_tau_sd": kendall_sd,
         "spearman_rho": spearman_val,
         "pearson_r": pearson_val,
         "rmse_rel_effect": rmse_val,
@@ -645,17 +668,14 @@ def scatter_label_offsets(
 
 
 def parity_metric_text(metrics: pd.Series) -> str:
-    directionality = (
-        metrics["direction_agreement"]
-        if "direction_agreement" in metrics
-        else float("nan")
-    )
+    directionality = metrics.get("direction_agreement", float("nan"))
+    kendall_tau = metrics.get("kendall_tau", float("nan"))
     directionality_txt = (
-        f"{directionality:.0%}" if np.isfinite(float(directionality)) else "NA"
+        f"{float(directionality):.0%}" if np.isfinite(float(directionality)) else "NA"
     )
+    kendall_txt = f"{float(kendall_tau):.2f}" if np.isfinite(float(kendall_tau)) else "NA"
     return (
-        f"τ = {metrics['kendall_tau']:.2f}\n"
-        f"MAE = {metrics['mae_rel_effect']:.2f}\n"
+        f"Kendall τ = {kendall_txt}\n"
         f"Sign agreement = {directionality_txt}"
     )
 
