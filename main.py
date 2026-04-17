@@ -49,15 +49,15 @@ python main.py \
   --collagen-ro 0.0130 \
   --ha-ro 0.102 \
   \
-  --alp-dex-ref 2.51535 \
-  --collagen-dex-ref 1.05263 \
-  --ars-dex-ref 2.85714 \
-  --alp-a-d 3.51024 \
-  --alp-b-d 1.0 \
-  --collagen-a-d 2.87368 \
-  --collagen-b-d 1.0 \
-  --ha-a-d 1.17551 \
-  --ha-b-d 1.0 \
+  --alp-dex-ref 22.7585 \
+  --collagen-dex-ref 17.2714 \
+  --ars-dex-ref 67.7871 \
+  --alp-a-d 3.72321 \
+  --alp-b-d 1.75 \
+  --collagen-a-d 2.64583 \
+  --collagen-b-d 0.813749 \
+  --ha-a-d 1.1527 \
+  --ha-b-d 0.345121 \
   \
   --alp-mk4-ref 0.78289 \
   --collagen-mk4-ref 0.347951 \
@@ -288,13 +288,13 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--alp-dex-ref",
         type=float,
-        default=2.51535,
+        default=22.7585,
         help="ALP-specific Dex reference concentration c_D0 in nM",
     )
     p.add_argument(
         "--collagen-dex-ref",
         type=float,
-        default=1.05263,
+        default=17.2714,
         help="collagen-specific Dex reference concentration c_D0 in nM",
     )
     p.add_argument(
@@ -302,43 +302,43 @@ def parse_args() -> argparse.Namespace:
         "--ars-dex-ref",
         dest="ha_dex_ref",
         type=float,
-        default=2.85714,
+        default=67.7871,
         help="mineral/ARS-specific Dex reference concentration c_D0 in nM",
     )
     p.add_argument(
         "--alp-a-d",
         type=float,
-        default=None,
+        default=3.72321,
         help="ALP-specific Dex response height a_D",
     )
     p.add_argument(
         "--alp-b-d",
         type=float,
-        default=None,
+        default=1.75,
         help="ALP-specific Dex response curvature b_D",
     )
     p.add_argument(
         "--collagen-a-d",
         type=float,
-        default=None,
+        default=2.64583,
         help="collagen-specific Dex response height a_D",
     )
     p.add_argument(
         "--collagen-b-d",
         type=float,
-        default=None,
+        default=0.813749,
         help="collagen-specific Dex response curvature b_D",
     )
     p.add_argument(
         "--ha-a-d",
         type=float,
-        default=None,
+        default=1.1527,
         help="mineral/ARS-specific Dex response height a_D",
     )
     p.add_argument(
         "--ha-b-d",
         type=float,
-        default=None,
+        default=0.345121,
         help="mineral/ARS-specific Dex response curvature b_D",
     )
     p.add_argument(
@@ -378,38 +378,92 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--alp-a-k",
         type=float,
-        default=None,
+        default=1.09529,
         help="ALP-specific MK-4 response height a_K",
     )
     p.add_argument(
         "--alp-b-k",
         type=float,
-        default=None,
+        default=1.05833,
         help="ALP-specific MK-4 response curvature b_K",
     )
     p.add_argument(
         "--collagen-a-k",
         type=float,
-        default=None,
+        default=4.66313,
         help="collagen-specific MK-4 response height a_K",
     )
     p.add_argument(
         "--collagen-b-k",
         type=float,
-        default=None,
+        default=2.14517,
         help="collagen-specific MK-4 response curvature b_K",
     )
     p.add_argument(
         "--ha-a-k",
         type=float,
-        default=None,
+        default=4.66541,
         help="mineral/ARS-specific MK-4 response height a_K",
     )
     p.add_argument(
         "--ha-b-k",
         type=float,
-        default=None,
+        default=2.15,
         help="mineral/ARS-specific MK-4 response curvature b_K",
+    )
+    p.add_argument(
+        "--alp-alpha-d",
+        type=float,
+        default=1.0,
+        help="ALP Dex contribution coefficient alpha_D in combined-response model",
+    )
+    p.add_argument(
+        "--alp-alpha-k",
+        type=float,
+        default=1.0,
+        help="ALP MK-4 contribution coefficient alpha_K in combined-response model",
+    )
+    p.add_argument(
+        "--alp-alpha-dk",
+        type=float,
+        default=0.0,
+        help="ALP interaction coefficient alpha_DK (0 additive, >0 synergistic, <0 antagonistic)",
+    )
+    p.add_argument(
+        "--collagen-alpha-d",
+        type=float,
+        default=1.0,
+        help="Collagen Dex contribution coefficient alpha_D in combined-response model",
+    )
+    p.add_argument(
+        "--collagen-alpha-k",
+        type=float,
+        default=1.0,
+        help="Collagen MK-4 contribution coefficient alpha_K in combined-response model",
+    )
+    p.add_argument(
+        "--collagen-alpha-dk",
+        type=float,
+        default=0.0,
+        help="Collagen interaction coefficient alpha_DK (0 additive, >0 synergistic, <0 antagonistic)",
+    )
+    p.add_argument(
+        "--ha-alpha-d",
+        type=float,
+        default=1.0,
+        help="HAp Dex contribution coefficient alpha_D in combined-response model",
+    )
+    p.add_argument(
+        "--ha-alpha-k",
+        type=float,
+        default=1.0,
+        help="HAp MK-4 contribution coefficient alpha_K in combined-response model",
+    )
+    p.add_argument(
+        "--ha-alpha-dk",
+        type=float,
+        default=0.0,
+        help="HAp interaction coefficient alpha_DK (0 additive, >0 synergistic, <0 antagonistic)",
     )
     p.add_argument(
         "--collagen-rb",
@@ -797,32 +851,32 @@ def main() -> None:
     alp_a_d = (
         float(args.alp_a_d)
         if args.alp_a_d is not None
-        else float(args.dex_a) if args.dex_a is not None else 3.51024
+        else float(args.dex_a) if args.dex_a is not None else 3.72321
     )
     alp_b_d = (
         float(args.alp_b_d)
         if args.alp_b_d is not None
-        else float(args.dex_b) if args.dex_b is not None else 1.0
+        else float(args.dex_b) if args.dex_b is not None else 1.75
     )
     collagen_a_d = (
         float(args.collagen_a_d)
         if args.collagen_a_d is not None
-        else float(args.dex_a) if args.dex_a is not None else 2.87368
+        else float(args.dex_a) if args.dex_a is not None else 2.64583
     )
     collagen_b_d = (
         float(args.collagen_b_d)
         if args.collagen_b_d is not None
-        else float(args.dex_b) if args.dex_b is not None else 1.0
+        else float(args.dex_b) if args.dex_b is not None else 0.813749
     )
     ha_a_d = (
         float(args.ha_a_d)
         if args.ha_a_d is not None
-        else float(args.dex_a) if args.dex_a is not None else 1.17551
+        else float(args.dex_a) if args.dex_a is not None else 1.1527
     )
     ha_b_d = (
         float(args.ha_b_d)
         if args.ha_b_d is not None
-        else float(args.dex_b) if args.dex_b is not None else 1.0
+        else float(args.dex_b) if args.dex_b is not None else 0.345121
     )
     alp_a_k = (
         float(args.alp_a_k)
@@ -910,7 +964,7 @@ def main() -> None:
         osteo_induction_hours=induction_hours,
         dex_conc=args.dex_conc,
         mk4_conc=args.mk4_conc,
-        dex_ref_conc=2.51535,
+        dex_ref_conc=22.7585,
         mk4_ref_conc=0.78289,
         alp_basal_rate=args.alp_rb,
         alp_osteo_rate=args.alp_ro,
@@ -921,6 +975,9 @@ def main() -> None:
         alp_b_d=alp_b_d,
         alp_a_k=alp_a_k,
         alp_b_k=alp_b_k,
+        alp_alpha_d=args.alp_alpha_d,
+        alp_alpha_k=args.alp_alpha_k,
+        alp_alpha_dk=args.alp_alpha_dk,
         collagen_basal_rate=args.collagen_rb,
         collagen_osteo_rate=args.collagen_ro,
         collagen_dex_ref_conc=args.collagen_dex_ref,
@@ -929,6 +986,9 @@ def main() -> None:
         collagen_b_d=collagen_b_d,
         collagen_a_k=collagen_a_k,
         collagen_b_k=collagen_b_k,
+        collagen_alpha_d=args.collagen_alpha_d,
+        collagen_alpha_k=args.collagen_alpha_k,
+        collagen_alpha_dk=args.collagen_alpha_dk,
         aa_initial=args.aa0,
         aa_half_life_hours=args.aa_half_life,
         collagen_aa_half_sat=args.collagen_aa_km,
@@ -941,6 +1001,9 @@ def main() -> None:
         ha_b_d=ha_b_d,
         ha_a_k=ha_a_k,
         ha_b_k=ha_b_k,
+        ha_alpha_d=args.ha_alpha_d,
+        ha_alpha_k=args.ha_alpha_k,
+        ha_alpha_dk=args.ha_alpha_dk,
         ha_tau_hours=args.ha_tau,
         ha_hill_n=args.ha_hill_n,
         ha_t_commit_hours=induction_hours + args.commit_delay,
@@ -998,7 +1061,7 @@ def main() -> None:
             model.save_timeseries_excel(df, "timeseries")
         if args.csv:
             model.save_timeseries_csv(df, "timeseries")
-        if args.unique_id:
+        if args.unique_id and args.xlsx:
             model.save_cell_history_excel("cell_history")
 
         plot_summary(

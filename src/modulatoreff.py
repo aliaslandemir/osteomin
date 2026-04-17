@@ -30,43 +30,87 @@ def endpoint_drug_factors(
     if prefix not in {"alp", "collagen", "ha"}:
         raise ValueError(f"unsupported endpoint prefix: {prefix}")
 
+    endpoint_defaults = {
+        "alp": {
+            "dex_ref": 22.7585,
+            "mk4_ref": 0.78289,
+            "a_d": 3.72321,
+            "b_d": 1.75,
+            "a_k": 1.09529,
+            "b_k": 1.05833,
+        },
+        "collagen": {
+            "dex_ref": 17.2714,
+            "mk4_ref": 0.347951,
+            "a_d": 2.64583,
+            "b_d": 0.813749,
+            "a_k": 4.66313,
+            "b_k": 2.14517,
+        },
+        "ha": {
+            "dex_ref": 67.7871,
+            "mk4_ref": 0.669239,
+            "a_d": 1.1527,
+            "b_d": 0.345121,
+            "a_k": 4.66541,
+            "b_k": 2.15,
+        },
+    }[prefix]
+
     dex_conc = float(getattr(cfg, "dex_conc", 0.0) if dex_conc is None else dex_conc)
     mk4_conc = float(getattr(cfg, "mk4_conc", 0.0) if mk4_conc is None else mk4_conc)
-    default_dex_ref = float(getattr(cfg, "dex_ref_conc", 2.51535))
-    default_mk4_ref = {
-        "alp": 0.78289,
-        "collagen": 0.347951,
-        "ha": 0.669239,
-    }[prefix]
-    dex_ref = max(1e-12, float(getattr(cfg, f"{prefix}_dex_ref_conc", default_dex_ref)))
+    dex_ref = max(
+        1e-12,
+        float(
+            getattr(
+                cfg,
+                f"{prefix}_dex_ref_conc",
+                getattr(cfg, "dex_ref_conc", endpoint_defaults["dex_ref"]),
+            )
+        ),
+    )
     mk4_ref = max(
         1e-12,
-        float(getattr(cfg, f"{prefix}_mk4_ref_conc", getattr(cfg, "mk4_ref_conc", default_mk4_ref))),
+        float(
+            getattr(
+                cfg,
+                f"{prefix}_mk4_ref_conc",
+                getattr(cfg, "mk4_ref_conc", endpoint_defaults["mk4_ref"]),
+            )
+        ),
     )
-    a_d = float(getattr(cfg, f"{prefix}_a_d", 0.0))
-    b_d = float(getattr(cfg, f"{prefix}_b_d", 0.0))
-    a_k = float(getattr(cfg, f"{prefix}_a_k", 0.0))
-    b_k = float(getattr(cfg, f"{prefix}_b_k", 0.0))
+    a_d = float(getattr(cfg, f"{prefix}_a_d", endpoint_defaults["a_d"]))
+    b_d = float(getattr(cfg, f"{prefix}_b_d", endpoint_defaults["b_d"]))
+    a_k = float(getattr(cfg, f"{prefix}_a_k", endpoint_defaults["a_k"]))
+    b_k = float(getattr(cfg, f"{prefix}_b_k", endpoint_defaults["b_k"]))
+    alpha_d = float(getattr(cfg, f"{prefix}_alpha_d", 1.0))
+    alpha_k = float(getattr(cfg, f"{prefix}_alpha_k", 1.0))
+    alpha_dk = 0.0
     i_d = 1.0 if dex_conc > 0.0 else 0.0
     i_k = 1.0 if mk4_conc > 0.0 else 0.0
     x_d = log_concentration_offset(dex_conc, dex_ref)
     x_k = log_concentration_offset(mk4_conc, mk4_ref)
     x_d_sq = x_d * x_d
     x_k_sq = x_k * x_k
-    # Dex: baseline-anchored Hill profile (fit in parameterfit/dex/*_auto_fit.py).
-    if i_d > 0.0:
-        hill_n = max(1e-9, float(b_d))
-        c_term = float(dex_conc) ** hill_n
-        c0_term = float(dex_ref) ** hill_n
-        hill_frac = c_term / (c_term + c0_term) if (c_term + c0_term) > 0.0 else 0.0
-        m_d = 1.0 + float(a_d) * hill_frac
-    else:
-        m_d = 1.0
-    # MK-4: quadratic log-dose profile, clipped to no less than baseline effect.
-    # If the unconstrained fit predicts inhibition (m_k_raw < 1), treat as no change vs 0-dose.
-    m_k_raw = 1.0 + i_k * (a_k - b_k * x_k_sq)
-    m_k = max(1.0, float(m_k_raw))
-    m_total = float(m_d * m_k)
+    # Raw log-parabolic single-agent shapes.
+    raw_d = float(i_d * (a_d - b_d * x_d_sq))
+    raw_k = float(i_k * (a_k - b_k * x_k_sq))
+
+    # Normalized response functions g_D, g_K in [0, 1].
+    g_d = float(np.clip(raw_d / max(1e-12, a_d), 0.0, 1.0))
+    g_k = float(np.clip(raw_k / max(1e-12, a_k), 0.0, 1.0))
+
+    # Additive combined model only (no interaction term).
+    amp_d = float(alpha_d * max(0.0, a_d))
+    amp_k = float(alpha_k * max(0.0, a_k))
+    dex_component = float(amp_d * g_d)
+    mk4_component = float(amp_k * g_k)
+    dex_term = dex_component
+    mk4_term = mk4_component
+    interaction_component = 0.0
+    m_total = max(0.0, 1.0 + dex_component + mk4_component)
+    m_d = 1.0 + dex_component
+    m_k = 1.0 + mk4_component
     return {
         "dex_conc": dex_conc,
         "mk4_conc": mk4_conc,
@@ -78,13 +122,30 @@ def endpoint_drug_factors(
         "b_d": b_d,
         "a_k": a_k,
         "b_k": b_k,
+        "alpha_d": alpha_d,
+        "alpha_k": alpha_k,
+        "alpha_dk": alpha_dk,
         "x_d": float(x_d),
         "x_k": float(x_k),
         "x_d_sq": float(x_d_sq),
         "x_k_sq": float(x_k_sq),
+        "raw_d": float(raw_d),
+        "raw_k": float(raw_k),
+        "g_d": float(g_d),
+        "g_k": float(g_k),
+        "f_d": float(g_d),
+        "f_k": float(g_k),
+        "amp_d": float(amp_d),
+        "amp_k": float(amp_k),
+        "dex_term": dex_term,
+        "mk4_term": mk4_term,
+        "dex_component": dex_component,
+        "mk4_component": mk4_component,
+        "interaction_component": interaction_component,
         "m_d": float(m_d),
         "m_k": float(m_k),
-        "m_total": m_total,
+        "m_interaction": float(interaction_component),
+        "m_total": float(m_total),
     }
 
 
@@ -105,7 +166,7 @@ def drug_response_summary(field_cfg: object) -> dict[str, float | str]:
     return {
         "dex_conc_nM": dex_conc,
         "mk4_conc_uM": mk4_conc,
-        "dex_ref_nM": float(getattr(field_cfg, "dex_ref_conc", 2.51535)),
+        "dex_ref_nM": float(getattr(field_cfg, "dex_ref_conc", 22.7585)),
         "mk4_ref_uM": float(getattr(field_cfg, "mk4_ref_conc", 0.78289)),
         "I_D": float(i_d),
         "I_K": float(i_k),
@@ -120,6 +181,18 @@ def drug_response_summary(field_cfg: object) -> dict[str, float | str]:
         "alp_b_d": alp["b_d"],
         "alp_a_k": alp["a_k"],
         "alp_b_k": alp["b_k"],
+        "alp_alpha_d": alp["alpha_d"],
+        "alp_alpha_k": alp["alpha_k"],
+        "alp_alpha_dk": 0.0,
+        "alp_amp_d": alp["amp_d"],
+        "alp_amp_k": alp["amp_k"],
+        "alp_g_d": alp["g_d"],
+        "alp_g_k": alp["g_k"],
+        "alp_f_d": alp["f_d"],
+        "alp_f_k": alp["f_k"],
+        "alp_term_dex": alp["dex_term"],
+        "alp_term_mk4": alp["mk4_term"],
+        "alp_term_interaction": alp["interaction_component"],
         "alp_m_dex": alp["m_d"],
         "alp_m_mk4": alp["m_k"],
         "alp_m_total": alp["m_total"],
@@ -135,6 +208,18 @@ def drug_response_summary(field_cfg: object) -> dict[str, float | str]:
         "collagen_b_d": collagen["b_d"],
         "collagen_a_k": collagen["a_k"],
         "collagen_b_k": collagen["b_k"],
+        "collagen_alpha_d": collagen["alpha_d"],
+        "collagen_alpha_k": collagen["alpha_k"],
+        "collagen_alpha_dk": 0.0,
+        "collagen_amp_d": collagen["amp_d"],
+        "collagen_amp_k": collagen["amp_k"],
+        "collagen_g_d": collagen["g_d"],
+        "collagen_g_k": collagen["g_k"],
+        "collagen_f_d": collagen["f_d"],
+        "collagen_f_k": collagen["f_k"],
+        "collagen_term_dex": collagen["dex_term"],
+        "collagen_term_mk4": collagen["mk4_term"],
+        "collagen_term_interaction": collagen["interaction_component"],
         "collagen_m_dex": collagen["m_d"],
         "collagen_m_mk4": collagen["m_k"],
         "collagen_m_total": collagen["m_total"],
@@ -150,6 +235,18 @@ def drug_response_summary(field_cfg: object) -> dict[str, float | str]:
         "ha_b_d": ha["b_d"],
         "ha_a_k": ha["a_k"],
         "ha_b_k": ha["b_k"],
+        "ha_alpha_d": ha["alpha_d"],
+        "ha_alpha_k": ha["alpha_k"],
+        "ha_alpha_dk": 0.0,
+        "ha_amp_d": ha["amp_d"],
+        "ha_amp_k": ha["amp_k"],
+        "ha_g_d": ha["g_d"],
+        "ha_g_k": ha["g_k"],
+        "ha_f_d": ha["f_d"],
+        "ha_f_k": ha["f_k"],
+        "ha_term_dex": ha["dex_term"],
+        "ha_term_mk4": ha["mk4_term"],
+        "ha_term_interaction": ha["interaction_component"],
         "ha_m_dex": ha["m_d"],
         "ha_m_mk4": ha["m_k"],
         "ha_m_total": ha["m_total"],
@@ -157,10 +254,8 @@ def drug_response_summary(field_cfg: object) -> dict[str, float | str]:
         "notes": (
             "Collagen effective rate is shown before AA gating; HAp effective rate is shown "
             "before Hill-time and matured-collagen gates. Drug effects scale the osteogenic "
-            "rate multiplicatively as r_o * m_D(c_D) * m_K(c_K). Dex uses a baseline-anchored "
-            "Hill profile m_D=1+a_D*c_D^n/(c_D^n+c_D0^n), while MK-4 uses a quadratic "
-            "log-dose profile m_K_raw=1+I_K*(a_K-b_K*x_K^2) with baseline clipping "
-            "m_K=max(1, m_K_raw)."
+            "rate with additive normalized modulators m=1+A_D*g_D+A_K*g_K (with floor at 0), "
+            "where g_D,g_K are clipped to [0,1] from log-parabolic shapes and DK interaction is disabled."
         ),
     }
 
@@ -182,19 +277,22 @@ def print_drug_response_summary(field_cfg: object) -> None:
     )
     print(
         f"ALP osteogenic term: {summary['alp_base']:.6g} * "
-        f"m_D={summary['alp_m_dex']:.6g} * m_K={summary['alp_m_mk4']:.6g} "
+        f"(1 + D={summary['alp_term_dex']:.6g} + "
+        f"K={summary['alp_term_mk4']:.6g}) "
         f"(m={summary['alp_m_total']:.6g}) = "
         f"{summary['alp_effective']:.6g}"
     )
     print(
         f"Collagen osteogenic term pre-AA: {summary['collagen_base']:.6g} * "
-        f"m_D={summary['collagen_m_dex']:.6g} * m_K={summary['collagen_m_mk4']:.6g} "
+        f"(1 + D={summary['collagen_term_dex']:.6g} + "
+        f"K={summary['collagen_term_mk4']:.6g}) "
         f"(m={summary['collagen_m_total']:.6g}) = "
         f"{summary['collagen_effective_pre_aa']:.6g}"
     )
     print(
         f"HAp osteogenic term pre-gates: {summary['ha_base']:.6g} * "
-        f"m_D={summary['ha_m_dex']:.6g} * m_K={summary['ha_m_mk4']:.6g} "
+        f"(1 + D={summary['ha_term_dex']:.6g} + "
+        f"K={summary['ha_term_mk4']:.6g}) "
         f"(m={summary['ha_m_total']:.6g}) = "
         f"{summary['ha_effective_pre_gates']:.6g}"
     )

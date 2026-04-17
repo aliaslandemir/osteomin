@@ -15,6 +15,7 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent
 BASE_OUT = SCRIPT_DIR / "out" / "sanity_check9"
+# Keep default run count aligned with sanity9_figure_extract.py.
 N_RUNS = 20
 RANDOM_SEED_MAX = (1 << 32) - 1
 
@@ -84,39 +85,39 @@ BASE_ARGS = [
     "--ha-ro",
     "0.102",
     "--alp-dex-ref",
-    "22.7",
+    "22.7585",
     "--collagen-dex-ref",
-    "6.22",
+    "17.2714",
     "--ars-dex-ref",
-    "46.6",
+    "67.7871",
     "--alp-a-d",
     "3.72",
     "--alp-b-d",
     "1.75",
     "--collagen-a-d",
-    "2.69",
+    "2.64583",
     "--collagen-b-d",
-    "2.04",
+    "0.813749",
     "--ha-a-d",
-    "1.22",
+    "1.1527",
     "--ha-b-d",
-    "0.679",
+    "0.345121",
     "--alp-mk4-ref",
-    "0.784",
+    "0.78289",
     "--collagen-mk4-ref",
-    "0.349",
+    "0.347951",
     "--ars-mk4-ref",
-    "0.667",
+    "0.669239",
     "--alp-a-k",
-    "1.10",
+    "1.09529",
     "--alp-b-k",
-    "1.06",
+    "1.05833",
     "--collagen-a-k",
-    "4.66",
+    "4.66313",
     "--collagen-b-k",
     "2.15",
     "--ha-a-k",
-    "4.66",
+    "4.66541",
     "--ha-b-k",
     "2.15",
     "--ha-model",
@@ -147,7 +148,14 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--out", type=Path, default=BASE_OUT, help="output directory")
     parser.add_argument("--python", type=str, default=sys.executable, help="Python interpreter for main.py")
-    parser.add_argument("--runs", type=int, default=N_RUNS, help="number of stochastic simulations")
+    parser.add_argument(
+        "--runs",
+        "--replicates",
+        dest="runs",
+        type=int,
+        default=N_RUNS,
+        help="number of stochastic simulations (alias: --replicates)",
+    )
     parser.add_argument("--jobs", type=int, default=1, help="number of parallel model runs")
     parser.add_argument(
         "--seed-mode",

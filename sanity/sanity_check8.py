@@ -52,7 +52,7 @@ def parse_args() -> argparse.Namespace:
         "--endpoint-condition",
         type=str,
         default="C2",
-        choices=[f"C{i}" for i in range(1, 9)],
+        choices=["C2"],
         help="Dex/MK-4 condition used as reference for endpoint-effect summaries (default C2)",
     )
     p.add_argument(
@@ -70,6 +70,15 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--run-only", action="store_true", help="run ablation ensemble only (skip plotting)")
     p.add_argument("--plot-only", action="store_true", help="plot only from existing output tables (skip run step)")
     p.add_argument("--dry-run", action="store_true", help="print commands without executing")
+    p.add_argument(
+        "--match-cells-day28",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Match nonspatial day-28 cell count to spatial C2 by fitting population dynamics only "
+            "(no ALP/collagen/HAp fitting)."
+        ),
+    )
     return p.parse_args()
 
 
@@ -127,6 +136,7 @@ def main() -> None:
             str(args.jobs),
             "--endpoint-condition",
             str(args.endpoint_condition),
+            "--match-cells-day28" if args.match_cells_day28 else "--no-match-cells-day28",
         ]
         if args.runtime:
             run_cmd += ["--runtime"]

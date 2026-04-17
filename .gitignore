@@ -17,6 +17,7 @@ grids/
 spatial_cells/
 sanity_check1/
 overlay_output/
+nonspatialmodel/
 
 endpointaad/overlay_output/
 
@@ -57,3 +58,4 @@ results.csv
 .idea/
 endpointanalysis/
 sanity_check2.zip
+sanity/nonspatialmodel/ablation_out/

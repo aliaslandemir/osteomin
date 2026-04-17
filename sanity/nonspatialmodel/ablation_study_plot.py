@@ -18,14 +18,14 @@ METRIC_COLS = [
     "hap_day28",
     "cell_count_day28",
 ]
-METRIC_LABELS = ["ALP d10", "Collagen d14", "HAp d28", "Cells d28"]
+METRIC_LABELS = ["ALP", "Collagen", "Mineral", "Cells"]
 
 VARIANT_ORDER = [
-    ("full_model", "Spatial model (reference)"),
-    ("no_osteogenic_commitment", "No commitment"),
-    ("no_commit_delay", "No delay"),
-    ("no_apoptosis", "No apoptosis"),
+    ("full_model", "Spatial (reference)"),
+    ("no_commit_delay", "No commitment delay"),
     ("no_collagen_maturation", "No collagen delay"),
+    ("no_osteogenic_commitment", "No commitment"),
+    ("no_apoptosis", "No apoptosis"),
     ("nonspatial_model", "Nonspatial model"),
 ]
 
@@ -94,13 +94,10 @@ def _compute_significance(df_raw: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame(columns=["variant", "metric", "p", "q", "rbc", "significant", "stars", "metric_label"])
 
     variant_ids = [v for v, _ in VARIANT_ORDER if v != "full_model"]
-    excluded = {"nonspatial_model"}
 
     rows: list[dict[str, float | str | bool]] = []
     pvals: list[float] = []
     for variant in variant_ids:
-        if variant in excluded:
-            continue
         a = df_raw[df_raw["variant"] == variant]
         if a.empty:
             continue
@@ -424,7 +421,7 @@ def _write_publication_legend(
         Values are shown as log2 fold-change in color and fold-change text in each cell.
         Asterisks denote FDR-adjusted significance (Benjamini-Hochberg q<0.05) from two-sided Mann-Whitney U tests versus full spatial model.
 
-        Panel B (dose_response_robustness): HAp day-28 dose-response robustness for C2 and C3 across selected spatial variants.
+        Panel B (dose_response_robustness): Mineral day-28 dose-response robustness for C2 and C3 across selected spatial variants.
         Curves show median fold-change with {band_label}.
 
         Panel C (conclusion_matrix): Categorical maintenance summary across endpoints (Yes/Partial/No) based on ratio thresholds.
@@ -560,9 +557,9 @@ def plot_dose_robustness(df_dose: pd.DataFrame, out: Path, band_type: str, seed:
                 )
 
     ylabel = (
-        f"HAp d28 fold vs {ref_cond} (median ± 95% CI)"
+        f"Mineral d28 fold vs {ref_cond} (median ± 95% CI)"
         if band_type == "confidence"
-        else f"HAp d28 fold vs {ref_cond} (median ± 95% band)"
+        else f"Mineral d28 fold vs {ref_cond} (median ± 95% band)"
     )
     ax_top.set_ylabel(ylabel)
     ax_top.set_title("Dose-response curves")
@@ -661,12 +658,12 @@ def plot_conclusion_matrix(df_cmp: pd.DataFrame, out: Path) -> None:
                 "label": r["label"],
                 "ALP maintained": status(float(r["alp_day10_ratio"])),
                 "Collagen maintained": status(float(r["collagen_day14_ratio"])),
-                "HAp maintained": status(float(r["hap_day28_ratio"])),
+                "Mineral maintained": status(float(r["hap_day28_ratio"])),
                 "Cell count maintained": status(float(r["cell_count_day28_ratio"])),
             }
         )
     mat_df = pd.DataFrame(rows)
-    cols = ["ALP maintained", "Collagen maintained", "HAp maintained", "Cell count maintained"]
+    cols = ["ALP maintained", "Collagen maintained", "Mineral maintained", "Cell count maintained"]
     mat = mat_df[cols].to_numpy(dtype=float)
 
     cmap = ListedColormap(["#D55E00", "#F0E442", "#009E73", "#D1D5DB"])

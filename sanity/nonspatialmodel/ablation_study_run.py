@@ -33,19 +33,29 @@ VARIANTS: list[tuple[str, str]] = [
 
 SPATIAL_VARIANTS = [v for v, _ in VARIANTS if v != "nonspatial_model"]
 DOSE_VARIANTS = ["full_model", "no_osteogenic_commitment"]
-DOSE_CONDITIONS = ["C2", "C3"]
+DOSE_CONDITIONS = ["C2"]
 DOSE_REFERENCE_CONDITION = "C2"
 
 CONDITIONS: List[Tuple[str, float, float]] = [
-    ("C1", 0.0, 0.0),
-    ("C2", 0.0, 0.0),   # AA+beta-GP medium, no Dex/MK-4
-    ("C3", 10.0, 0.1),  # AA+beta-GP + low Dex/MK-4
-    ("C4", 10.0, 1.0),
-    ("C5", 30.0, 3.0),
-    ("C6", 100.0, 10.0),
-    ("C7", 10.0, 0.1),
-    ("C8", 10.0, 3.0),
+    # Sanity8 is currently configured as drug-neutral (Dex=0, MK-4=0 only).
+    ("C2", 0.0, 0.0),
 ]
+
+# Fixed nonspatial defaults for structural ablation.
+# Keep these stable so ablation effects reflect structure changes, not retuned baselines.
+NONSPATIAL_ABLATION_DEFAULTS = {
+    "osteo_induction_hours": 72,
+    "commit_delay_hours": 48,
+    "k_commit_hourly": 0.0125,
+    "apoptosis_preob": 0.0010,
+    "ob_division_prob": 0.0,
+    "min_div_hours": 38.0,
+    "max_div_hours": 52.0,
+    "aa_media_interval_hours": 48,
+    "aa_initial": 50.0,
+    "aa_half_life_hours": 8.0,
+    "collagen_aa_half_sat": 5.0,
+}
 
 METRIC_COLS = [
     "alp_day10",
@@ -110,31 +120,31 @@ class NonSpatialParams:
 
     alp_resp: DrugResponseParams = field(
         default_factory=lambda: DrugResponseParams(
-            dex_ref=22.7,
-            dex_a=3.72,
+            dex_ref=22.7585,
+            dex_a=3.72321,
             dex_b=1.75,
-            mk4_ref=0.784,
-            mk4_a=1.10,
-            mk4_b=1.06,
+            mk4_ref=0.78289,
+            mk4_a=1.09529,
+            mk4_b=1.05833,
         )
     )
     collagen_resp: DrugResponseParams = field(
         default_factory=lambda: DrugResponseParams(
-            dex_ref=6.22,
-            dex_a=2.69,
-            dex_b=2.04,
-            mk4_ref=0.349,
-            mk4_a=4.66,
-            mk4_b=2.15,
+            dex_ref=17.2714,
+            dex_a=2.64583,
+            dex_b=0.813749,
+            mk4_ref=0.347951,
+            mk4_a=4.66313,
+            mk4_b=2.14517,
         )
     )
     ha_resp: DrugResponseParams = field(
         default_factory=lambda: DrugResponseParams(
-            dex_ref=46.6,
-            dex_a=1.22,
-            dex_b=0.679,
-            mk4_ref=0.667,
-            mk4_a=4.66,
+            dex_ref=67.7871,
+            dex_a=1.1527,
+            dex_b=0.345121,
+            mk4_ref=0.669239,
+            mk4_a=4.66541,
             mk4_b=2.15,
         )
     )
@@ -396,10 +406,24 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--base-seed", type=int, default=12345)
     p.add_argument("--param-cv", type=float, default=0.10, help="replicate-level CV for nonspatial parameter uncertainty")
     p.add_argument("--jobs", type=int, default=1)
-    p.add_argument("--endpoint-condition", type=str, default="C2", choices=[f"C{i}" for i in range(1, 9)])
+    p.add_argument(
+        "--endpoint-condition",
+        type=str,
+        default="C2",
+        choices=[c for c, _, _ in CONDITIONS],
+    )
     p.add_argument("--overwrite", action="store_true")
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--runtime", action="store_true")
+    p.add_argument(
+        "--match-cells-day28",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Calibrate nonspatial population parameters (k_commit_hourly and apoptosis_preob) "
+            "to match spatial day-28 cell count for C2. Does not fit ALP/collagen/HAp."
+        ),
+    )
     args = p.parse_args()
     if args.replicates <= 0:
         raise SystemExit("--replicates must be >= 1")
@@ -437,11 +461,11 @@ def _build_nonspatial_base_from_spatial(run_cfg: dict, ts_df: pd.DataFrame) -> N
     n_preob0 = float(ts_df.loc[ts_df["day"] == 0, "n_preob"].iloc[0])
     n_ob0 = float(ts_df.loc[ts_df["day"] == 0, "n_osteoblast"].iloc[0])
 
-    min_div = float(abm.get("min_div_hours", 38.0))
-    max_div = float(abm.get("max_div_hours", 52.0))
+    min_div = float(NONSPATIAL_ABLATION_DEFAULTS["min_div_hours"])
+    max_div = float(NONSPATIAL_ABLATION_DEFAULTS["max_div_hours"])
     mean_div = max(1.0, 0.5 * (min_div + max_div))
-    prolif_pre = float(abm.get("proliferation_chance", 1.0)) / mean_div
-    prolif_ob = float(abm.get("ob_division_prob", 0.0)) / mean_div
+    prolif_pre = 1.0 / mean_div
+    prolif_ob = float(NONSPATIAL_ABLATION_DEFAULTS["ob_division_prob"]) / mean_div
 
     return NonSpatialParams(
         total_hours=total_hours,
@@ -449,22 +473,22 @@ def _build_nonspatial_base_from_spatial(run_cfg: dict, ts_df: pd.DataFrame) -> N
         n_ob0=n_ob0,
         prolif_rate_preob=prolif_pre,
         prolif_rate_ob=prolif_ob,
-        osteo_induction_hours=int(abm.get("osteo_induction_hours", 72)),
-        commit_delay_hours=int(abm.get("commit_delay", 48)),
-        k_commit_hourly=float(abm.get("commit_k_hourly", 0.0125)),
-        apoptosis_preob=float(abm.get("apoptosis_prob", 0.0010)),
+        osteo_induction_hours=int(NONSPATIAL_ABLATION_DEFAULTS["osteo_induction_hours"]),
+        commit_delay_hours=int(NONSPATIAL_ABLATION_DEFAULTS["commit_delay_hours"]),
+        k_commit_hourly=float(NONSPATIAL_ABLATION_DEFAULTS["k_commit_hourly"]),
+        apoptosis_preob=float(NONSPATIAL_ABLATION_DEFAULTS["apoptosis_preob"]),
         apoptosis_ob=float(abm.get("ob_apoptosis_prob", 0.0)),
-        dex_conc_nm=float(field.get("dex_conc", 0.0)),
-        mk4_conc_um=float(field.get("mk4_conc", 0.0)),
+        dex_conc_nm=0.0,
+        mk4_conc_um=0.0,
         alp_basal_rate=float(field.get("alp_basal_rate", 0.0949)),
         alp_osteo_rate=float(field.get("alp_osteo_rate", 0.810)),
         alp_initial=float(field.get("alp_initial", 0.8)),
         collagen_basal_rate=float(field.get("collagen_basal_rate", 0.00336)),
         collagen_osteo_rate=float(field.get("collagen_osteo_rate", 0.0130)),
-        aa_initial=float(field.get("aa_initial", 50.0)),
-        aa_half_life_hours=float(field.get("aa_half_life_hours", 8.0)),
-        aa_media_interval_hours=int(field.get("media_interval", 48)),
-        collagen_aa_half_sat=float(field.get("collagen_aa_half_sat", 5.0)),
+        aa_initial=float(NONSPATIAL_ABLATION_DEFAULTS["aa_initial"]),
+        aa_half_life_hours=float(NONSPATIAL_ABLATION_DEFAULTS["aa_half_life_hours"]),
+        aa_media_interval_hours=int(NONSPATIAL_ABLATION_DEFAULTS["aa_media_interval_hours"]),
+        collagen_aa_half_sat=float(NONSPATIAL_ABLATION_DEFAULTS["collagen_aa_half_sat"]),
         tau_col_hours=float(field.get("ha_collagen_maturation_tau_hours", 48.0)),
         ha_osteo_rate=float(field.get("ha_osteo_rate", 0.102)),
         ha_tau_hours=float(field.get("ha_tau_hours", 384.0)),
@@ -472,30 +496,99 @@ def _build_nonspatial_base_from_spatial(run_cfg: dict, ts_df: pd.DataFrame) -> N
         ha_collagen_half_sat=float(field.get("ha_collagen_half_sat", 1.0)),
         carry_capacity=float(model_size.get("grid_sites", 0.0)) if float(model_size.get("grid_sites", 0.0)) > 0.0 else float(abm.get("width", 33)) * float(abm.get("height", 33)),
         alp_resp=DrugResponseParams(
-            dex_ref=float(field.get("alp_dex_ref_conc", 22.7)),
-            dex_a=float(field.get("alp_a_d", 3.72)),
+            dex_ref=float(field.get("alp_dex_ref_conc", 22.7585)),
+            dex_a=float(field.get("alp_a_d", 3.72321)),
             dex_b=float(field.get("alp_b_d", 1.75)),
-            mk4_ref=float(field.get("alp_mk4_ref_conc", 0.784)),
-            mk4_a=float(field.get("alp_a_k", 1.10)),
-            mk4_b=float(field.get("alp_b_k", 1.06)),
+            mk4_ref=float(field.get("alp_mk4_ref_conc", 0.78289)),
+            mk4_a=float(field.get("alp_a_k", 1.09529)),
+            mk4_b=float(field.get("alp_b_k", 1.05833)),
         ),
         collagen_resp=DrugResponseParams(
-            dex_ref=float(field.get("collagen_dex_ref_conc", 6.22)),
-            dex_a=float(field.get("collagen_a_d", 2.69)),
-            dex_b=float(field.get("collagen_b_d", 2.04)),
-            mk4_ref=float(field.get("collagen_mk4_ref_conc", 0.349)),
-            mk4_a=float(field.get("collagen_a_k", 4.66)),
-            mk4_b=float(field.get("collagen_b_k", 2.15)),
+            dex_ref=float(field.get("collagen_dex_ref_conc", 17.2714)),
+            dex_a=float(field.get("collagen_a_d", 2.64583)),
+            dex_b=float(field.get("collagen_b_d", 0.813749)),
+            mk4_ref=float(field.get("collagen_mk4_ref_conc", 0.347951)),
+            mk4_a=float(field.get("collagen_a_k", 4.66313)),
+            mk4_b=float(field.get("collagen_b_k", 2.14517)),
         ),
         ha_resp=DrugResponseParams(
-            dex_ref=float(field.get("ha_dex_ref_conc", 46.6)),
-            dex_a=float(field.get("ha_a_d", 1.22)),
-            dex_b=float(field.get("ha_b_d", 0.679)),
-            mk4_ref=float(field.get("ha_mk4_ref_conc", 0.667)),
-            mk4_a=float(field.get("ha_a_k", 4.66)),
+            dex_ref=float(field.get("ha_dex_ref_conc", 67.7871)),
+            dex_a=float(field.get("ha_a_d", 1.1527)),
+            dex_b=float(field.get("ha_b_d", 0.345121)),
+            mk4_ref=float(field.get("ha_mk4_ref_conc", 0.669239)),
+            mk4_a=float(field.get("ha_a_k", 4.66541)),
             mk4_b=float(field.get("ha_b_k", 2.15)),
         ),
     )
+
+
+def _spatial_day28_cells(ts_df: pd.DataFrame) -> float:
+    d28 = ts_df.loc[ts_df["day"] == 28]
+    if d28.empty:
+        raise ValueError("Spatial timeseries missing day 28 for cell-count matching")
+    if "n_total" not in d28.columns:
+        raise ValueError("Spatial timeseries missing n_total column for cell-count matching")
+    return float(d28["n_total"].iloc[0])
+
+
+def _nonspatial_day28_cells(cfg: NonSpatialParams) -> float:
+    ts = simulate_baseline(cfg)
+    d28 = ts.loc[ts["day"] == 28]
+    if d28.empty:
+        raise ValueError("Nonspatial simulation missing day 28 row")
+    return float((d28["n_preob"] + d28["n_ob"]).iloc[0])
+
+
+def _calibrate_nonspatial_cells_day28(
+    cfg_base: NonSpatialParams,
+    target_day28_cells: float,
+) -> tuple[NonSpatialParams, dict[str, float]]:
+    """
+    Fit only nonspatial population dynamics to spatial day-28 cell count.
+    Marker-production parameters are intentionally not touched.
+    """
+    base_k = max(1e-8, float(cfg_base.k_commit_hourly))
+    base_ap = max(0.0, float(cfg_base.apoptosis_preob))
+
+    # Search ranges centered on baseline values.
+    k_lo = max(1e-6, base_k * 0.05)
+    k_hi = min(0.2, base_k * 2.0)
+    k_grid = np.geomspace(k_lo, k_hi, num=41)
+
+    ap_hi = min(0.02, max(5e-4, base_ap * 2.0))
+    ap_grid = np.linspace(0.0, ap_hi, num=31)
+    if base_ap > 0.0:
+        ap_grid = np.unique(np.append(ap_grid, base_ap))
+
+    best_cfg = cfg_base
+    best_cells = _nonspatial_day28_cells(cfg_base)
+    best_rel_err = abs(best_cells - target_day28_cells) / max(1e-12, target_day28_cells)
+    best_reg = 0.0
+
+    for k in k_grid:
+        for ap in ap_grid:
+            cand = replace(cfg_base, k_commit_hourly=float(k), apoptosis_preob=float(ap))
+            cells = _nonspatial_day28_cells(cand)
+            rel_err = abs(cells - target_day28_cells) / max(1e-12, target_day28_cells)
+            # Prefer smaller parameter drift when errors are effectively tied.
+            reg = abs(math.log(max(1e-12, k) / base_k)) + abs(ap - base_ap) / max(1e-12, (base_ap + 1e-4))
+            if (rel_err + 1e-12) < best_rel_err or (abs(rel_err - best_rel_err) <= 1e-6 and reg < best_reg):
+                best_cfg = cand
+                best_cells = float(cells)
+                best_rel_err = float(rel_err)
+                best_reg = float(reg)
+
+    info = {
+        "target_day28_cells": float(target_day28_cells),
+        "before_day28_cells": float(_nonspatial_day28_cells(cfg_base)),
+        "after_day28_cells": float(best_cells),
+        "relative_error_after": float(best_rel_err),
+        "k_commit_hourly_before": float(cfg_base.k_commit_hourly),
+        "k_commit_hourly_after": float(best_cfg.k_commit_hourly),
+        "apoptosis_preob_before": float(cfg_base.apoptosis_preob),
+        "apoptosis_preob_after": float(best_cfg.apoptosis_preob),
+    }
+    return best_cfg, info
 
 
 def _bool_flag(v: bool, on_flag: str, off_flag: str) -> list[str]:
@@ -518,7 +611,6 @@ def _build_spatial_base_args(run_cfg: dict, ts_df: pd.DataFrame) -> list[str]:
         "--h", str(int(abm.get("height", 33))),
         "--boundary-mode", str(abm.get("boundary_mode", "periodic")),
         "--seed-mode", "random",
-        "--nodules", str(run_cfg.get("nodule_connectivity", "40n")),
         "--media-interval", str(int(field.get("media_interval", 48))),
         "--aa0", f"{float(field.get('aa_initial', 50.0)):.10g}",
         "--aa-half-life", f"{float(field.get('aa_half_life_hours', 8.0)):.10g}",
@@ -540,23 +632,23 @@ def _build_spatial_base_args(run_cfg: dict, ts_df: pd.DataFrame) -> list[str]:
         "--collagen-ro", f"{float(field.get('collagen_osteo_rate', 0.0130)):.10g}",
         "--ha-ro", f"{float(field.get('ha_osteo_rate', 0.102)):.10g}",
         "--ha-h0", f"{float(field.get('ha_initial', 2.34)):.10g}",
-        "--alp-dex-ref", f"{float(field.get('alp_dex_ref_conc', 22.7)):.10g}",
-        "--collagen-dex-ref", f"{float(field.get('collagen_dex_ref_conc', 6.22)):.10g}",
-        "--ha-dex-ref", f"{float(field.get('ha_dex_ref_conc', 46.6)):.10g}",
-        "--alp-a-d", f"{float(field.get('alp_a_d', 3.72)):.10g}",
+        "--alp-dex-ref", f"{float(field.get('alp_dex_ref_conc', 22.7585)):.10g}",
+        "--collagen-dex-ref", f"{float(field.get('collagen_dex_ref_conc', 17.2714)):.10g}",
+        "--ha-dex-ref", f"{float(field.get('ha_dex_ref_conc', 67.7871)):.10g}",
+        "--alp-a-d", f"{float(field.get('alp_a_d', 3.72321)):.10g}",
         "--alp-b-d", f"{float(field.get('alp_b_d', 1.75)):.10g}",
-        "--collagen-a-d", f"{float(field.get('collagen_a_d', 2.69)):.10g}",
-        "--collagen-b-d", f"{float(field.get('collagen_b_d', 2.04)):.10g}",
-        "--ha-a-d", f"{float(field.get('ha_a_d', 1.22)):.10g}",
-        "--ha-b-d", f"{float(field.get('ha_b_d', 0.679)):.10g}",
-        "--alp-mk4-ref", f"{float(field.get('alp_mk4_ref_conc', 0.784)):.10g}",
-        "--collagen-mk4-ref", f"{float(field.get('collagen_mk4_ref_conc', 0.349)):.10g}",
-        "--ha-mk4-ref", f"{float(field.get('ha_mk4_ref_conc', 0.667)):.10g}",
-        "--alp-a-k", f"{float(field.get('alp_a_k', 1.10)):.10g}",
-        "--alp-b-k", f"{float(field.get('alp_b_k', 1.06)):.10g}",
-        "--collagen-a-k", f"{float(field.get('collagen_a_k', 4.66)):.10g}",
-        "--collagen-b-k", f"{float(field.get('collagen_b_k', 2.15)):.10g}",
-        "--ha-a-k", f"{float(field.get('ha_a_k', 4.66)):.10g}",
+        "--collagen-a-d", f"{float(field.get('collagen_a_d', 2.64583)):.10g}",
+        "--collagen-b-d", f"{float(field.get('collagen_b_d', 0.813749)):.10g}",
+        "--ha-a-d", f"{float(field.get('ha_a_d', 1.1527)):.10g}",
+        "--ha-b-d", f"{float(field.get('ha_b_d', 0.345121)):.10g}",
+        "--alp-mk4-ref", f"{float(field.get('alp_mk4_ref_conc', 0.78289)):.10g}",
+        "--collagen-mk4-ref", f"{float(field.get('collagen_mk4_ref_conc', 0.347951)):.10g}",
+        "--ha-mk4-ref", f"{float(field.get('ha_mk4_ref_conc', 0.669239)):.10g}",
+        "--alp-a-k", f"{float(field.get('alp_a_k', 1.09529)):.10g}",
+        "--alp-b-k", f"{float(field.get('alp_b_k', 1.05833)):.10g}",
+        "--collagen-a-k", f"{float(field.get('collagen_a_k', 4.66313)):.10g}",
+        "--collagen-b-k", f"{float(field.get('collagen_b_k', 2.14517)):.10g}",
+        "--ha-a-k", f"{float(field.get('ha_a_k', 4.66541)):.10g}",
         "--ha-b-k", f"{float(field.get('ha_b_k', 2.15)):.10g}",
         "--ha-model", str(field.get("ha_model", "ha")),
         "--ha-collagen-maturation-tau", f"{float(field.get('ha_collagen_maturation_tau_hours', 48.0)):.10g}",
@@ -868,6 +960,20 @@ def main() -> None:
     run_cfg, ts_df = _read_spatial_reference(args.spatial_out.resolve())
     spatial_base_args = _build_spatial_base_args(run_cfg, ts_df)
     nonspatial_base = _build_nonspatial_base_from_spatial(run_cfg, ts_df)
+    calibration_info = {"method": "none"}
+    if bool(args.match_cells_day28):
+        target_cells = _spatial_day28_cells(ts_df)
+        nonspatial_base, fit_info = _calibrate_nonspatial_cells_day28(nonspatial_base, target_cells)
+        calibration_info = {"method": "match_cells_day28", **fit_info}
+        print(
+            "[ablation_study_run] nonspatial day28 cell matching: "
+            f"target={fit_info['target_day28_cells']:.3f}, "
+            f"before={fit_info['before_day28_cells']:.3f}, "
+            f"after={fit_info['after_day28_cells']:.3f}, "
+            f"rel_err={fit_info['relative_error_after']:.4f}, "
+            f"k={fit_info['k_commit_hourly_after']:.6g}, "
+            f"apoptosis={fit_info['apoptosis_preob_after']:.6g}"
+        )
 
     label_map = dict(VARIANTS)
     cond_map = {c: (d, k) for c, d, k in CONDITIONS}
@@ -1102,7 +1208,7 @@ def main() -> None:
             "prolif_rate_preob": float(nonspatial_base.prolif_rate_preob),
             "apoptosis_preob": float(nonspatial_base.apoptosis_preob),
             "param_cv": float(args.param_cv),
-            "calibration": {"method": "none"},
+            "calibration": calibration_info,
         },
         "notes": (
             "Spatial model used for all ablations except nonspatial_model; "

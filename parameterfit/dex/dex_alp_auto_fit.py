@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Phenomenological Dex dose-response fit for ALP using a baseline-anchored
-Hill-type saturating model with cD0 (EC50-like) estimated via autojoint
-optimization (optional logarithmic grid search fallback).
+Dex dose-response fit for ALP activity with cD0 estimated via autojoint
+optimization (optional logarithmic grid search fallback) using a log-parabolic
+biphasic multiplier.
 """
 
 from __future__ import annotations
@@ -24,13 +24,12 @@ ALP_DAY5_DEX = np.array([0.8, 1.2, 3.6, 3.2], dtype=float)
 def dex_modulation_mP(
     c_dex_nM: np.ndarray, a_d: float, b_d: float, c_d0_nM: float
 ) -> np.ndarray:
-    """m_D^P(c_D) = 1 + a_D * c_D/(c_D + c_D0), with b_D kept for compatibility."""
     c = np.asarray(c_dex_nM, dtype=float)
     out = np.ones_like(c, dtype=float)
     mask = c > 0.0
     if np.any(mask):
-        c0 = max(float(c_d0_nM), np.nextafter(0.0, 1.0))
-        out[mask] = 1.0 + float(a_d) * (c[mask] / (c[mask] + c0))
+        x = np.log10(c[mask] / float(c_d0_nM))
+        out[mask] = 1.0 + (a_d - b_d * x * x)
     return out
 
 
@@ -58,10 +57,10 @@ def fit_ab_for_cd0(
     try:
         from scipy.optimize import least_squares
 
-        x0 = np.array([0.8], dtype=float)
+        x0 = np.array([0.5, 0.5], dtype=float)
 
         def residuals(theta: np.ndarray) -> np.ndarray:
-            return model(c_fit, y0, float(theta[0]), 1.0, c_d0_nM) - y_fit
+            return model(c_fit, y0, float(theta[0]), float(theta[1]), c_d0_nM) - y_fit
 
         res = least_squares(
             residuals,
@@ -69,8 +68,7 @@ def fit_ab_for_cd0(
             bounds=(0.0, np.inf),
             max_nfev=10000,
         )
-        a_d = float(res.x[0])
-        b_d = 1.0
+        a_d, b_d = map(float, res.x)
         method = "scipy.least_squares"
         yhat_fit = model(c_fit, y0, a_d, b_d, c_d0_nM)
         sse = float(np.sum((y_fit - yhat_fit) ** 2))
@@ -79,17 +77,18 @@ def fit_ab_for_cd0(
         jt_j = res.jac.T @ res.jac
         pcov = np.linalg.pinv(jt_j) * s_sq
     except Exception:
-        c0 = max(float(c_d0_nM), np.nextafter(0.0, 1.0))
-        f = c_fit / (c_fit + c0)
+        x = np.log10(c_fit / c_d0_nM)
+        z = x * x
         r = (y_fit / y0) - 1.0
-        denom = float(np.dot(f, f))
-        a_d = max(0.0, float(np.dot(f, r) / denom)) if denom > 0.0 else 0.0
-        b_d = 1.0
+        A = np.column_stack([np.ones_like(z), -z])
+        theta, *_ = np.linalg.lstsq(A, r, rcond=None)
+        a_d = max(0.0, float(theta[0]))
+        b_d = max(0.0, float(theta[1]))
         method = "numpy.linalg.lstsq"
-        pcov = np.zeros((1, 1), dtype=float)
+        pcov = np.zeros((2, 2), dtype=float)
         yhat_fit = model(c_fit, y0, a_d, b_d, c_d0_nM)
         sse = float(np.sum((y_fit - yhat_fit) ** 2))
-        dof = y_fit.size - 1
+        dof = y_fit.size - 2
 
     return {
         "method": method,
@@ -183,24 +182,23 @@ def fit_dex_autojoint(
 
     lo_log = float(np.log10(c_d0_min_nM))
     hi_log = float(np.log10(c_d0_max_nM))
-    x0 = np.array([0.8, 0.5 * (lo_log + hi_log)], dtype=float)
+    x0 = np.array([0.5, 0.5, 0.5 * (lo_log + hi_log)], dtype=float)
 
     try:
         from scipy.optimize import least_squares
 
         def residuals(theta: np.ndarray) -> np.ndarray:
-            a_d, log10_c_d0 = map(float, theta)
+            a_d, b_d, log10_c_d0 = map(float, theta)
             c_d0 = 10.0 ** log10_c_d0
-            return model(c_fit, y0, a_d, 1.0, c_d0) - y_fit
+            return model(c_fit, y0, a_d, b_d, c_d0) - y_fit
 
         res = least_squares(
             residuals,
             x0=x0,
-            bounds=([0.0, lo_log], [np.inf, hi_log]),
+            bounds=([0.0, 0.0, lo_log], [np.inf, np.inf, hi_log]),
             max_nfev=20000,
         )
-        a_d, log10_c_d0 = map(float, res.x)
-        b_d = 1.0
+        a_d, b_d, log10_c_d0 = map(float, res.x)
         c_d0_nM = float(10.0 ** log10_c_d0)
         method = "scipy.least_squares_autojoint"
         yhat_fit = model(c_fit, y0, a_d, b_d, c_d0_nM)

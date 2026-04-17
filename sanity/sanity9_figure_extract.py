@@ -102,39 +102,39 @@ BASE_ARGS = [
     "--ha-ro",
     "0.102",
     "--alp-dex-ref",
-    "22.7",
+    "22.7585",
     "--collagen-dex-ref",
-    "6.22",
+    "17.2714",
     "--ars-dex-ref",
-    "46.6",
+    "67.7871",
     "--alp-a-d",
     "3.72",
     "--alp-b-d",
     "1.75",
     "--collagen-a-d",
-    "2.69",
+    "2.64583",
     "--collagen-b-d",
-    "2.04",
+    "0.813749",
     "--ha-a-d",
-    "1.22",
+    "1.1527",
     "--ha-b-d",
-    "0.679",
+    "0.345121",
     "--alp-mk4-ref",
-    "0.784",
+    "0.78289",
     "--collagen-mk4-ref",
-    "0.349",
+    "0.347951",
     "--ars-mk4-ref",
-    "0.667",
+    "0.669239",
     "--alp-a-k",
-    "1.10",
+    "1.09529",
     "--alp-b-k",
-    "1.06",
+    "1.05833",
     "--collagen-a-k",
-    "4.66",
+    "4.66313",
     "--collagen-b-k",
     "2.15",
     "--ha-a-k",
-    "4.66",
+    "4.66541",
     "--ha-b-k",
     "2.15",
     "--ha-model",
@@ -253,9 +253,14 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--runs",
+        "--replicates",
+        dest="runs",
         type=int,
-        default=DEFAULT_RUNS,
-        help="expected number of stochastic runs",
+        default=None,
+        help=(
+            "expected number of stochastic runs (alias: --replicates); "
+            "if omitted, auto-detect from existing run_* directories"
+        ),
     )
     parser.add_argument(
         "--base-seed",
@@ -281,9 +286,17 @@ def parse_args() -> argparse.Namespace:
     parser.set_defaults(runtime=True)
     parser.add_argument(
         "--run-missing",
+        dest="run_missing",
         action="store_true",
-        help="launch main.py for any missing run_XX/timeseries.csv outputs",
+        help="launch main.py for missing run outputs (enabled by default)",
     )
+    parser.add_argument(
+        "--no-run-missing",
+        dest="run_missing",
+        action="store_false",
+        help="fail if any expected run output is missing",
+    )
+    parser.set_defaults(run_missing=True)
     parser.add_argument(
         "--overwrite",
         action="store_true",
@@ -300,7 +313,7 @@ def parse_args() -> argparse.Namespace:
 def style_axes(ax: plt.Axes) -> None:
     ax.set_facecolor("white")
     ax.tick_params(direction="out", length=4.0, width=JOURNAL_AXIS_LINE_PT)
-    ax.grid(True, color=COLORS["grid"], linewidth=JOURNAL_LINE_PT, alpha=0.22)
+    ax.grid(False)
 
 
 def save_figure(fig: plt.Figure, out_dir: Path, stem: str) -> None:
@@ -342,20 +355,50 @@ def launch_run(
     return run_dir / "timeseries.csv"
 
 
+def discover_run_indices(input_root: Path) -> list[int]:
+    indices: list[int] = []
+    for candidate in sorted(input_root.glob("run_*")):
+        if not candidate.is_dir():
+            continue
+        suffix = candidate.name[4:]
+        if suffix.isdigit():
+            indices.append(int(suffix))
+    return sorted(set(indices))
+
+
+def resolve_run_indices(args: argparse.Namespace) -> list[int]:
+    if args.runs is not None:
+        return list(range(args.runs))
+    discovered = discover_run_indices(args.input)
+    if discovered:
+        print(
+            f"[sanity9_figure_extract] auto-detected {len(discovered)} run directories under {args.input}"
+        )
+        return discovered
+    print(
+        f"[sanity9_figure_extract] no run_* directories found under {args.input}; "
+        f"defaulting to {DEFAULT_RUNS} runs"
+    )
+    return list(range(DEFAULT_RUNS))
+
+
 def ensure_runs(args: argparse.Namespace) -> list[Path]:
-    run_dirs = [args.input / f"run_{idx:02d}" for idx in range(args.runs)]
-    csv_paths = [run_dir / "timeseries.csv" for run_dir in run_dirs]
-    csv_paths_by_index: dict[int, Path] = {idx: path for idx, path in enumerate(csv_paths)}
+    run_indices = resolve_run_indices(args)
+    run_dirs = {idx: args.input / f"run_{idx:02d}" for idx in run_indices}
+    csv_paths_by_index: dict[int, Path] = {
+        idx: (run_dirs[idx] / "timeseries.csv") for idx in run_indices
+    }
     rng = random.SystemRandom()
     run_specs: list[tuple[int, Path, int]] = []
-    for idx, run_dir in enumerate(run_dirs):
-        csv_path = csv_paths[idx]
+    for idx in run_indices:
+        run_dir = run_dirs[idx]
+        csv_path = csv_paths_by_index[idx]
         needs_run = args.overwrite or not csv_path.exists()
         if needs_run:
             if not args.run_missing and not args.overwrite:
                 raise SystemExit(
                     f"missing run output: {csv_path}\n"
-                    f"Use --run-missing to launch the missing model runs."
+                    f"Rerun without --no-run-missing to auto-launch missing model runs."
                 )
             if args.seed_mode == "random":
                 seed = int(rng.randrange(1, RANDOM_SEED_MAX + 1))
@@ -394,7 +437,7 @@ def ensure_runs(args: argparse.Namespace) -> list[Path]:
                 print(
                     f"[sanity9_figure_extract] completed run {done}/{len(run_specs)} (run_{idx:02d})"
                 )
-    return [csv_paths_by_index[idx] for idx in range(args.runs)]
+    return [csv_paths_by_index[idx] for idx in run_indices]
 
 
 def load_run_timeseries(csv_path: Path) -> pd.DataFrame:
@@ -560,9 +603,9 @@ def export_figure(
     days = hours / 24.0
     _ = normalized_runs  # Kept for compatibility with previous call signature.
     legend_handles: list[object] = []
-    lw_curve = 1.7
-    lw_mineral = 1.95
-    band_alpha = 0.28
+    lw_curve = 1.10
+    lw_mineral = 1.25
+    band_alpha = 0.60
     endpoint_days = (10.0, 14.0, 28.0)
     for spec in COMPONENTS:
         stats = summary[spec["column"]]
@@ -725,7 +768,7 @@ def export_raw_variability_figure(
 
 def main() -> None:
     args = parse_args()
-    if args.runs <= 0:
+    if args.runs is not None and args.runs <= 0:
         raise SystemExit("--runs must be >= 1")
     if args.jobs <= 0:
         raise SystemExit("--jobs must be >= 1")

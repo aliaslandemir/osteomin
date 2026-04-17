@@ -1,7 +1,0 @@
-variant,condition,median,lower,upper,panel,band_type
-full_model,C2,1.0,1.0,1.0,fold_vs_ref,prediction
-full_model,C3,8.06480691235296,8.040043337169488,8.104164176612837,fold_vs_ref,prediction
-no_osteogenic_commitment,C2,1.0,1.0,1.0,fold_vs_ref,prediction
-no_osteogenic_commitment,C3,1.0,1.0,1.0,fold_vs_ref,prediction
-no_osteogenic_commitment,C2,0.26542413228802597,0.25908881775300757,0.2682676021562544,ratio_to_full,prediction
-no_osteogenic_commitment,C3,0.03291140571282279,0.03197006001543026,0.033366442286913406,ratio_to_full,prediction
