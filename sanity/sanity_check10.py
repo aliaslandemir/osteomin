@@ -60,6 +60,7 @@ TYPE_DYNAMICS = "3_cell_dynamics"
 TYPE_AA = "4_ascorbic_acid"
 TYPE_BOUNDARY = "5_boundary_scale"
 TYPE_SAMPLING = "6_sampling_time"
+ACTIVE_PERTURBATION_FAMILIES = (TYPE_SPATIAL, TYPE_CELLS, TYPE_DYNAMICS, TYPE_AA)
 FAMILY_LABELS = {
     TYPE_BASELINE: "Baseline",
     TYPE_SPATIAL: "Spatial pattern",
@@ -289,7 +290,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sheet", type=str, default="", help="Optional sheet for XLSX input")
     parser.add_argument("--analyze-only", action="store_true", help="Skip simulation and analyze an existing table")
     parser.add_argument("--sobol-problem", type=Path, default=DEFAULT_SOBOL_PROBLEM, help="Sobol problem JSON")
-    parser.add_argument("--conditions", type=int, default=301, help="Total number of conditions including the baseline condition")
+    parser.add_argument(
+        "--conditions",
+        type=int,
+        default=201,
+        help="Total number of conditions including the baseline condition",
+    )
     parser.add_argument("--replicates", type=int, default=10, help="Replicates per condition")
     parser.add_argument("--jobs", type=int, default=1, help="Parallel simulation workers")
     parser.add_argument("--sobol-seed", type=int, default=24680, help="Sobol scramble seed")
@@ -316,7 +322,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--family-col", type=str, default="")
     parser.add_argument("--spatial-col", type=str, default="spatial_class")
     parser.add_argument("--observables-only", action="store_true", help="Use only ALP/collagen/mineral for PCA and collapse metrics")
-    parser.add_argument("--figures", type=str, nargs="+", default=["all"], choices=("all", "composite", "collapse", "trajectory", "distance"), help="Select figure families to generate")
+    parser.add_argument(
+        "--figures",
+        type=str,
+        nargs="+",
+        default=["none"],
+        choices=("none", "all", "composite", "collapse", "trajectory", "distance"),
+        help="Select figure families to generate",
+    )
     parser.add_argument("--no-pca", action="store_true", help="Skip PCA outputs and PCA composite figure")
     parser.add_argument("--export-summary-json", action="store_true", help="Export analysis configuration summary JSON")
     parser.add_argument("--save-tag", type=str, default="", help="Optional suffix appended to output directory")
@@ -340,6 +353,8 @@ def parse_args() -> argparse.Namespace:
 
 def _normalize_figure_selection(figures: Iterable[str] | None) -> set[str]:
     selected = {str(f).strip().lower() for f in (figures or ["all"])}
+    if "none" in selected:
+        return set()
     if "all" in selected or not selected:
         return {"composite", "collapse", "trajectory", "distance"}
     return {f for f in selected if f in {"composite", "collapse", "trajectory", "distance"}}
@@ -479,13 +494,16 @@ def _blend_sample(value: float, lo: float, hi: float, baseline: float, *, focus_
 
 def _family_counts(total_conditions: int) -> dict[str, int]:
     budget = max(0, int(total_conditions) - 1)
-    families = [TYPE_SPATIAL, TYPE_CELLS, TYPE_DYNAMICS, TYPE_AA, TYPE_BOUNDARY, TYPE_SAMPLING]
-    if budget == 0:
-        return {family: 0 for family in families}
-    base = budget // len(families)
-    rem = budget % len(families)
-    counts = {family: base for family in families}
-    for family in families[:rem]:
+    all_families = [TYPE_SPATIAL, TYPE_CELLS, TYPE_DYNAMICS, TYPE_AA, TYPE_BOUNDARY, TYPE_SAMPLING]
+    active_families = list(ACTIVE_PERTURBATION_FAMILIES)
+    counts = {family: 0 for family in all_families}
+    if budget == 0 or not active_families:
+        return counts
+    base = budget // len(active_families)
+    rem = budget % len(active_families)
+    for family in active_families:
+        counts[family] = base
+    for family in active_families[:rem]:
         counts[family] += 1
     return counts
 

@@ -459,11 +459,12 @@ def _make_identifiability_summary_figure(raw: pd.DataFrame, args: argparse.Names
 
 
 def _make_confusion_abc_figure(raw: pd.DataFrame, args: argparse.Namespace) -> None:
-    cond_day = _prepare_analysis_raw(raw, args)
+    cond_day = _prepare_family_cond_day_full(raw, args)
     if cond_day.empty:
         return
-    day_order = [day for day in [10, 14, 28] if int(day) in set(cond_day["day"].astype(int).tolist())]
-    if not day_order:
+    panel_day_end_by_marker = {"ALP": 10, "collagen": 14, "mineral": 28}
+    available_days = set(cond_day["day"].astype(int).tolist())
+    if not any(any(0 <= int(d) <= end for d in available_days) for end in panel_day_end_by_marker.values()):
         return
 
     work = cond_day.copy()
@@ -483,13 +484,31 @@ def _make_confusion_abc_figure(raw: pd.DataFrame, args: argparse.Namespace) -> N
         getattr(sc10, "TYPE_AA", "4_ascorbic_acid"): "Ascorbic Acid",
     }
 
-    conf_by_marker: dict[str, pd.DataFrame] = {}
-    f1_by_marker: dict[str, float] = {}
-    long_rows: list[dict[str, float | int | str]] = []
     marker_order = ["ALP", "collagen", "mineral"]
-    for marker in marker_order:
+    panel_specs = [
+        {"letter": "A", "mode": "endpoint", "marker": "ALP", "title": "ALP @ Day 10"},
+        {"letter": "B", "mode": "endpoint", "marker": "collagen", "title": "Collagen @ Day 14"},
+        {"letter": "C", "mode": "endpoint", "marker": "mineral", "title": "Mineral @ Day 28"},
+        {"letter": "D", "mode": "trajectory", "marker": "ALP", "title": "ALP (Day 0-10)"},
+        {"letter": "E", "mode": "trajectory", "marker": "collagen", "title": "Collagen (Day 0-14)"},
+        {"letter": "F", "mode": "trajectory", "marker": "mineral", "title": "Mineral (Day 0-28)"},
+    ]
+
+    def _panel_days(mode: str, marker: str) -> list[int]:
+        end = int(panel_day_end_by_marker[marker])
+        if mode == "endpoint":
+            return [end] if end in available_days else []
+        return sorted(int(d) for d in available_days if 0 <= int(d) <= end)
+
+    def _compute_panel(mode: str, marker: str) -> tuple[pd.DataFrame, float, list[int]] | None:
+        days = _panel_days(mode, marker)
+        if not days:
+            return None
+        sub = work.loc[work["day"].astype(int).isin(days)].copy()
+        if sub.empty:
+            return None
         marker_df = (
-            work[["condition_id", "day", "perturbation_family", marker]]
+            sub[["condition_id", "day", "perturbation_family", marker]]
             .copy()
             .rename(columns={marker: "value"})
         )
@@ -500,25 +519,23 @@ def _make_confusion_abc_figure(raw: pd.DataFrame, args: argparse.Namespace) -> N
                 values="value",
                 aggfunc="mean",
             )
-            .reindex(columns=day_order)
+            .reindex(columns=days)
             .dropna(axis=0, how="any")
         )
         if pivot.empty:
-            continue
+            return None
         x_raw = pivot.to_numpy(dtype=float)
-        # Marker-specific trajectory standardization by day to avoid scale dominance.
+        # Standardize each time coordinate (or endpoint singleton) to avoid scale dominance.
         mu = np.nanmean(x_raw, axis=0)
         sd = np.nanstd(x_raw, axis=0)
         sd = np.where(sd > 1e-12, sd, 1.0)
         x = (x_raw - mu[None, :]) / sd[None, :]
         labels = pivot.index.get_level_values("perturbation_family").astype(str).to_numpy()
         if len(labels) < 3:
-            continue
-        d = np.linalg.norm(x[:, None, :] - x[None, :, :], axis=2)
-        np.fill_diagonal(d, np.inf)
-        nn_idx = np.argmin(d, axis=1)
-        pred = labels[nn_idx]
-        # Macro-F1 from hard nearest-neighbor family labels.
+            return None
+        dmat = np.linalg.norm(x[:, None, :] - x[None, :, :], axis=2)
+        np.fill_diagonal(dmat, np.inf)
+        pred = labels[np.argmin(dmat, axis=1)]
         true_s = pd.Series(labels, name="true")
         pred_s = pd.Series(pred, name="pred")
         cmat = pd.crosstab(true_s, pred_s).reindex(index=family_order, columns=family_order, fill_value=0)
@@ -529,40 +546,54 @@ def _make_confusion_abc_figure(raw: pd.DataFrame, args: argparse.Namespace) -> N
             fn = float(cmat.loc[fam].sum() - tp)
             denom = 2.0 * tp + fp + fn
             f1_vals.append((2.0 * tp / denom) if denom > 0.0 else 0.0)
-        f1_by_marker[str(marker)] = float(np.mean(f1_vals)) if f1_vals else float("nan")
-        conf = pd.crosstab(pd.Series(labels, name="true"), pd.Series(pred, name="pred"), normalize="index")
+        macro_f1 = float(np.mean(f1_vals)) if f1_vals else float("nan")
+        conf = pd.crosstab(true_s, pred_s, normalize="index")
         conf = conf.reindex(index=family_order, columns=family_order, fill_value=0.0)
-        conf_by_marker[str(marker)] = conf
+        return conf, macro_f1, days
+
+    conf_by_panel: dict[str, pd.DataFrame] = {}
+    f1_by_panel: dict[str, float] = {}
+    long_rows: list[dict[str, float | int | str]] = []
+    for panel in panel_specs:
+        key = str(panel["letter"])
+        mode = str(panel["mode"])
+        marker = str(panel["marker"])
+        result = _compute_panel(mode, marker)
+        if result is None:
+            continue
+        conf, macro_f1, days_used = result
+        conf_by_panel[key] = conf
+        f1_by_panel[key] = macro_f1
         for true_key in family_order:
             for pred_key in family_order:
                 long_rows.append(
                     {
-                        "marker": str(marker),
-                        "days_used": ",".join(str(int(dy)) for dy in day_order),
+                        "panel": key,
+                        "mode": mode,
+                        "marker": marker,
+                        "days_used": ",".join(str(int(dy)) for dy in days_used),
                         "true_family": str(true_key),
                         "pred_family": str(pred_key),
                         "fraction": float(conf.loc[true_key, pred_key]),
                     }
                 )
 
-    if not conf_by_marker:
+    if not conf_by_panel:
         return
+    pd.DataFrame(long_rows).to_csv(args.out / "ident_nn_confusion_endpoint_vs_trajectory.csv", index=False)
     pd.DataFrame(long_rows).to_csv(args.out / "ident_nn_confusion_day10_14_28_all3.csv", index=False)
 
-    fig, axes = plt.subplots(1, 3, figsize=(14.0, 5.1), constrained_layout=False)
-    fig.subplots_adjust(left=0.065, right=0.91, top=0.84, bottom=0.23, wspace=0.18)
+    fig, axes = plt.subplots(2, 3, figsize=(16.4, 10.0), constrained_layout=False)
+    fig.subplots_adjust(left=0.075, right=0.905, top=0.90, bottom=0.07, wspace=0.12, hspace=0.26)
     cmap = plt.get_cmap("Blues")
     norm = mcolors.Normalize(vmin=0.0, vmax=1.0)
-    panel_letters = ["A", "B", "C"]
-    panel_marker_label = {
-        "ALP": "Day 10 ALP",
-        "collagen": "Day 14 Collagen",
-        "mineral": "Day 28 Mineral",
-    }
     mappable = None
-    for i, marker in enumerate(marker_order):
-        ax = axes[i]
-        conf = conf_by_marker.get(str(marker))
+    for i, panel in enumerate(panel_specs):
+        row = i // 3
+        col = i % 3
+        ax = axes[row, col]
+        key = str(panel["letter"])
+        conf = conf_by_panel.get(key)
         if conf is None:
             ax.axis("off")
             continue
@@ -574,19 +605,22 @@ def _make_confusion_abc_figure(raw: pd.DataFrame, args: argparse.Namespace) -> N
         x_labels = [family_label[k].replace("Ascorbic Acid", "Ascorbic\nAcid") for k in family_order]
         y_labels = [family_label[k].replace("Ascorbic Acid", "Ascorbic\nAcid") for k in family_order]
         ax.set_xticklabels(x_labels, rotation=0, ha="center")
-        ax.set_yticklabels(y_labels if i == 0 else [])
-        if i == 0:
-            ax.set_ylabel("True family", fontsize=10.8)
-        ax.set_xlabel("Nearest-neighbor family", fontsize=10.8)
-        panel_title = panel_marker_label.get(str(marker), str(marker))
-        panel_f1 = f1_by_marker.get(str(marker), float("nan"))
+        ax.set_yticklabels(y_labels if col == 0 else [])
+        if col == 0:
+            ax.set_ylabel("True family", fontsize=11.0)
+        if row == 1:
+            ax.set_xlabel("Nearest-neighbor family", fontsize=11.0)
+        else:
+            ax.set_xlabel("")
+        panel_title = str(panel["title"])
+        panel_f1 = f1_by_panel.get(key, float("nan"))
         if np.isfinite(panel_f1):
             panel_title = f"{panel_title} (F1={panel_f1:.2f})"
-        ax.set_title(panel_title, fontsize=11.6, fontweight="semibold", pad=8)
+        ax.set_title(panel_title, fontsize=12.0, fontweight="semibold", pad=9)
         ax.text(
             -0.14,
             1.06,
-            panel_letters[i],
+            key,
             transform=ax.transAxes,
             fontsize=13.0,
             fontweight="bold",
@@ -594,7 +628,7 @@ def _make_confusion_abc_figure(raw: pd.DataFrame, args: argparse.Namespace) -> N
             va="bottom",
             color="#111111",
         )
-        ax.tick_params(axis="both", labelsize=9.3, length=3.0, width=0.8, color="#444444")
+        ax.tick_params(axis="both", labelsize=10.0, length=3.0, width=0.8, color="#444444")
         # Subtle cell boundaries for print legibility.
         ax.set_xticks(np.arange(-0.5, arr.shape[1], 1), minor=True)
         ax.set_yticks(np.arange(-0.5, arr.shape[0], 1), minor=True)
@@ -605,30 +639,36 @@ def _make_confusion_abc_figure(raw: pd.DataFrame, args: argparse.Namespace) -> N
                 v = float(arr[r, c])
                 txt = f"{100.0 * v:.0f}%"
                 color = "white" if v >= 0.55 else "#222222"
-                ax.text(c, r, txt, ha="center", va="center", fontsize=9.4, color=color)
+                ax.text(c, r, txt, ha="center", va="center", fontsize=10.2, color=color)
         for spine in ax.spines.values():
             spine.set_linewidth(0.8)
             spine.set_edgecolor("#c9cdd2")
         ax.set_aspect("equal")
 
     if mappable is not None:
-        cax = fig.add_axes([0.92, 0.22, 0.012, 0.56])
+        cax = fig.add_axes([0.918, 0.20, 0.0135, 0.62])
         cbar = fig.colorbar(mappable, cax=cax)
-        cbar.set_label("Row-normalized fraction", fontsize=10.5)
-        cbar.ax.tick_params(labelsize=8.8)
-    f1_vals = [f1_by_marker.get(m, float("nan")) for m in marker_order]
-    f1_vals = [float(v) for v in f1_vals if np.isfinite(float(v))]
-    if f1_vals:
+        cbar.set_label("Row-normalized fraction", fontsize=11.0)
+        cbar.ax.tick_params(labelsize=9.4)
+    endpoint_f1 = [f1_by_panel.get(k, float("nan")) for k in ("A", "B", "C")]
+    endpoint_f1 = [float(v) for v in endpoint_f1 if np.isfinite(float(v))]
+    trajectory_f1 = [f1_by_panel.get(k, float("nan")) for k in ("D", "E", "F")]
+    trajectory_f1 = [float(v) for v in trajectory_f1 if np.isfinite(float(v))]
+    if endpoint_f1 or trajectory_f1:
+        endpoint_txt = f"{float(np.mean(endpoint_f1)):.2f}" if endpoint_f1 else "NA"
+        trajectory_txt = f"{float(np.mean(trajectory_f1)):.2f}" if trajectory_f1 else "NA"
         fig.suptitle(
-            f"Family Confusion Matrices (Macro-F1={float(np.mean(f1_vals)):.2f})",
-            fontsize=13.8,
-            y=0.965,
+            f"Family Confusion Matrices: Endpoint vs Trajectory (Macro-F1 endpoint={endpoint_txt}, trajectory={trajectory_txt})",
+            fontsize=16.0,
+            y=0.97,
             fontweight="semibold",
         )
     else:
-        fig.suptitle("Family Confusion Matrices", fontsize=13.8, y=0.965, fontweight="semibold")
+        fig.suptitle("Family Confusion Matrices: Endpoint vs Trajectory", fontsize=16.0, y=0.97, fontweight="semibold")
     fig.savefig(args.out / "sanity10_family_confusion_abc.png", dpi=args.dpi, bbox_inches="tight")
     fig.savefig(args.out / "sanity10_family_confusion_abc.pdf", dpi=args.dpi, bbox_inches="tight")
+    fig.savefig(args.out / "sanity10_family_confusion_abcdef.png", dpi=args.dpi, bbox_inches="tight")
+    fig.savefig(args.out / "sanity10_family_confusion_abcdef.pdf", dpi=args.dpi, bbox_inches="tight")
     plt.close(fig)
 
 
