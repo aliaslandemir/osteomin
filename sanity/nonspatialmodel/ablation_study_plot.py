@@ -8,7 +8,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from matplotlib.colors import LinearSegmentedColormap, ListedColormap
+from matplotlib.colors import LinearSegmentedColormap, ListedColormap, TwoSlopeNorm
 from matplotlib.patches import Rectangle
 from scipy.stats import mannwhitneyu
 
@@ -176,6 +176,8 @@ def _build_comparison_table(df_raw: pd.DataFrame) -> pd.DataFrame:
                 log2s.append(float("nan"))
             else:
                 ratio = float(val / ref_val)
+                if ratio < 0.0:
+                    ratio = float("nan")
                 ratios.append(ratio)
                 log2s.append(float(np.log2(max(ratio, 1e-12))))
         agg[ratio_col] = ratios
@@ -204,12 +206,9 @@ def plot_heatmap(
     sig_df: pd.DataFrame | None = None,
 ) -> None:
     def fold_label(ratio: float) -> str:
-        if not np.isfinite(ratio):
+        if (not np.isfinite(ratio)) or ratio < 0.0:
             return "N/A"
-        if abs(ratio - 1.0) < 0.005:
-            return "1.00x"
-        sign = "+" if ratio > 1.0 else "-"
-        return f"{sign}{ratio:.2f}x"
+        return f"{ratio:.2f}×"
 
     cmap = LinearSegmentedColormap.from_list("plos_cb_clean", ["#4C72B0", "#F7F7F7", "#C44E52"], N=256)
     row_order = df_cmp["variant"].tolist()
@@ -220,12 +219,13 @@ def plot_heatmap(
 
     for i, var in enumerate(row_order):
         for j, c in enumerate(METRIC_COLS):
-            log2fc = df_cmp.loc[df_cmp["variant"] == var, f"{c}_log2fc"]
             ratio = df_cmp.loc[df_cmp["variant"] == var, f"{c}_ratio"]
-            if log2fc.empty or ratio.empty:
+            if ratio.empty:
                 continue
-            mat[i, j] = float(log2fc.iloc[0]) if pd.notna(log2fc.iloc[0]) else float("nan")
-            annot[i][j] = fold_label(float(ratio.iloc[0]))
+            ratio_val = float(ratio.iloc[0]) if pd.notna(ratio.iloc[0]) else float("nan")
+            if np.isfinite(ratio_val) and ratio_val >= 0.0:
+                mat[i, j] = ratio_val
+            annot[i][j] = fold_label(ratio_val)
 
     star_map: dict[tuple[str, str], str] = {}
     if isinstance(sig_df, pd.DataFrame) and not sig_df.empty:
@@ -236,9 +236,22 @@ def plot_heatmap(
             if v and m and s:
                 star_map[(v, m)] = s
 
-    finite_abs = np.abs(mat[np.isfinite(mat)])
-    vmax = max(0.5, float(np.percentile(finite_abs, 92))) if finite_abs.size else 1.0
-    vmax = min(vmax, 6.0)
+    finite_vals = mat[np.isfinite(mat)]
+    finite_vals = finite_vals[finite_vals >= 0.0]
+    if finite_vals.size:
+        lo = float(np.percentile(finite_vals, 8))
+        hi = float(np.percentile(finite_vals, 92))
+        vmin = min(1.0, lo)
+        vmax = max(1.0, hi)
+    else:
+        vmin = 0.8
+        vmax = 1.2
+    vmin = max(0.0, vmin)
+    if not (vmin < 1.0):
+        vmin = 0.8
+    if not (vmax > 1.0):
+        vmax = 1.2
+    norm = TwoSlopeNorm(vmin=vmin, vcenter=1.0, vmax=vmax)
     cmap = cmap.copy()
     cmap.set_bad("#EEF2F7")
 
@@ -249,7 +262,7 @@ def plot_heatmap(
     fig.subplots_adjust(left=left_margin, right=0.88, top=0.84, bottom=0.10)
     ax.set_facecolor("#F8FAFC")
 
-    im = ax.imshow(np.ma.masked_invalid(mat), cmap=cmap, vmin=-vmax, vmax=vmax, aspect="auto")
+    im = ax.imshow(np.ma.masked_invalid(mat), cmap=cmap, norm=norm, aspect="auto")
 
     ax.set_xticks(np.arange(len(METRIC_LABELS)), METRIC_LABELS)
     ax.set_yticks(np.arange(len(row_labels)), row_labels)
@@ -294,14 +307,15 @@ def plot_heatmap(
                 color = "#4B5563"
                 weight = "normal"
             else:
-                color = "white" if np.isfinite(v) and abs(v) > 0.45 * vmax else "black"
+                norm_v = norm(v) if np.isfinite(v) else 0.5
+                color = "white" if (np.isfinite(v) and (norm_v < 0.28 or norm_v > 0.72)) else "black"
                 weight = "semibold"
             ax.text(j, i, txt, ha="center", va="center", color=color, fontsize=10.1, fontweight=weight, zorder=6)
 
     ax.axvline(2.5, color="#B8C1CC", lw=1.0)
     cbar = fig.colorbar(im, ax=ax, fraction=0.050, pad=0.02)
     cbar.ax.tick_params(labelsize=10)
-    cbar.set_label("log2 fold-change vs spatial reference", fontsize=10.0, labelpad=6)
+    cbar.set_label("Fold change vs spatial reference (×)", fontsize=10.0, labelpad=6)
 
     fig.suptitle("Ablation Effects Relative to Spatial Model", y=0.965, fontsize=13.2, fontweight="semibold")
 
@@ -418,7 +432,7 @@ def _write_publication_legend(
         Replicates per ablation case: n={n_runs}
 
         Panel A (ablation_heatmap_relative_change): Median endpoint fold-change relative to the full spatial model.
-        Values are shown as log2 fold-change in color and fold-change text in each cell.
+        Values are shown as fold-change in color and fold-change text in each cell.
         Asterisks denote FDR-adjusted significance (Benjamini-Hochberg q<0.05) from two-sided Mann-Whitney U tests versus full spatial model.
 
         Panel B (dose_response_robustness): Mineral day-28 dose-response robustness for C2 and C3 across selected spatial variants.
