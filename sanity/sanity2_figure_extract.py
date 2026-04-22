@@ -433,6 +433,9 @@ def prep_summary(summary: pd.DataFrame, domain_area_mm2: float) -> pd.DataFrame:
         denom = max(float(base[mean_src]), 1e-12)
         df[pct_dest] = 100.0 * (df[mean_src] - float(base[mean_src])) / denom
         df[sd_dest] = 100.0 * df[sd_src].astype(float) / denom
+    xi_denom = max(float(base["spatial_autocorr_xi_mean"]), 1e-12)
+    df["spatial_autocorr_xi_pct"] = 100.0 * (df["spatial_autocorr_xi_mean"].astype(float) - float(base["spatial_autocorr_xi_mean"])) / xi_denom
+    df["spatial_autocorr_xi_pct_sd"] = 100.0 * df["spatial_autocorr_xi_sd"].astype(float) / xi_denom
     area = float(domain_area_mm2)
     if area <= 0.0:
         raise SystemExit(f"--domain-area-mm2 must be > 0 (got {area})")
@@ -603,18 +606,12 @@ def export_ecm_overview_heatmap(
     geometry_mode: str = "classic",
 ) -> None:
     ordered = reorder_rows(df, "final_ha_pct")
-    value_cols = [
-        "assay_alp_pct",
-        "assay_collagen_pct",
-        "assay_ha_pct",
-        "final_ha_pct",
-        "final_collagen_pct",
-        "final_live_pct",
-    ]
+    value_cols = ["assay_alp_pct", "assay_collagen_pct", "assay_ha_pct", "spatial_autocorr_xi_pct"]
     value_sd_cols = [
         "assay_alp_pct_sd",
         "assay_collagen_pct_sd",
         "assay_ha_pct_sd",
+        "spatial_autocorr_xi_pct_sd",
     ]
     value_labels = [
         f"ALP {assay_hours['alp']} h",
@@ -622,7 +619,7 @@ def export_ecm_overview_heatmap(
         f"Mineral {assay_hours['ha']} h",
         "Autocorrelation",
     ]
-    values = ordered[value_cols[:3]].to_numpy(dtype=float)
+    values = ordered[value_cols].to_numpy(dtype=float)
     values_sd = ordered[value_sd_cols].to_numpy(dtype=float)
     vmax = max(2.0, float(np.max(np.abs(values))))
     cmap = response_cmap()
@@ -637,21 +634,7 @@ def export_ecm_overview_heatmap(
         cmap=cmap,
         vmin=-vmax,
         vmax=vmax,
-        extent=(-0.5, 2.5, len(ordered) - 0.5, -0.5),
-    )
-    geo_cols = ["spatial_autocorr_xi_mean"]
-    geo_sd_cols = ["spatial_autocorr_xi_sd"]
-    geo = ordered[geo_cols].to_numpy(dtype=float)
-    geo_sd = ordered[geo_sd_cols].to_numpy(dtype=float)
-    geo_bg = np.zeros_like(geo, dtype=float)
-    neutral_cmap = LinearSegmentedColormap.from_list("geo_plain", ["#f2f2f2", "#f2f2f2"])
-    ax_main.imshow(
-        geo_bg,
-        aspect="auto",
-        cmap=neutral_cmap,
-        vmin=0.0,
-        vmax=1.0,
-        extent=(2.5, 3.5, len(ordered) - 0.5, -0.5),
+        extent=(-0.5, 3.5, len(ordered) - 0.5, -0.5),
     )
 
     ax_main.set_xlim(-0.5, 3.5)
@@ -672,16 +655,6 @@ def export_ecm_overview_heatmap(
                 fontsize=10.6 * fs_scale * value_text_scale,
                 color=COLORS["ink"],
             )
-    for i in range(geo.shape[0]):
-        ax_main.text(
-            3,
-            i,
-            f"{geo[i, 0]:.3f} ± {geo_sd[i, 0]:.3f}",
-            ha="center",
-            va="center",
-            fontsize=10.4 * fs_scale * value_text_scale,
-            color=COLORS["ink"],
-        )
 
     control_row = int(np.where(ordered["condition_index"].to_numpy() == 1)[0][0])
     ax_main.axhline(control_row - 0.5, color=COLORS["control"], lw=1.2)
