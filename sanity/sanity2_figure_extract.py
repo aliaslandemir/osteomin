@@ -122,10 +122,10 @@ def load_inputs(input_dir: Path) -> tuple[pd.DataFrame, dict]:
     return replicate_df, manifest
 
 
-def save_figure(fig: plt.Figure, out_dir: Path, stem: str) -> None:
+def save_figure(fig: plt.Figure, out_dir: Path, stem: str, pad_inches: float = 0.12) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out_dir / f"{stem}.png", dpi=320, bbox_inches="tight", pad_inches=0.12)
-    fig.savefig(out_dir / f"{stem}.pdf", dpi=320, bbox_inches="tight", pad_inches=0.12)
+    fig.savefig(out_dir / f"{stem}.png", dpi=320, bbox_inches="tight", pad_inches=pad_inches)
+    fig.savefig(out_dir / f"{stem}.pdf", dpi=320, bbox_inches="tight", pad_inches=pad_inches)
     plt.close(fig)
 
 
@@ -606,27 +606,33 @@ def export_ecm_overview_heatmap(
     geometry_mode: str = "classic",
 ) -> None:
     ordered = reorder_rows(df, "final_ha_pct")
-    value_cols = ["assay_alp_pct", "assay_collagen_pct", "assay_ha_pct", "spatial_autocorr_xi_pct"]
+    value_cols = ["assay_alp_pct", "assay_collagen_pct", "assay_ha_pct"]
     value_sd_cols = [
         "assay_alp_pct_sd",
         "assay_collagen_pct_sd",
         "assay_ha_pct_sd",
-        "spatial_autocorr_xi_pct_sd",
     ]
     value_labels = [
         f"ALP {assay_hours['alp']} h",
         f"Collagen {assay_hours['collagen']} h",
         f"Mineral {assay_hours['ha']} h",
-        "Autocorrelation",
     ]
+    auto_col = "spatial_autocorr_xi_mean"
+    auto_sd_col = "spatial_autocorr_xi_sd"
     values = ordered[value_cols].to_numpy(dtype=float)
     values_sd = ordered[value_sd_cols].to_numpy(dtype=float)
+    auto_values = ordered[auto_col].to_numpy(dtype=float)
+    auto_values_sd = ordered[auto_sd_col].to_numpy(dtype=float)
     vmax = max(2.0, float(np.max(np.abs(values))))
     cmap = response_cmap()
-    fs_scale = 1.2
-    value_text_scale = 1.2
+    fs_scale = 1.3
+    value_text_scale = 1.35
 
-    fig, ax_main = plt.subplots(figsize=(13.8, 12.4))
+    fig = plt.figure(figsize=(13.4, 12.0))
+    gs = gridspec.GridSpec(1, 4, width_ratios=[0.14, 0.22, 3.65, 0.95], wspace=0.02)
+    cax = fig.add_subplot(gs[0, 0])
+    ax_main = fig.add_subplot(gs[0, 2])
+    ax_auto = fig.add_subplot(gs[0, 3], sharey=ax_main)
 
     im = ax_main.imshow(
         values,
@@ -634,10 +640,10 @@ def export_ecm_overview_heatmap(
         cmap=cmap,
         vmin=-vmax,
         vmax=vmax,
-        extent=(-0.5, 3.5, len(ordered) - 0.5, -0.5),
+        extent=(-0.5, 2.5, len(ordered) - 0.5, -0.5),
     )
 
-    ax_main.set_xlim(-0.5, 3.5)
+    ax_main.set_xlim(-0.5, 2.5)
     ax_main.set_xticks(np.arange(len(value_labels)), value_labels, rotation=0, ha="center")
     ax_main.set_yticks(np.arange(len(ordered)), ordered["condition_label"])
     ax_main.tick_params(axis="x", labelsize=15.5 * fs_scale)
@@ -656,16 +662,47 @@ def export_ecm_overview_heatmap(
                 color=COLORS["ink"],
             )
 
+    ax_auto.set_xlim(0.0, 1.0)
+    ax_auto.set_ylim(len(ordered) - 0.5, -0.5)
+    ax_auto.set_xticks([])
+    ax_auto.set_yticks(np.arange(len(ordered)))
+    ax_auto.tick_params(axis="x", length=0)
+    ax_auto.tick_params(axis="y", left=False, labelleft=False)
+    ax_auto.set_facecolor("white")
+    ax_auto.set_title("Autocorr. (xi)", fontsize=15.5 * fs_scale, pad=10)
+    for spine in ax_auto.spines.values():
+        spine.set_visible(False)
+    for i in range(len(ordered)):
+        ax_auto.text(
+            0.98,
+            i,
+            f"{auto_values[i]:.3f} ± {auto_values_sd[i]:.3f}",
+            ha="right",
+            va="center",
+            fontsize=10.6 * fs_scale * value_text_scale,
+            color=COLORS["ink"],
+            zorder=2,
+        )
+
     control_row = int(np.where(ordered["condition_index"].to_numpy() == 1)[0][0])
     ax_main.axhline(control_row - 0.5, color=COLORS["control"], lw=1.2)
     ax_main.axhline(control_row + 0.5, color=COLORS["control"], lw=1.2)
+    ax_auto.axhline(control_row - 0.5, color=COLORS["control"], lw=1.2)
+    ax_auto.axhline(control_row + 0.5, color=COLORS["control"], lw=1.2)
 
     fig.suptitle("Relative endpoint response heatmap", fontsize=25.0, fontweight="semibold", y=0.968)
-    cbar = fig.colorbar(im, ax=ax_main, fraction=0.028, pad=0.016)
+    cbar = fig.colorbar(im, cax=cax)
     cbar.set_label("% difference vs C01", fontsize=14.0 * fs_scale)
+    cbar.ax.yaxis.set_ticks_position("left")
+    cbar.ax.yaxis.set_label_position("left")
     cbar.ax.tick_params(labelsize=13.0 * fs_scale)
-    fig.subplots_adjust(top=0.93, right=0.95, bottom=0.18, left=0.12)
-    save_figure(fig, out_dir, "figure_3_ecm_overview_heatmap")
+    fig.subplots_adjust(top=0.935, right=0.992, bottom=0.16, left=0.045)
+    # Keep colorbar slightly shorter to avoid crowding with title and x labels.
+    cax_pos = cax.get_position()
+    cax_new_h = cax_pos.height * 0.95
+    cax_new_y = cax_pos.y0 + (cax_pos.height - cax_new_h) * 0.5
+    cax.set_position([cax_pos.x0 + cax_pos.width * 0.18, cax_new_y, cax_pos.width * 0.92, cax_new_h])
+    save_figure(fig, out_dir, "figure_3_ecm_overview_heatmap", pad_inches=0.02)
 
 
 def export_ecm_fingerprint(df: pd.DataFrame, replicate_df: pd.DataFrame | None, out_dir: Path, assay_hours: dict[str, int]) -> None:
