@@ -143,3 +143,10 @@ python3 sanity/sanity_check1.py
 - `endpointaad/` contains endpoint-focused pipelines for ALP, collagen, ARS, DAPI, and overlay analyses.
 
 These modules are separate from runtime simulation execution and support model calibration and experimental comparison workflows.
+
+# Preprint:
+https://www.biorxiv.org/content/10.64898/2026.04.23.720356v1
+
+
+# Experimental Data:
+https://doi.org/10.18710/FWDTNY
