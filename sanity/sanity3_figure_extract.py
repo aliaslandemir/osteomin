@@ -764,6 +764,92 @@ def export_dose_response_ranges(df: pd.DataFrame, out_dir: Path, assay_hours: di
     save_figure(fig, out_dir, "figure_7_dose_response_ranges")
 
 
+def export_mineralization_dose_plots(df: pd.DataFrame, out_dir: Path, assay_hours: dict[str, int]) -> None:
+    dose_df = (
+        df[["condition_index", "dex_conc_nM", "mk4_conc_uM", "assay_ha_log2fc_vs_control"]]
+        .dropna(subset=["assay_ha_log2fc_vs_control"])
+        .copy()
+    )
+    dose_df = dose_df[
+        (dose_df["dex_conc_nM"] >= 0.0)
+        & (dose_df["dex_conc_nM"] <= 100.0)
+        & (dose_df["mk4_conc_uM"] >= 0.0)
+        & (dose_df["mk4_conc_uM"] <= 10.0)
+    ].copy()
+    if dose_df.empty:
+        return
+
+    dex_vals = np.sort(dose_df["dex_conc_nM"].unique())
+    mk4_vals = np.sort(dose_df["mk4_conc_uM"].unique())
+    grid = (
+        dose_df.pivot(index="mk4_conc_uM", columns="dex_conc_nM", values="assay_ha_log2fc_vs_control")
+        .reindex(index=mk4_vals, columns=dex_vals)
+        .to_numpy(dtype=float)
+    )
+    masked_grid = np.ma.array(grid, mask=~np.isfinite(grid))
+    finite_vals = masked_grid.compressed()
+    if finite_vals.size == 0:
+        return
+    vmax = max(0.25, float(np.max(np.abs(finite_vals))))
+    norm = TwoSlopeNorm(vmin=-vmax, vcenter=0.0, vmax=vmax)
+
+    # Figure 8A: mineralization dose map on explicit X/Y dose axes.
+    fig, ax = plt.subplots(figsize=(8.8, 6.8))
+    im = ax.imshow(
+        masked_grid,
+        origin="lower",
+        aspect="auto",
+        cmap="viridis",
+        norm=norm,
+    )
+    ax.set_xticks(np.arange(len(dex_vals)), [f"{v:.4g}" for v in dex_vals])
+    ax.set_yticks(np.arange(len(mk4_vals)), [f"{v:.4g}" for v in mk4_vals])
+    ax.set_xlabel("Dex concentration (nM)")
+    ax.set_ylabel("MK-4 concentration (uM)")
+    ax.set_title(f"Mineralization log2FC dose map ({assay_hours['ha']} h HAp)", pad=12)
+    ax.set_xlim(-0.5, len(dex_vals) - 0.5)
+    ax.set_ylim(-0.5, len(mk4_vals) - 0.5)
+    style_axes(ax, "both")
+    cbar = fig.colorbar(im, ax=ax, fraction=0.045, pad=0.03)
+    cbar.set_label("Mineralization response (log2FC vs control)")
+    save_figure(fig, out_dir, "figure_8_mineralization_dose_xy")
+
+    # Figure 8B: contour map with 20 highlighted points for readability.
+    x = dose_df["dex_conc_nM"].to_numpy(dtype=float)
+    y = dose_df["mk4_conc_uM"].to_numpy(dtype=float)
+    z = dose_df["assay_ha_log2fc_vs_control"].to_numpy(dtype=float)
+    order = np.lexsort((dose_df["mk4_conc_uM"].to_numpy(dtype=float), dose_df["dex_conc_nM"].to_numpy(dtype=float)))
+    x_sorted = x[order]
+    y_sorted = y[order]
+    z_sorted = z[order]
+    points_n = min(20, len(z_sorted))
+    mark_idx = np.linspace(0, len(z_sorted) - 1, num=points_n, dtype=int)
+
+    fig, ax = plt.subplots(figsize=(8.8, 6.8))
+    tric = ax.tricontourf(x_sorted, y_sorted, z_sorted, levels=14, cmap="viridis", norm=norm)
+    ax.tricontour(x_sorted, y_sorted, z_sorted, levels=8, colors="#334155", linewidths=0.8, alpha=0.65)
+    ax.scatter(
+        x_sorted[mark_idx],
+        y_sorted[mark_idx],
+        s=50,
+        c="white",
+        edgecolors="#0f172a",
+        linewidths=0.9,
+        zorder=3,
+    )
+    style_axes(ax, "both")
+    ax.set_xticks(dex_vals, [f"{v:.4g}" for v in dex_vals])
+    ax.set_yticks(mk4_vals, [f"{v:.4g}" for v in mk4_vals])
+    ax.set_xlim(0.0, 100.0)
+    ax.set_ylim(0.0, 10.0)
+    ax.set_xlabel("Dex concentration (nM)")
+    ax.set_ylabel("MK-4 concentration (uM)")
+    ax.set_title("Mineralization contour with 20 marked dose points", pad=12)
+    cbar = fig.colorbar(tric, ax=ax, fraction=0.045, pad=0.03)
+    cbar.set_label("Mineralization response (log2FC vs control)")
+    save_figure(fig, out_dir, "figure_8_mineralization_contour_20pts")
+
+
 def write_tables(df: pd.DataFrame, out_dir: Path) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     df.to_csv(out_dir / "condition_summary.csv", index=False)
@@ -801,6 +887,7 @@ def main() -> None:
     export_geometry_reference(df, out_dir)
     export_hap_pairwise_heatmap(df, out_dir)
     export_dose_response_ranges(df, out_dir, assay_hours)
+    export_mineralization_dose_plots(df, out_dir, assay_hours)
 
     print(f"[sanity3_figure_extract] processed {len(df)} conditions")
     print(f"[sanity3_figure_extract] figures written to {out_dir}")

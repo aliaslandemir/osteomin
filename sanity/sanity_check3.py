@@ -18,36 +18,14 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent
 BASE_OUT = SCRIPT_DIR / "out" / "sanity_check3"
-TOTAL_CONDITIONS = 20
 DEFAULT_REPLICATES = 5
 BASE_SEED = 12345
-DOSE_MATRIX = [
-    (0.0, 0.0),
-    # MK-4 0.1 uM branch across Dex (nM)
-    (0.1, 1.0),
-    (0.1, 3.0),
-    (0.1, 10.0),
-    (0.1, 30.0),
-    # MK-4 0.3 uM branch across Dex (nM)
-    (0.3, 1.0),
-    (0.3, 3.0),
-    (0.3, 10.0),
-    (0.3, 30.0),
-    # MK-4 1.0 uM branch across Dex (nM)
-    (1.0, 1.0),
-    (1.0, 3.0),
-    (1.0, 10.0),
-    (1.0, 30.0),
-    # MK-4 3.0 uM branch across Dex (nM)
-    (3.0, 1.0),
-    (3.0, 3.0),
-    (3.0, 10.0),
-    (3.0, 30.0),
-    # MK-4 10 uM branch across Dex (nM)
-    (10.0, 1.0),
-    (10.0, 3.0),
-    (10.0, 10.0),
-]
+
+# Hybrid near-linear grids: denser practical coverage across mid/high doses.
+DEX_GRID_NM = [0.0, 1.0, 5.0, 10.0, 20.0, 30.0, 40.0, 60.0, 80.0, 100.0]
+MK4_GRID_UM = [0.0, 0.1, 0.3, 0.5, 1.0, 2.0, 3.0, 5.0, 7.0, 10.0]
+DOSE_MATRIX = [(float(mk4), float(dex)) for mk4 in MK4_GRID_UM for dex in DEX_GRID_NM]
+TOTAL_CONDITIONS = len(DOSE_MATRIX)
 
 BASE_ARGS = [
     str(PROJECT_ROOT / "main.py"),
