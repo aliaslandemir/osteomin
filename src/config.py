@@ -1,7 +1,10 @@
 from __future__ import annotations
 from dataclasses import dataclass
 
-__all__ = ["ABMConfig", "FieldConfig"]
+__all__ = ["ABMConfig", "FieldConfig", "HA_INITIAL_BASELINE"]
+
+
+HA_INITIAL_BASELINE = 2.0
 
 
 @dataclass(slots=True)
@@ -69,7 +72,7 @@ class FieldConfig:
     aa_half_life_hours: float = 6.0
     collagen_aa_half_sat: float = 1.0
     ha_model: str = "ha"
-    ha_initial: float = 2.34
+    ha_initial: float = HA_INITIAL_BASELINE
     ha_osteo_rate: float = 0.102
     ha_dex_ref_conc: float = 67.7871
     ha_mk4_ref_conc: float = 0.669239

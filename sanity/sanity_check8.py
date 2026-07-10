@@ -1,4 +1,21 @@
 #!/usr/bin/env python3
+
+"""
+
+python3 /home/alia/projects/osteomin/sanity/sanity_check8.py \
+  --out /home/alia/projects/osteomin/sanity/nonspatialmodel/ablation_out/newmodel \
+  --spatial-out /home/alia/projects/osteomin/main_out \
+  --replicates 10 \
+  --seed 42 \
+  --param-cv 0.10 \
+  --jobs 8 \
+  --overwrite \
+  --runtime
+
+"""
+
+
+
 from __future__ import annotations
 
 import argparse

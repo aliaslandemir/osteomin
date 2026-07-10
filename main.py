@@ -99,7 +99,7 @@ from typing import Iterable
 import numpy as np
 
 from src.model import OsteoModel
-from src.config import FieldConfig, ABMConfig
+from src.config import FieldConfig, ABMConfig, HA_INITIAL_BASELINE
 from src.time_utils import HOURS_PER_DAY
 from src.viz import plot_summary, export_overlay_collagen_ha, export_alp_field_snapshot
 
@@ -513,7 +513,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--ha-h0",
         type=float,
-        default=2.34,
+        default=HA_INITIAL_BASELINE,
         help="initial mineral field baseline H0 applied at simulation start",
     )
     p.add_argument(

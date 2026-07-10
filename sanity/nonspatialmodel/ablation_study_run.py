@@ -342,7 +342,8 @@ def simulate_baseline(cfg: NonSpatialParams) -> pd.DataFrame:
             if base_rate > 0.0:
                 gate_col = collagen_mat / (max(1e-9, cfg.ha_collagen_half_sat) + collagen_mat)
                 tau_n = max(1e-9, cfg.ha_tau_hours) ** hill_n
-                t_eff_n = max(0.0, ob_age_n_sum / n_ob) if n_ob > 1e-12 else 0.0
+                t_eff = max(0.0, ob_age_n_sum / n_ob) if n_ob > 1e-12 else 0.0
+                t_eff_n = t_eff ** hill_n
                 hill_gate = t_eff_n / (tau_n + t_eff_n)
                 hap += base_rate * gate_col * hill_gate * n_ob
 

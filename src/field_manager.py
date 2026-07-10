@@ -3,6 +3,7 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
+from .config import HA_INITIAL_BASELINE
 from .modulatoreff import endpoint_drug_factors
 
 __all__ = ["FieldManager"]
@@ -48,7 +49,7 @@ class FieldManager:
         aa_half_life_hours: float = 6.0,
         collagen_aa_half_sat: float = 1.0,
         ha_model: str = "ha",
-        ha_initial: float = 2.34,
+        ha_initial: float = HA_INITIAL_BASELINE,
         ha_osteo_rate: float = 0.102,
         ha_dex_ref_conc: float = 67.7871,
         ha_mk4_ref_conc: float = 0.669239,
