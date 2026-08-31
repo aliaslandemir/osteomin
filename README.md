@@ -41,7 +41,7 @@ The model is intended for comparative in silico experiments under controlled pro
 ## Installation
 
 ```bash
-python3 -m venv .venv
+python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
@@ -134,7 +134,7 @@ A run writes to `--out` (default `main_out/`). Core artifacts include:
 To verify that major model pathways remain stable after changes:
 
 ```bash
-python3 sanity/sanity_check1.py
+python sanity/sanity_check1.py
 ```
 
 ## Parameter fitting and endpoint analysis
@@ -144,8 +144,8 @@ python3 sanity/sanity_check1.py
 
 These modules are separate from runtime simulation execution and support model calibration and experimental comparison workflows.
 
-# Preprint:
-https://www.biorxiv.org/content/10.64898/2026.04.23.720356v1
+# Publication:
+https://doi.org/10.3389/fsysb.2026.1872774
 
 
 # Experimental Data:
