@@ -1,22 +1,31 @@
 # OsteoMin
 
-OsteoMin is a 2D lattice-based simulator for osteogenic culture dynamics. It couples an on-lattice agent-based model (ABM) of cell behavior with field-level accumulation of ALP, collagen, and hydroxyapatite-like mineral output.
+OsteoMin is a Python cellular automaton model of osteogenic differentiation
+and mineralization in cell culture. It simulates how pre-osteoblasts move,
+divide, and differentiate into osteoblasts on a 2D grid. At hourly intervals,
+the model tracks alkaline phosphatase (ALP), collagen deposition, and
+hydroxyapatite-like mineral accumulation.
 
-The repository is designed for three complementary tasks:
+- [Paper — A cellular automaton model of osteogenic differentiation reveals identifiability limits of endpoint assays](https://doi.org/10.3389/fsysb.2026.1872774)
+- [Experimental data — DataverseNO](https://doi.org/10.18710/FWDTNY)
+- [Simulation code — `main.py`](./main.py) · [Model source — `src/`](./src/)
 
-- running osteogenic simulations (`main.py`)
-- analyzing endpoint assay datasets (`endpointaad/`)
-- fitting model parameters and dose-response terms (`parameterfit/`)
+## What the study found
 
-## Scientific scope
+Different simulated trajectories of osteogenic differentiation and matrix
+accumulation can produce similar measurements at the assay endpoints.
+This limits what endpoint ALP, collagen, and mineralization measurements
+can tell us about when the underlying processes occurred.
 
-OsteoMin represents osteogenic progression at hourly resolution on a fixed lattice.
+## What you can do with this repository
 
-- Cell dynamics: pre-osteoblast seeding, motility, proliferation, commitment to osteoblast state, and apoptosis.
-- Matrix dynamics: ALP and collagen deposition plus mineral accumulation through the HA model.
-- Environmental control: osteogenic induction timing, media refresh interval, ascorbic acid (AA) decay, and endpoint-specific Dex/MK-4 modulation.
+- Run and compare simulated osteogenic culture protocols with `main.py`.
+- Analyze ALP, collagen, Alizarin Red S (ARS), and DAPI data with `endpointaad/`.
+- Fit model parameters and dose–response terms with `parameterfit/`.
 
-The model is intended for comparative in silico experiments under controlled protocol-like conditions rather than direct patient-level prediction.
+The model lets you vary the timing of osteogenic induction and medium
+changes, ascorbic acid decay, and the effects of dexamethasone (Dex) and
+menaquinone-4 (MK-4) on individual assay readouts.
 
 ## Repository layout
 
@@ -144,9 +153,4 @@ python sanity/sanity_check1.py
 
 These modules are separate from runtime simulation execution and support model calibration and experimental comparison workflows.
 
-# Publication:
-https://doi.org/10.3389/fsysb.2026.1872774
 
-
-# Experimental Data:
-https://doi.org/10.18710/FWDTNY
